@@ -1,3 +1,6 @@
+using SemanticFold.Models;
+using SemanticFold.Models.Content;
+
 namespace SemanticFold.Tests.Models;
 
 public sealed class ContentBlockTests

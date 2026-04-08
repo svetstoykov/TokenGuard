@@ -1,3 +1,7 @@
+using SemanticFold.Models;
+using SemanticFold.Models.Content;
+using SemanticFold.Models.Messages;
+
 namespace SemanticFold.Tests.Models;
 
 public sealed class MessageTests

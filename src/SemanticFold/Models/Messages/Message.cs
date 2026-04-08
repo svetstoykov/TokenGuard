@@ -1,11 +1,13 @@
-namespace SemanticFold;
+using SemanticFold.Models.Content;
+
+namespace SemanticFold.Models.Messages;
 
 /// <summary>
 /// The immutable unit of conversation history.
 /// </summary>
 public sealed record Message
 {
-    private IReadOnlyList<ContentBlock> content = Array.Empty<ContentBlock>();
+    private readonly IReadOnlyList<ContentBlock> _content = [];
 
     /// <summary>
     /// Gets the role that produced this message.
@@ -19,17 +21,17 @@ public sealed record Message
     /// <exception cref="ArgumentNullException">Thrown when the assigned value is null.</exception>
     public required IReadOnlyList<ContentBlock> Content
     {
-        get => this.content;
+        get => this._content;
         init
         {
             ArgumentNullException.ThrowIfNull(value);
 
             if (value.Count == 0)
             {
-                throw new ArgumentException("Content must contain at least one block.", nameof(Content));
+                throw new ArgumentException("Content must contain at least one block.", nameof(this.Content));
             }
 
-            this.content = value.ToArray();
+            this._content = value.ToArray();
         }
     }
 
@@ -79,6 +81,24 @@ public sealed record Message
         {
             Role = role,
             Content = [block],
+        };
+    }
+    
+    /// <summary>
+    /// Creates a single-block message from an existing content block.
+    /// </summary>
+    /// <param name="role">The role that produced the message.</param>
+    /// <param name="block">An content block array to include.</param>
+    /// <returns>A new <see cref="Message"/> containing one content block.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="block"/> is null.</exception>
+    public static Message FromContent(MessageRole role, ContentBlock[] block)
+    {
+        ArgumentNullException.ThrowIfNull(block);
+
+        return new Message
+        {
+            Role = role,
+            Content = block,
         };
     }
 }

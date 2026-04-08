@@ -1,4 +1,4 @@
-namespace SemanticFold;
+namespace SemanticFold.Models.Messages;
 
 /// <summary>
 /// Represents the role of a participant in a conversation turn.
