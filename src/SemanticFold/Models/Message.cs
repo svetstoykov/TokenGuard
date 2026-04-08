@@ -1,0 +1,84 @@
+namespace SemanticFold;
+
+/// <summary>
+/// The immutable unit of conversation history.
+/// </summary>
+public sealed record Message
+{
+    private IReadOnlyList<ContentBlock> content = Array.Empty<ContentBlock>();
+
+    /// <summary>
+    /// Gets the role that produced this message.
+    /// </summary>
+    public required MessageRole Role { get; init; }
+
+    /// <summary>
+    /// Gets the content blocks for this message.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when the assigned value is empty.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when the assigned value is null.</exception>
+    public required IReadOnlyList<ContentBlock> Content
+    {
+        get => this.content;
+        init
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            if (value.Count == 0)
+            {
+                throw new ArgumentException("Content must contain at least one block.", nameof(Content));
+            }
+
+            this.content = value.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Gets the compaction state for this message.
+    /// </summary>
+    public CompactionState State { get; init; } = CompactionState.Original;
+
+    /// <summary>
+    /// Gets the creation timestamp of this message.
+    /// </summary>
+    public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// Gets the token count when available.
+    /// </summary>
+    public int? TokenCount { get; init; }
+
+    /// <summary>
+    /// Creates a single-block text message.
+    /// </summary>
+    /// <param name="role">The role that produced the message.</param>
+    /// <param name="text">The message text.</param>
+    /// <returns>A new <see cref="Message"/> containing one <see cref="TextContent"/> block.</returns>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    public static Message FromText(MessageRole role, string text)
+    {
+        return new Message
+        {
+            Role = role,
+            Content = [new TextContent(text)],
+        };
+    }
+
+    /// <summary>
+    /// Creates a single-block message from an existing content block.
+    /// </summary>
+    /// <param name="role">The role that produced the message.</param>
+    /// <param name="block">The content block to include.</param>
+    /// <returns>A new <see cref="Message"/> containing one content block.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="block"/> is null.</exception>
+    public static Message FromContent(MessageRole role, ContentBlock block)
+    {
+        ArgumentNullException.ThrowIfNull(block);
+
+        return new Message
+        {
+            Role = role,
+            Content = [block],
+        };
+    }
+}
