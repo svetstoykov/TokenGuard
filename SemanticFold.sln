@@ -13,6 +13,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SemanticFold.IntegrationTes
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SemanticFold.Samples.Console", "samples\SemanticFold.Samples.Console\SemanticFold.Samples.Console.csproj", "{E5F6A7B8-C9D0-1234-EF01-345678901234}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,5 +43,10 @@ Global
 		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D4E5F6A7-B8C9-0123-DEF0-234567890123} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
+		{E5F6A7B8-C9D0-1234-EF01-345678901234} = {C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}
 	EndGlobalSection
 EndGlobal
