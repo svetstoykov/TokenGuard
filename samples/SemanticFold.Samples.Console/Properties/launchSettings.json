@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "SemanticFold.Samples.Console": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

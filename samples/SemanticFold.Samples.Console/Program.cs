@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using OpenAI;
 using OpenAI.Chat;
 using SemanticFold;
@@ -13,14 +14,23 @@ Console.WriteLine("=========================================");
 Console.WriteLine("   SemanticFold Agentic Loop Sample");
 Console.WriteLine("=========================================\n");
 
-var apiKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") ?? "sk-test-key";
+var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production";
+
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{environment}.json", optional: true, reloadOnChange: true)
+    .AddEnvironmentVariables()
+    .Build();
+
+var apiKey = configuration["OpenRouterAPIKey"] ?? Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") ?? "sk-test-key";
 
 // We use OpenRouter as the API provider per request, falling back to OpenAI if no key is provided.
 var endpoint = new Uri("https://openrouter.ai/api/v1");
 var client = new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = endpoint });
 
 // The model string here should match your preferred OpenRouter or OpenAI model
-var chatClient = client.GetChatClient("openai/gpt-4o-mini");
+var chatClient = client.GetChatClient("qwen/qwen3.6-plus");
 
 // 1. Initialize SemanticFold engine
 // Using a tiny budget (e.g., 500 tokens) to demonstrate compaction kicking in early.
