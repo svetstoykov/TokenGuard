@@ -30,7 +30,8 @@ In order of priority:
 
 - **No comment blocks.** Never use decorative separators like `// ===== Section =====`.
 - **Inline comments sparingly.** Only to explain something genuinely foreign or non-obvious.
-- **XML docs always.** Every public member gets concise, useful XML documentation. No filler. No restating the name. Inherited members use `/// <inheritdoc/>`.
+- **XML docs always.** Code Documentation Standard
+Document all public members using structured XML tags like <summary>, <remarks>, and <param> to establish a clear hierarchy of information. The summary must provide a concise "what" for the member, while the remarks section should detail "why" and "how," explicitly addressing architectural side effects, performance trade-offs, and deep-links to external documentation. Always utilize <see> tags for precise cross-referencing of types and ensure the documentation clarifies behavior regarding fluent API chaining or internal service provider interactions.
 - **Records for immutable data.** Prefer `record` and `record struct` for data types.
 - **Explicit nullability.** `T?` means optional or possibly absent — not "I forgot to think about it."
 - **Interfaces for everything injectable.** Any swappable service lives behind an interface.

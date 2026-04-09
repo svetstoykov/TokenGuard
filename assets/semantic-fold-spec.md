@@ -66,7 +66,7 @@ You keep writing your agent loop. SemanticFold keeps the context healthy.
 
 ## Context Management Strategies
 
-Based on current research (JetBrains Research, "Cutting Through the Noise," NeurIPS 2025; Claude Code's three-tier compaction system; OpenHands; SWE-agent), SemanticFold will support three core strategies, plus a hybrid approach.
+Based on current research (JetBrains Research, "Cutting Through the Noise," NeurIPS 2025; Claude Code's three-tier compaction system; OpenHands; SWE-agent), SemanticFold is currently centered on a sliding-window masking implementation and is planned to support three core strategies, plus a hybrid approach, as the library expands.
 
 ### Strategy 1: Sliding Window (Observation Masking)
 
@@ -77,8 +77,13 @@ The simplest and most cost-effective approach. Old tool results and observations
 - Turns outside the window have their tool results / observations replaced with a placeholder (e.g., `[Tool result cleared — {tool_name}, {timestamp}]`).
 - The agent's own reasoning and actions remain intact across all turns.
 
+**Implementation status:**
+- Implemented today as the library's active compaction strategy.
+- Exposed via `SlidingWindowStrategy` with `SlidingWindowOptions` for window size, protected-window token fraction, and placeholder formatting.
+- Current behavior masks older `ToolResultContent` blocks and keeps recent messages unchanged; it does not yet persist a compacted history back into the conversation state.
+
 **When to use it:**
-- Default choice for most workloads.
+- Default choice for current workloads.
 - Agents where tool outputs are large but the agent only needs them for immediate reasoning (file reads, search results, test output, API responses).
 - Cost-sensitive deployments.
 
@@ -156,6 +161,13 @@ SemanticFold needs a standard representation of a conversation turn that is prov
 
 Adapters will map between this abstraction and provider-specific message formats (Anthropic `MessageParam`, OpenAI `ChatCompletionMessage`, etc.).
 
+Current implementation notes:
+
+- The core abstraction is implemented as `Message`, with roles `System`, `User`, `Model`, and `Tool`.
+- Message content is represented as `ContentBlock` values, currently `TextContent`, `ToolUseContent`, and `ToolResultContent`.
+- Implemented metadata includes `Timestamp`, cached `TokenCount`, and `CompactionState`.
+- A dedicated turn index is not currently stored on the message model.
+
 ### The Context Budget
 
 A `ContextBudget` defines the constraints SemanticFold operates within:
@@ -164,6 +176,13 @@ A `ContextBudget` defines the constraints SemanticFold operates within:
 - **Compaction threshold**: the percentage of max tokens at which compaction triggers (default: 80%).
 - **Emergency threshold**: the percentage at which aggressive compaction fires regardless of strategy (default: 95%).
 - **Reserved tokens**: tokens reserved for the system prompt, tools definitions, and other fixed content that doesn't change between turns.
+
+Current implementation notes:
+
+- `ContextBudget` is implemented with `MaxTokens`, `CompactionThreshold`, `EmergencyThreshold`, and `ReservedTokens`.
+- It also exposes computed `AvailableTokens`, `CompactionTriggerTokens`, and `EmergencyTriggerTokens`.
+- `ConversationContext.Prepare()` currently triggers compaction at the normal compaction threshold and adjusts reserved tokens to account for preserved system messages.
+- The emergency threshold is modeled in the budget but is not yet used by the current strategy pipeline.
 
 ### The Compaction Event
 
@@ -177,42 +196,54 @@ When SemanticFold compacts, it produces a `CompactionEvent` that includes:
 
 This allows logging, monitoring, and debugging of compaction behavior in production.
 
+Implementation status:
+
+- A dedicated `CompactionEvent` type and callback pipeline are not implemented yet.
+- Current samples detect compaction by inspecting prepared message states (`Original`, `Masked`, `Summarized`) after `Prepare()` returns.
+
 ---
 
 ## Integration Points
 
 ### Where SemanticFold Lives in the Loop
 
-```
-while (not done)
+```csharp
+while (!done)
 {
-    var managedMessages = semanticFold.Prepare(messages);  // ← HERE
-    
-    var response = await llmClient.SendAsync(managedMessages);
-    
-    messages.Add(response);
-    
-    if (response.HasToolCalls)
+    var preparedMessages = conversationContext.Prepare();
+    var providerMessages = preparedMessages.ForOpenAI();
+
+    var response = await chatClient.CompleteChatAsync(providerMessages, chatOptions);
+
+    conversationContext.RecordModelResponse(response.ResponseBlocks(), response.InputTokens());
+
+    if (response.FinishReason == ChatFinishReason.ToolCalls)
     {
-        var toolResults = await ExecuteTools(response.ToolCalls);
-        messages.AddRange(toolResults);
-        
-        semanticFold.Observe(toolResults);  // ← AND HERE
+        foreach (var call in response.ToolCalls)
+        {
+            var result = ExecuteTool(call);
+            conversationContext.RecordToolResult(call.Id, call.FunctionName, result);
+        }
     }
 }
 ```
 
-Two touch points:
+Current touch points:
 
-1. **`Prepare()`** — called before sending to the LLM. Evaluates context size, applies compaction if needed, returns the managed message list.
-2. **`Observe()`** — called after tool execution. Tracks token counts and metadata for incoming content. Optional but improves compaction decisions.
+1. **`Prepare()`** — implemented. Called before sending to the LLM. Evaluates context size, applies compaction if needed, and returns the managed message list.
+2. **Recording APIs** — implemented as `SetSystemPrompt()`, `AddUserMessage()`, `RecordModelResponse()`, and `RecordToolResult()` to append typed history entries and cache token estimates.
+3. **`Observe()`** — not currently implemented as a separate API. Its intended responsibilities are covered today by the recording methods above.
 
 ### Provider Adapters
 
-SemanticFold ships with adapters for:
+SemanticFold currently ships with:
+
+- **OpenAI / OpenAI-compatible chat adapter** — implemented as extension methods that map prepared `Message` values to `OpenAI.Chat.ChatMessage` instances and extract `TextContent`, `ToolUseContent`, and provider input-token usage from `ChatCompletion` responses.
+
+Planned adapters remain in scope:
 
 - **Anthropic SDK for .NET** — maps to/from `MessageParam`, handles content blocks, tool use blocks, and tool result blocks.
-- **Azure OpenAI / OpenAI SDK** — maps to/from `ChatCompletionMessage` and function call conventions.
+- **Azure OpenAI / OpenAI SDK** — broader provider coverage beyond the current OpenAI chat adapter surface.
 - **Semantic Kernel** — integrates with SK's `ChatHistory` abstraction.
 - **Raw/Custom** — a generic adapter for any provider, using SemanticFold's own message type.
 
@@ -224,29 +255,34 @@ Accurate token counting is critical for compaction decisions. SemanticFold suppo
 - **Provider counting** — calls the provider's token counting API (where available). Accurate but adds latency.
 - **Custom counting** — plug in your own `ITokenCounter` implementation.
 
+Current implementation notes:
+
+- `EstimatedTokenCounter` is implemented and used by default.
+- Custom counting is supported through the `ITokenCounter` interface.
+- Provider-side token counting is not implemented as a dedicated counter yet, but `ConversationContext.RecordModelResponse(..., providerInputTokens)` can consume provider-reported input token counts to anchor and correct later estimates.
+
 ---
 
 ## Configuration
 
 ```csharp
-var semanticFold = new SemanticFoldBuilder()
-    .WithStrategy(CompactionStrategy.Hybrid)          // or SlidingWindow, Summarization, Tiered
+var conversationContext = new ConversationContextBuilder()
     .WithMaxTokens(200_000)
-    .WithCompactionThreshold(0.80)                     // compact at 80% capacity
-    .WithSlidingWindowSize(10)                         // keep last 10 turns in full
-    .WithSummarizationModel("claude-sonnet-4-6")      // model for summarization calls
-    .WithSummarizationPrompt(customPrompt)             // optional custom prompt
-    .WithTokenCounter(new EstimatedTokenCounter())     // or ProviderTokenCounter, custom
-    .WithAdapter(new AnthropicAdapter())               // provider adapter
-    .OnCompaction(event => logger.Log(event))          // compaction event callback
+    .WithCompactionThreshold(0.80)
+    .WithEmergencyThreshold(0.95)
+    .WithReservedTokens(2_000)
+    .WithTokenCounter(new EstimatedTokenCounter())
+    .WithStrategy(new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 10)))
     .Build();
 ```
 
 Minimal configuration for quick start:
 
 ```csharp
-var semanticFold = SemanticFold.Default(maxTokens: 200_000);
+var conversationContext = ConversationContextBuilder.Default(maxTokens: 200_000);
 ```
+
+Today the builder configures the core context, budget, token counter, and compaction strategy. Summarization-specific configuration, adapter registration, and compaction callbacks are planned but not implemented yet.
 
 ---
 
