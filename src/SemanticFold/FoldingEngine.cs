@@ -1,25 +1,34 @@
 using SemanticFold.Abstractions;
 using SemanticFold.Enums;
 using SemanticFold.Models;
+using SemanticFold.Models.Content;
 
 namespace SemanticFold;
 
 /// <summary>
-/// The core SemanticFold engine. Sits inside an agent loop and manages conversation context
+/// The core SemanticFold engine. Owns the full conversation history and manages context
 /// automatically by monitoring token usage and applying a compaction strategy when needed.
 ///
-/// <para>Two touch points in the loop:</para>
+/// <para>Entry points for adding turns:</para>
 /// <list type="bullet">
 ///   <item><description>
-///     <see cref="Prepare"/> — call before every LLM request. Returns the message list to send
-///     (compacted if over threshold, original otherwise). Never modifies the caller's list.
+///     <see cref="SetSystemPrompt"/> — sets or replaces the single system message.
 ///   </description></item>
 ///   <item><description>
-///     <see cref="Observe(Message, int?)"/> / <see cref="Observe(IReadOnlyList{Message}, int?)"/> —
-///     call after the API response and after tool execution to pre-warm the token cache and
-///     optionally anchor the running total to the provider's ground-truth count.
+///     <see cref="AddUserMessage"/> — appends a user turn.
+///   </description></item>
+///   <item><description>
+///     <see cref="RecordModelResponse"/> — records the model's reply (text and/or tool-use blocks).
+///   </description></item>
+///   <item><description>
+///     <see cref="RecordToolResult"/> — records one tool execution result.
 ///   </description></item>
 /// </list>
+///
+/// <para>
+///   Call <see cref="Prepare"/> before every LLM request to obtain the message list to send,
+///   compacted if over threshold.
+/// </para>
 /// </summary>
 public sealed class FoldingEngine
 {
@@ -27,26 +36,25 @@ public sealed class FoldingEngine
     private readonly ITokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
 
-    // Keyed by reference so two structurally equal Message records are treated as distinct entries.
-    private readonly Dictionary<Message, int> _tokenCache = new(ReferenceEqualityComparer.Instance);
+    private readonly List<Message> _history = [];
 
     // Token total of the list most recently returned by Prepare — used to compute anchor corrections.
     private int _lastPreparedTotal;
 
     // Additive correction applied to every raw estimate to account for systematic estimator drift.
-    // Updated each time Observe is called with an apiReportedInputTokens value.
+    // Updated each time RecordModelResponse is called with a providerInputTokens value.
     private int _anchorCorrection;
 
     /// <summary>
-    /// Initializes a new <see cref="SemanticFold"/> engine.
+    /// Initializes a new <see cref="FoldingEngine"/>.
     /// </summary>
     /// <param name="budget">
     /// The token budget governing when compaction triggers. Use <see cref="ContextBudget.For"/>
     /// to construct one from a raw max-token value, or set thresholds explicitly.
     /// </param>
     /// <param name="counter">
-    /// The token counter used to size messages. Defaults to <see cref="strategy"/>
-    /// in the builder; supply a custom implementation for provider-accurate counting.
+    /// The token counter used to size messages. Supply a custom implementation for
+    /// provider-accurate counting.
     /// </param>
     /// <param name="strategy">
     /// The compaction strategy applied when the budget threshold is exceeded.
@@ -59,48 +67,131 @@ public sealed class FoldingEngine
     }
 
     /// <summary>
+    /// Gets a read-only view of the full uncompacted conversation history for debugging,
+    /// logging, and testing. This is a live view — modifications to the engine are reflected
+    /// immediately. The caller cannot mutate it.
+    /// </summary>
+    public IReadOnlyList<Message> History => this._history;
+
+    /// <summary>
+    /// Sets or replaces the system prompt. The engine holds exactly one system message;
+    /// calling this again overwrites the previous one. Can be called at any time.
+    /// </summary>
+    /// <param name="text">The system prompt text.</param>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    public void SetSystemPrompt(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("System prompt text cannot be null or whitespace.", nameof(text));
+
+        var message = Message.FromText(MessageRole.System, text);
+
+        var existing = this._history.FindIndex(m => m.Role == MessageRole.System);
+        if (existing >= 0)
+            this._history[existing] = message;
+        else
+            this._history.Insert(0, message);
+
+        this.EnsureCounted(message);
+    }
+
+    /// <summary>
+    /// Appends a user turn to the conversation history.
+    /// </summary>
+    /// <param name="text">The user message text.</param>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    public void AddUserMessage(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("User message text cannot be null or whitespace.", nameof(text));
+
+        var message = Message.FromText(MessageRole.User, text);
+        this._history.Add(message);
+        this.EnsureCounted(message);
+    }
+
+    /// <summary>
+    /// Records what the model returned and pre-warms the token count for the new message.
+    /// </summary>
+    /// <param name="content">
+    /// The content blocks returned by the model. May contain a mix of
+    /// <see cref="TextContent"/> and <see cref="ToolUseContent"/> blocks.
+    /// </param>
+    /// <param name="providerInputTokens">
+    /// The exact input token count reported by the provider for this request. When provided,
+    /// the engine computes and stores a correction applied to all future <see cref="Prepare"/>
+    /// evaluations. Pass <see langword="null"/> to skip anchoring.
+    /// </param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> is empty.</exception>
+    public void RecordModelResponse(IEnumerable<ContentBlock> content, int? providerInputTokens = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        var blocks = content.ToArray();
+        if (blocks.Length == 0)
+            throw new ArgumentException("Content must contain at least one block.", nameof(content));
+
+        var message = new Message { Role = MessageRole.Model, Content = blocks };
+        this._history.Add(message);
+        this.EnsureCounted(message);
+        this.ApplyAnchor(providerInputTokens);
+    }
+
+    /// <summary>
+    /// Records a single tool execution result. The engine wraps this into a
+    /// <see cref="MessageRole.Tool"/>-role message internally. Call once per tool call.
+    /// </summary>
+    /// <param name="toolCallId">The tool call identifier this result corresponds to.</param>
+    /// <param name="toolName">The name of the tool that produced this result.</param>
+    /// <param name="content">The tool output payload.</param>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="toolCallId"/>, <paramref name="toolName"/>, or
+    /// <paramref name="content"/> is null or whitespace.
+    /// </exception>
+    public void RecordToolResult(string toolCallId, string toolName, string content)
+    {
+        if (string.IsNullOrWhiteSpace(toolCallId))
+            throw new ArgumentException("Tool call id cannot be null or whitespace.", nameof(toolCallId));
+
+        if (string.IsNullOrWhiteSpace(toolName))
+            throw new ArgumentException("Tool name cannot be null or whitespace.", nameof(toolName));
+
+        ArgumentNullException.ThrowIfNull(content);
+
+        var message = Message.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
+        this._history.Add(message);
+        this.EnsureCounted(message);
+    }
+
+    /// <summary>
     /// Evaluates the current context size and returns a managed message list ready to send to the LLM.
     ///
     /// <para>
-    /// If the estimated token total is within the compaction threshold, the original list is
-    /// returned as-is (no allocation). If the threshold is met or exceeded, the configured
-    /// strategy is applied and the resulting compacted list is returned. The caller's original
-    /// list is never modified.
+    /// If the estimated token total is within the compaction threshold, the full history is
+    /// returned as-is. If the threshold is met or exceeded, the configured strategy is applied
+    /// and the resulting compacted list is returned.
     /// </para>
-    ///
-    /// <para>Example usage:</para>
-    /// <code>
-    /// var messagesToSend = fold.Prepare(messages);
-    /// var response = await client.SendAsync(messagesToSend);
-    /// </code>
     /// </summary>
-    /// <param name="messages">The full conversation history owned by the caller.</param>
     /// <returns>
-    /// The original list if token usage is within the compaction threshold; otherwise a new,
+    /// The full history if token usage is within the compaction threshold; otherwise a new,
     /// compacted list produced by the configured strategy.
     /// </returns>
-    public IReadOnlyList<Message> Prepare(IReadOnlyList<Message> messages)
+    public IReadOnlyList<Message> Prepare()
     {
-        var total = this.SumWithCaching(messages) + this._anchorCorrection;
+        var messages = (IReadOnlyList<Message>)this._history;
+        var total = this.Sum(messages) + this._anchorCorrection;
 
         if (total < this._budget.CompactionTriggerTokens)
         {
             this._lastPreparedTotal = total;
-            
-            if (HasMisplacedSystemMessages(messages))
-            {
-                var systemMessages = messages.Where(m => m.Role == MessageRole.System);
-                var otherMessages = messages.Where(m => m.Role != MessageRole.System);
-                return systemMessages.Concat(otherMessages).ToList();
-            }
-            
             return messages;
         }
 
         var sysMsgs = messages.Where(m => m.Role == MessageRole.System).ToList();
         var compactableMessages = sysMsgs.Count == 0 ? messages : messages.Where(m => m.Role != MessageRole.System).ToList();
-        var systemTotal = this.SumWithCaching(sysMsgs);
-        
+        var systemTotal = this.Sum(sysMsgs);
+
         var adjustedBudget = new ContextBudget(
             this._budget.MaxTokens,
             this._budget.CompactionThreshold,
@@ -112,99 +203,26 @@ public sealed class FoldingEngine
 
         var result = sysMsgs.Count == 0 ? compacted : sysMsgs.Concat(compacted).ToList();
 
-        // Compacted messages are ephemeral instances owned by the strategy, not the caller.
-        // Count them without caching to avoid retaining strong references indefinitely.
-        this._lastPreparedTotal = this.SumWithoutCaching(result) + this._anchorCorrection;
+        this._lastPreparedTotal = this.Sum(result) + this._anchorCorrection;
 
         return result;
     }
 
-    private static bool HasMisplacedSystemMessages(IReadOnlyList<Message> messages)
+    private int Sum(IReadOnlyList<Message> messages) => messages.Sum(this.EnsureCounted);
+
+    private int EnsureCounted(Message message)
     {
-        bool seenNonSystem = false;
-        foreach (var m in messages)
-        {
-            if (m.Role == MessageRole.System)
-            {
-                if (seenNonSystem) return true;
-            }
-            else
-            {
-                seenNonSystem = true;
-            }
-        }
-        return false;
+        if (message.TokenCount is { } count)
+            return count;
+
+        var computed = this._counter.Count(message);
+        message.TokenCount = computed;
+        return computed;
     }
 
-    /// <summary>
-    /// Registers a single new message with the engine and pre-warms the token cache for it,
-    /// so the next <see cref="Prepare"/> call does not need to re-estimate it.
-    ///
-    /// <para>
-    /// Call this with the assistant response message after each API call. Optionally provide
-    /// <paramref name="apiReportedInputTokens"/> to anchor the engine's running estimate to
-    /// the provider's ground-truth count, correcting estimator drift going forward.
-    /// </para>
-    /// </summary>
-    /// <param name="message">The new message to register (typically the assistant response).</param>
-    /// <param name="apiReportedInputTokens">
-    /// The exact input token count returned by the provider for the most recent request.
-    /// When provided, the engine computes and stores a correction applied to all future
-    /// <see cref="Prepare"/> evaluations. Pass <see langword="null"/> to skip anchoring.
-    /// </param>
-    public void Observe(Message message, int? apiReportedInputTokens = null)
+    private void ApplyAnchor(int? providerInputTokens)
     {
-        this.EnsureCached(message);
-        this.ApplyAnchor(apiReportedInputTokens);
-    }
-
-    /// <summary>
-    /// Registers a batch of new messages with the engine and pre-warms the token cache for
-    /// all of them.
-    ///
-    /// <para>
-    /// Call this with tool result messages after each round of tool execution, before the
-    /// next <see cref="Prepare"/> call. Optionally anchor to provider-reported ground truth.
-    /// </para>
-    ///
-    /// <para>Example usage:</para>
-    /// <code>
-    /// var toolResults = await ExecuteTools(response.ToolCalls);
-    /// messages.AddRange(toolResults);
-    /// fold.Observe(toolResults, response.Usage.InputTokens);
-    /// </code>
-    /// </summary>
-    /// <param name="messages">The new messages to register (typically tool results).</param>
-    /// <param name="apiReportedInputTokens">
-    /// The exact input token count returned by the provider for the most recent request.
-    /// Pass <see langword="null"/> to skip anchoring.
-    /// </param>
-    public void Observe(IReadOnlyList<Message> messages, int? apiReportedInputTokens = null)
-    {
-        foreach (var message in messages)
-            this.EnsureCached(message);
-
-        this.ApplyAnchor(apiReportedInputTokens);
-    }
-
-    private int SumWithCaching(IReadOnlyList<Message> messages) => messages.Sum(this.EnsureCached);
-
-    private int SumWithoutCaching(IReadOnlyList<Message> messages) 
-        => messages.Sum(message => this._tokenCache.TryGetValue(message, out var cached) 
-            ? cached 
-            : this._counter.Count(message));
-
-    private int EnsureCached(Message message)
-    {
-        if (!this._tokenCache.TryGetValue(message, out var count))
-            this._tokenCache[message] = count = this._counter.Count(message);
-        
-        return count;
-    }
-
-    private void ApplyAnchor(int? apiReportedInputTokens)
-    {
-        if (apiReportedInputTokens.HasValue)
-            this._anchorCorrection = apiReportedInputTokens.Value - this._lastPreparedTotal;
+        if (providerInputTokens.HasValue)
+            this._anchorCorrection = providerInputTokens.Value - this._lastPreparedTotal;
     }
 }

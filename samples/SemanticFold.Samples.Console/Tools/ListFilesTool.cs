@@ -1,7 +1,7 @@
 using System.Text.Json;
 using SemanticFold.Abstractions;
 
-namespace SemanticFold.Tools;
+namespace SemanticFold.Samples.Console.Tools;
 
 /// <summary>
 /// A tool that lists all files in the current working directory.

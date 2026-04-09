@@ -19,75 +19,62 @@ public sealed class FoldingEngineIntegrationTests
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
         var engine = new FoldingEngine(budget, counter, strategy);
 
-        var messages = new List<Message>();
+        // System prompt
+        engine.SetSystemPrompt("You are a helpful assistant.");
 
-        // System Prompt (using User role)
-        var systemMessage = Message.FromText(MessageRole.User, "You are a helpful assistant.");
-        messages.Add(systemMessage);
-        
-        var prepared = engine.Prepare(messages);
-        Assert.Same(messages, prepared); 
+        var prepared = engine.Prepare();
+        Assert.Same(engine.History, prepared);
 
         // User makes a request
-        var userRequest = Message.FromText(MessageRole.User, "Please analyze the logs for the last 24 hours.");
-        messages.Add(userRequest);
-        
+        engine.AddUserMessage("Please analyze the logs for the last 24 hours.");
+
         // Assistant calls a tool
         var toolUse = new ToolUseContent("call_123", "analyze_logs", "{\"timespan\":\"24h\"}");
-        var assistantToolCall = Message.FromContent(MessageRole.Model, new ContentBlock[] { toolUse });
-        messages.Add(assistantToolCall);
-        
-        engine.Observe(assistantToolCall); 
+        engine.RecordModelResponse([toolUse]);
 
         // Tool responds with a massive log (~1000 tokens)
-        var massiveLog = new string('A', 4000); 
-        var toolResult = new ToolResultContent("call_123", "analyze_logs", massiveLog);
-        var toolResultMessage = Message.FromContent(MessageRole.Tool, new ContentBlock[] { toolResult });
-        messages.Add(toolResultMessage);
-        
-        engine.Observe(toolResultMessage); 
+        var massiveLog = new string('A', 4000);
+        engine.RecordToolResult("call_123", "analyze_logs", massiveLog);
 
         // Assistant responds
-        var assistantResponse1 = Message.FromText(MessageRole.Model, "The logs show that the system was running normally, but there was a spike in memory usage at 3 AM.");
-        messages.Add(assistantResponse1);
-        engine.Observe(assistantResponse1);
-        
-        // User asks a follow up
-        var userFollowUp = Message.FromText(MessageRole.User, "Can you check the database logs around 3 AM?");
-        messages.Add(userFollowUp);
-        
-        // Now we prepare for the next turn. 
-        var compactedMessages = engine.Prepare(messages);
+        engine.RecordModelResponse([new TextContent("The logs show that the system was running normally, but there was a spike in memory usage at 3 AM.")]);
 
-        Assert.NotSame(messages, compactedMessages);
-        
+        // User asks a follow up
+        engine.AddUserMessage("Can you check the database logs around 3 AM?");
+
+        // Capture the last two messages before compaction for reference-identity checks
+        var secondToLast = engine.History[^2];
+        var last = engine.History[^1];
+
+        // Now we prepare for the next turn.
+        var compactedMessages = engine.Prepare();
+
+        Assert.NotSame(engine.History, compactedMessages);
+
         // Verify tool result masking
-        var compactedToolResult = compactedMessages.FirstOrDefault(m => 
-            m.Role == MessageRole.Tool && 
+        var compactedToolResult = compactedMessages.FirstOrDefault(m =>
+            m.Role == MessageRole.Tool &&
             m.Content.Any(c => c is TextContent tc && tc.Text.Contains("[Tool result cleared —", StringComparison.OrdinalIgnoreCase)));
-            
+
         Assert.NotNull(compactedToolResult);
         Assert.Equal(CompactionState.Masked, compactedToolResult.State);
 
         // Verify window protection
-        Assert.Same(messages[^1], compactedMessages[^1]); 
-        Assert.Same(messages[^2], compactedMessages[^2]); 
-        
+        Assert.Same(last, compactedMessages[^1]);
+        Assert.Same(secondToLast, compactedMessages[^2]);
+
         var compactedTokenCount = counter.Count(compactedMessages);
-        Assert.True(compactedTokenCount < budget.CompactionTriggerTokens, 
+        Assert.True(compactedTokenCount < budget.CompactionTriggerTokens,
             $"Compacted tokens ({compactedTokenCount}) should be less than the threshold ({budget.CompactionTriggerTokens})");
-            
-        // Test anchor correction
+
+        // Test anchor correction: record another model response with provider token count
         int reportedInputTokens = 300;
-        
-        var assistantToolCall2 = Message.FromContent(MessageRole.Model, new ContentBlock[] { new ToolUseContent("call_456", "check_db", "{\"time\":\"03:00\"}") });
-        messages.Add(assistantToolCall2);
-        
-        engine.Observe(assistantToolCall2, apiReportedInputTokens: reportedInputTokens);
-        
-        var finalPrepared = engine.Prepare(messages);
-        Assert.NotSame(messages, finalPrepared);
-        Assert.Equal(messages.Count, finalPrepared.Count);
+        engine.RecordModelResponse(
+            [new ToolUseContent("call_456", "check_db", "{\"time\":\"03:00\"}")],
+            providerInputTokens: reportedInputTokens);
+
+        var finalPrepared = engine.Prepare();
+        Assert.NotSame(engine.History, finalPrepared);
     }
 
     [Fact]
@@ -98,73 +85,50 @@ public sealed class FoldingEngineIntegrationTests
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 3, protectedWindowFraction: 0.5));
         var engine = new FoldingEngine(budget, counter, strategy);
 
-        var messages = new List<Message>();
-
         // Turn 1
-        messages.Add(Message.FromText(MessageRole.User, "Scan the directory for large files."));
-        var toolUse1 = new ToolUseContent("call_1", "scan_dir", "{}");
-        var assistantMsg1 = Message.FromContent(MessageRole.Model, new ContentBlock[] { toolUse1 });
-        messages.Add(assistantMsg1);
-        engine.Observe(assistantMsg1);
-
-        var largeToolResult1 = new ToolResultContent("call_1", "scan_dir", new string('F', 1200)); // ~300 tokens
-        var toolMsg1 = Message.FromContent(MessageRole.Tool, new ContentBlock[] { largeToolResult1 });
-        messages.Add(toolMsg1);
-        engine.Observe(toolMsg1);
-
-        var asstResponse1 = Message.FromText(MessageRole.Model, "Found 10 large files.");
-        messages.Add(asstResponse1);
-        engine.Observe(asstResponse1);
+        engine.AddUserMessage("Scan the directory for large files.");
+        engine.RecordModelResponse([new ToolUseContent("call_1", "scan_dir", "{}")]);
+        engine.RecordToolResult("call_1", "scan_dir", new string('F', 1200)); // ~300 tokens
+        engine.RecordModelResponse([new TextContent("Found 10 large files.")]);
 
         // Should not be compacted yet, total ~320 tokens < 400
-        var currentCount = counter.Count(messages);
-        Assert.True(currentCount < budget.CompactionTriggerTokens, $"Expected count {currentCount} to be < {budget.CompactionTriggerTokens}");
-        var prep1 = engine.Prepare(messages);
-        Assert.Same(messages, prep1);
+        var currentCount = counter.Count(engine.History);
+        Assert.True(currentCount < budget.CompactionTriggerTokens,
+            $"Expected count {currentCount} to be < {budget.CompactionTriggerTokens}");
+        var prep1 = engine.Prepare();
+        Assert.Same(engine.History, prep1);
 
         // Turn 2
-        messages.Add(Message.FromText(MessageRole.User, "Can you delete them?"));
-        var toolUse2 = new ToolUseContent("call_2", "delete_files", "{}");
-        var assistantMsg2 = Message.FromContent(MessageRole.Model, new ContentBlock[] { toolUse2 });
-        messages.Add(assistantMsg2);
-        engine.Observe(assistantMsg2);
-
-        // API reported token count for turn 2 request (to anchor)
-        engine.Observe(assistantMsg2, apiReportedInputTokens: 330);
-
-        var largeToolResult2 = new ToolResultContent("call_2", "delete_files", new string('D', 1200)); // ~300 tokens
-        var toolMsg2 = Message.FromContent(MessageRole.Tool, new ContentBlock[] { largeToolResult2 });
-        messages.Add(toolMsg2);
-        engine.Observe(toolMsg2);
-
-        var asstResponse2 = Message.FromText(MessageRole.Model, "Deleted all 10 files.");
-        messages.Add(asstResponse2);
-        engine.Observe(asstResponse2);
+        engine.AddUserMessage("Can you delete them?");
+        engine.RecordModelResponse(
+            [new ToolUseContent("call_2", "delete_files", "{}")],
+            providerInputTokens: 330);
+        engine.RecordToolResult("call_2", "delete_files", new string('D', 1200)); // ~300 tokens
+        engine.RecordModelResponse([new TextContent("Deleted all 10 files.")]);
 
         // Now total is ~650 tokens > 400 threshold
-        var prep2 = engine.Prepare(messages);
-        Assert.NotSame(messages, prep2);
+        var prep2 = engine.Prepare();
+        Assert.NotSame(engine.History, prep2);
 
-        // First tool result should be masked, second should possibly be masked depending on protected window
-        // The protected tokens = 500 * 0.5 = 250. 
-        // Window size = 3 messages. Newest: asstResponse2, toolMsg2, assistantMsg2. 
-        // toolMsg2 is ~300 tokens, which exceeds maxProtectedTokens (250). 
+        // First tool result should be masked, second should possibly be masked depending on protected window.
+        // The protected tokens = 500 * 0.5 = 250.
+        // Window size = 3 messages. Newest: asstResponse2, toolMsg2, assistantMsg2.
+        // toolMsg2 is ~300 tokens, which exceeds maxProtectedTokens (250).
         // This means it will break early, protecting only the newest ones that fit (asstResponse2).
         // So toolMsg2 should ALSO be masked.
-        
         var maskedCount = prep2.Count(m => m.State == CompactionState.Masked);
         Assert.Equal(2, maskedCount); // both large tool results masked
 
         // Turn 3
-        messages.Add(Message.FromText(MessageRole.User, "Thanks, what's next?"));
-        
-        var prep3 = engine.Prepare(messages);
-        Assert.NotSame(messages, prep3);
+        engine.AddUserMessage("Thanks, what's next?");
+
+        var prep3 = engine.Prepare();
+        Assert.NotSame(engine.History, prep3);
 
         var finalMaskedCount = prep3.Count(m => m.State == CompactionState.Masked);
-        Assert.Equal(2, finalMaskedCount); 
-        
+        Assert.Equal(2, finalMaskedCount);
+
         // Assert that the user's latest message is strictly protected (as it's small)
-        Assert.Same(messages[^1], prep3[^1]);
+        Assert.Same(engine.History[^1], prep3[^1]);
     }
 }

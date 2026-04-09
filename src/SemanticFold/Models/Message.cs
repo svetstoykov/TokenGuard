@@ -47,9 +47,10 @@ public sealed record Message
     public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
 
     /// <summary>
-    /// Gets the token count when available.
+    /// Gets the token count for this message. Populated by the engine on first evaluation;
+    /// <see langword="null"/> until counted. External consumers should treat this as read-only.
     /// </summary>
-    public int? TokenCount { get; init; }
+    public int? TokenCount { get; internal set; }
 
     /// <summary>
     /// Creates a single-block text message.
@@ -84,22 +85,22 @@ public sealed record Message
             Content = [block],
         };
     }
-    
+
     /// <summary>
-    /// Creates a single-block message from an existing content block.
+    /// Creates a message from multiple content blocks.
     /// </summary>
     /// <param name="role">The role that produced the message.</param>
-    /// <param name="block">An content block array to include.</param>
-    /// <returns>A new <see cref="Message"/> containing one content block.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="block"/> is null.</exception>
-    public static Message FromContent(MessageRole role, ContentBlock[] block)
+    /// <param name="blocks">The content blocks to include.</param>
+    /// <returns>A new <see cref="Message"/> containing the supplied content blocks.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="blocks"/> is null.</exception>
+    public static Message FromContent(MessageRole role, ContentBlock[] blocks)
     {
-        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(blocks);
 
         return new Message
         {
             Role = role,
-            Content = block,
+            Content = blocks,
         };
     }
 }

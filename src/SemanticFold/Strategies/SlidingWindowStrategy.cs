@@ -142,6 +142,7 @@ public sealed class SlidingWindowStrategy : ICompactionStrategy
         {
             Content = replacedContent,
             State = CompactionState.Masked,
+            TokenCount = null,
         };
     }
 }

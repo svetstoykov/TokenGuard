@@ -1,6 +1,7 @@
 using SemanticFold.Abstractions;
 using SemanticFold.Enums;
 using SemanticFold.Models;
+using SemanticFold.Models.Content;
 
 namespace SemanticFold.Tests.Core;
 
@@ -9,124 +10,136 @@ public sealed class FoldingEngineTests
     [Fact]
     public void Prepare_WhenEstimateIsBelowThreshold_ReturnsOriginalListAndSkipsCompaction()
     {
-        var message = Message.FromText(MessageRole.User, "hello");
-        var messages = new List<Message> { message };
         var counter = new TrackingTokenCounter();
-        counter.Set(message, 0);
         var strategy = new TrackingCompactionStrategy();
         var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
 
-        var prepared = engine.Prepare(messages);
+        // AddUserMessage pre-warms the cache; set its token count to 0
+        engine.AddUserMessage("hello");
+        counter.Set(engine.History[0], 0);
 
-        Assert.Same(messages, prepared);
+        var prepared = engine.Prepare();
+
+        Assert.Same(engine.History, prepared);
         Assert.Equal(0, strategy.CompactCalls);
     }
 
     [Fact]
     public void Prepare_WhenEstimateMeetsThreshold_UsesCompactionStrategyResult()
     {
-        var original = Message.FromText(MessageRole.User, "original");
         var compacted = Message.FromText(MessageRole.Model, "compacted");
-        var messages = new List<Message> { original };
         var counter = new TrackingTokenCounter();
-        counter.Set(original, 800);
+
+        // Pre-configure so the engine caches 800 when AddUserMessage calls EnsureCached.
+        counter.SetByText("original", 800);
         counter.Set(compacted, 800);
+
         var strategy = new TrackingCompactionStrategy([compacted]);
         var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
 
-        var prepared = engine.Prepare(messages);
+        engine.AddUserMessage("original");
+
+        var prepared = engine.Prepare();
 
         Assert.Equal(1, strategy.CompactCalls);
-        Assert.Same(messages, strategy.LastInput);
+        Assert.Same(engine.History[0], strategy.LastInput![0]);
         Assert.Same(compacted, Assert.Single(prepared));
     }
 
     [Fact]
     public void Prepare_WhenSystemMessagesExist_KeepsThemAtTopAndAdjustsBudget()
     {
-        var sys1 = Message.FromText(MessageRole.System, "sys1");
-        var user1 = Message.FromText(MessageRole.User, "user1");
         var compacted = Message.FromText(MessageRole.Model, "compacted");
-
-        var messages = new List<Message> { sys1, user1 };
         var counter = new TrackingTokenCounter();
-        counter.Set(sys1, 100);
-        counter.Set(user1, 900); // 100 + 900 = 1000, which triggers compaction (threshold is 800)
+
+        // Pre-configure counts by text before the engine creates messages, so the cache is
+        // seeded with the intended values at add-time.
+        counter.SetByText("sys1", 100);
+        counter.SetByText("user1", 900); // 100 + 900 = 1000, triggers compaction (threshold 800)
         counter.Set(compacted, 100);
 
         var strategy = new TrackingCompactionStrategy([compacted]);
         var budget = ContextBudget.For(1_000); // threshold is 800
         var engine = new FoldingEngine(budget, counter, strategy);
 
-        var prepared = engine.Prepare(messages);
+        engine.SetSystemPrompt("sys1");
+        engine.AddUserMessage("user1");
 
-        // System messages are excluded from compactable messages
+        var sys1 = engine.History[0];
+        var user1 = engine.History[1];
+
+        var prepared = engine.Prepare();
+
+        // System messages excluded from compactable messages
         Assert.Single(strategy.LastInput!);
-        Assert.Same(user1, strategy.LastInput[0]);
+        Assert.Same(user1, strategy.LastInput![0]);
 
-        // Budget is adjusted (reservedTokens increased by sys1 tokens)
+        // Budget adjusted (reservedTokens increased by sys1 tokens)
         Assert.Equal(100, strategy.LastBudget.ReservedTokens);
         Assert.Equal(1000, strategy.LastBudget.MaxTokens);
         Assert.Equal(900, strategy.LastBudget.AvailableTokens);
 
-        // Result should be sys1 + compacted
+        // Result: sys1 + compacted
         Assert.Equal(2, prepared.Count);
         Assert.Same(sys1, prepared[0]);
         Assert.Same(compacted, prepared[1]);
     }
 
     [Fact]
-    public void Prepare_WhenSystemMessagesAreNotAtTop_AndNoCompaction_ReordersThem()
+    public void SetSystemPrompt_InsertsAtTopAndPrepareReturnsCorrectOrder()
     {
-        var sys1 = Message.FromText(MessageRole.System, "sys1");
-        var user1 = Message.FromText(MessageRole.User, "user1");
-
-        var messages = new List<Message> { user1, sys1 };
         var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
+
+        engine.AddUserMessage("user1");
+        engine.SetSystemPrompt("sys1");
+
+        var sys1 = engine.History.First(m => m.Role == MessageRole.System);
+        var user1 = engine.History.First(m => m.Role == MessageRole.User);
+
         counter.Set(sys1, 100);
         counter.Set(user1, 100);
 
-        var strategy = new TrackingCompactionStrategy();
-        var budget = ContextBudget.For(1_000); // threshold is 800, total 200 is below threshold
-        var engine = new FoldingEngine(budget, counter, strategy);
-
-        var prepared = engine.Prepare(messages);
+        var prepared = engine.Prepare();
 
         Assert.Equal(2, prepared.Count);
         Assert.Same(sys1, prepared[0]);
-        Assert.Same(user1, prepared[1]);
         Assert.Equal(0, strategy.CompactCalls);
     }
 
     [Fact]
-    public void ObserveSingle_PrewarmsCache_SoPrepareDoesNotRecountSameMessage()
+    public void RecordModelResponse_PrewarmsCache_SoPrepareDoesNotRecountSameMessage()
     {
-        var message = Message.FromText(MessageRole.User, "hello");
-        var messages = new List<Message> { message };
         var counter = new TrackingTokenCounter();
-        counter.Set(message, 1);
-        var strategy = new TrackingCompactionStrategy(messages);
+        var strategy = new TrackingCompactionStrategy();
         var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
 
-        engine.Observe(message);
-        _ = engine.Prepare(messages);
+        engine.RecordModelResponse([new TextContent("hello")]);
+        var message = engine.History[0];
+        counter.Set(message, 1);
+
+        _ = engine.Prepare();
 
         Assert.Equal(1, counter.GetCountCalls(message));
     }
 
     [Fact]
-    public void ObserveBatch_WithApiReportedTokens_AppliesAnchorCorrectionOnNextPrepare()
+    public void RecordModelResponse_WithProviderInputTokens_AppliesAnchorCorrectionOnNextPrepare()
     {
-        var message = Message.FromText(MessageRole.User, "hello");
-        var messages = new List<Message> { message };
         var counter = new TrackingTokenCounter();
-        counter.Set(message, 0);
         var strategy = new TrackingCompactionStrategy([Message.FromText(MessageRole.Model, "compressed")]);
         var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
 
-        _ = engine.Prepare(messages);
-        engine.Observe(messages, apiReportedInputTokens: 800);
-        _ = engine.Prepare(messages);
+        engine.AddUserMessage("hello");
+        counter.Set(engine.History[0], 0);
+
+        _ = engine.Prepare();
+
+        engine.RecordModelResponse([new TextContent("reply")], providerInputTokens: 800);
+        counter.Set(engine.History[1], 0);
+
+        _ = engine.Prepare();
 
         Assert.Equal(1, strategy.CompactCalls);
     }
@@ -134,38 +147,47 @@ public sealed class FoldingEngineTests
     [Fact]
     public void Prepare_CacheUsesReferenceIdentity_ForEquivalentButDistinctMessages()
     {
-        var first = Message.FromText(MessageRole.User, "same");
-        var second = Message.FromText(MessageRole.User, "same");
-        var messages = new List<Message> { first, second };
         var counter = new TrackingTokenCounter();
-        counter.Set(first, 0);
-        counter.Set(second, 0);
         var strategy = new TrackingCompactionStrategy();
         var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
 
-        _ = engine.Prepare(messages);
+        engine.AddUserMessage("same");
+        engine.AddUserMessage("same");
+
+        var first = engine.History[0];
+        var second = engine.History[1];
+        counter.Set(first, 0);
+        counter.Set(second, 0);
+
+        _ = engine.Prepare();
 
         Assert.Equal(1, counter.GetCountCalls(first));
         Assert.Equal(1, counter.GetCountCalls(second));
     }
 
     [Fact]
-    public void Prepare_DoesNotCacheCompactedMessagesDuringInternalTotalCalculation()
+    public void Prepare_CachesTokenCountOnCompactedMessages_SoTheyAreNotRecounted()
     {
-        var original = Message.FromText(MessageRole.User, "original");
         var compacted = Message.FromText(MessageRole.Model, "compacted");
-        var input = new List<Message> { original };
-        var compactedList = new List<Message> { compacted };
         var counter = new TrackingTokenCounter();
-        counter.Set(original, 800);
+
+        // Pre-configure the original message count by text so the engine caches 800 at add-time.
+        counter.SetByText("original", 800);
         counter.Set(compacted, 800);
-        var strategy = new TrackingCompactionStrategy(compactedList);
+
+        var strategy = new TrackingCompactionStrategy([compacted]);
         var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
 
-        _ = engine.Prepare(input);
-        _ = engine.Prepare(compactedList);
+        engine.AddUserMessage("original");
 
-        Assert.Equal(2, counter.GetCountCalls(compacted));
+        // First Prepare triggers compaction; compacted message counted once and cached
+        _ = engine.Prepare();
+
+        // Second Prepare: engine history is still the original message (800 tokens), so compaction
+        // fires again. compacted is not counted a second time because its TokenCount property is set.
+        _ = engine.Prepare();
+
+        Assert.Equal(1, counter.GetCountCalls(compacted));
     }
 
     private sealed class TrackingCompactionStrategy : ICompactionStrategy
@@ -198,9 +220,23 @@ public sealed class FoldingEngineTests
         private readonly Dictionary<Message, int> _counts = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<Message, int> _calls = new(ReferenceEqualityComparer.Instance);
 
+        // Fallback map keyed by the first text content of a message, for pre-configuration before
+        // message references are available.
+        private readonly Dictionary<string, int> _countsByText = new();
+
         public void Set(Message message, int count)
         {
             this._counts[message] = count;
+        }
+
+        /// <summary>
+        /// Registers a token count returned whenever a message's first text block matches
+        /// <paramref name="text"/>. Useful for pre-configuring counts before the engine
+        /// creates message references.
+        /// </summary>
+        public void SetByText(string text, int count)
+        {
+            this._countsByText[text] = count;
         }
 
         public int GetCountCalls(Message message)
@@ -211,7 +247,15 @@ public sealed class FoldingEngineTests
         public int Count(Message message)
         {
             this._calls[message] = this.GetCountCalls(message) + 1;
-            return this._counts.GetValueOrDefault(message, 0);
+
+            if (this._counts.TryGetValue(message, out var cached))
+                return cached;
+
+            var firstText = message.Content.OfType<SemanticFold.Models.Content.TextContent>().FirstOrDefault()?.Text;
+            if (firstText != null && this._countsByText.TryGetValue(firstText, out var byText))
+                return byText;
+
+            return 0;
         }
 
         public int Count(IEnumerable<Message> messages)
