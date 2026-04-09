@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using OpenAI;
 using OpenAI.Chat;
-using SemanticFold.Adapters.OpenAI;
+using SemanticFold.Extensions.OpenAI;
 using SemanticFold.Core;
 using SemanticFold.Core.Abstractions;
 using SemanticFold.Core.Enums;
