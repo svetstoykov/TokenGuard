@@ -1,7 +1,9 @@
+using SemanticFold.Core.Models;
+
 namespace SemanticFold.Core.Enums;
 
 /// <summary>
-/// Identifies which participant produced a <see cref="SemanticFold.Core.Models.Message"/>.
+/// Identifies which participant produced a <see cref="SemanticMessage"/>.
 /// </summary>
 /// <remarks>
 /// Roles drive how SemanticFold records and prepares history. For example, system messages are preserved at the front

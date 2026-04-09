@@ -9,7 +9,7 @@ namespace SemanticFold.Core.Abstractions;
 ///     Implement this interface when a conversation history must be transformed before it is sent to a model,
 ///     but the caller needs to preserve a simple synchronous execution flow. Implementations are responsible for
 ///     deciding which parts of the message sequence are retained, summarized, or replaced while maintaining a
-///     valid <see cref="Message"/> list for downstream processing.
+///     valid <see cref="SemanticMessage"/> list for downstream processing.
 /// </remarks>
 public interface ICompactionStrategy
 {
@@ -31,5 +31,5 @@ public interface ICompactionStrategy
     ///     A task that resolves to a message sequence preserving ordering semantics and intended to satisfy
     ///     <paramref name="budget"/>'s available-token constraints.
     /// </returns>
-    Task<IReadOnlyList<Message>> CompactAsync(IReadOnlyList<Message> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SemanticMessage>> CompactAsync(IReadOnlyList<SemanticMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default);
 }

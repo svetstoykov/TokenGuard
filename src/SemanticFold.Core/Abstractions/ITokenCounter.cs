@@ -20,25 +20,25 @@ namespace SemanticFold.Core.Abstractions;
 public interface ITokenCounter
 {
     /// <summary>
-    /// Counts the tokens for a single <see cref="Message"/>.
+    /// Counts the tokens for a single <see cref="SemanticMessage"/>.
     /// </summary>
     /// <remarks>
     /// Implementations should apply the same counting rules used for multi-message totals so budget calculations remain
-    /// internally consistent. Callers rely on this method when caching per-message counts on <see cref="Message.TokenCount"/>.
+    /// internally consistent. Callers rely on this method when caching per-message counts on <see cref="SemanticMessage.TokenCount"/>.
     /// </remarks>
-    /// <param name="message">The message whose token cost should be measured.</param>
-    /// <returns>The token count assigned to <paramref name="message"/>.</returns>
-    int Count(Message message);
+    /// <param name="semanticMessage">The message whose token cost should be measured.</param>
+    /// <returns>The token count assigned to <paramref name="semanticMessage"/>.</returns>
+    int Count(SemanticMessage semanticMessage);
 
     /// <summary>
-    /// Counts the tokens for a sequence of <see cref="Message"/> values.
+    /// Counts the tokens for a sequence of <see cref="SemanticMessage"/> values.
     /// </summary>
     /// <remarks>
     /// This overload is used when SemanticFold needs the aggregate cost of a prepared or candidate history. Custom
     /// implementations should ensure the returned total matches the sum semantics callers would expect from repeated
-    /// <see cref="Count(Message)"/> calls.
+    /// <see cref="Count(SemanticMessage)"/> calls.
     /// </remarks>
     /// <param name="messages">The ordered messages whose combined token cost should be measured.</param>
     /// <returns>The total token count for <paramref name="messages"/>.</returns>
-    int Count(IEnumerable<Message> messages);
+    int Count(IEnumerable<SemanticMessage> messages);
 }

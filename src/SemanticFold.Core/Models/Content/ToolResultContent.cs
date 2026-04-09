@@ -8,7 +8,7 @@ namespace SemanticFold.Core.Models.Content;
 /// model inspect prior tool outputs, and they give compaction strategies enough structure to preserve or mask those
 /// outputs without losing the surrounding conversation flow.
 /// </remarks>
-public sealed record ToolResultContent : ContentBlock
+public sealed record ToolResultContent : ContentSegment
 {
     /// <summary>
     /// Initializes a new <see cref="ToolResultContent"/> instance.

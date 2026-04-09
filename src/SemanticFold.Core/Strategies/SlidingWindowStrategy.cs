@@ -46,7 +46,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <remarks>
     ///     Supply <paramref name="options"/> to tune how much of the newest history stays untouched and how older
     ///     tool results are represented after masking. The provided value is retained for all subsequent
-    ///     <see cref="CompactAsync(IReadOnlyList{Message}, ContextBudget, ITokenCounter, CancellationToken)"/> calls.
+    ///     <see cref="CompactAsync(IReadOnlyList{SemanticMessage}, ContextBudget, ITokenCounter, CancellationToken)"/> calls.
     /// </remarks>
     /// <param name="options">The sliding-window configuration that controls boundary selection and placeholder generation.</param>
     public SlidingWindowStrategy(SlidingWindowOptions options)
@@ -67,7 +67,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///         Messages before the boundary are only modified when they contain <see cref="ToolResultContent"/>.
     ///         In that case each tool result is replaced with a <see cref="TextContent"/> placeholder built from
     ///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>, and the returned message clears
-    ///         <see cref="Message.TokenCount"/> so token estimation can be recomputed against the masked content.
+    ///         <see cref="ConversaSemanticMessagesage/> so token estimation can be recomputed against the masked content.
     ///     </para>
     /// </remarks>
     /// <param name="messages">The ordered message history to compact.</param>
@@ -81,8 +81,8 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <exception cref="ArgumentNullException">
     ///     Thrown when <paramref name="messages"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
     /// </exception>
-    public Task<IReadOnlyList<Message>> CompactAsync(
-        IReadOnlyList<Message> messages,
+    public Task<IReadOnlyList<SemanticMessage>> CompactAsync(
+        IReadOnlyList<SemanticMessage> messages,
         ContextBudget budget,
         ITokenCounter tokenCounter,
         CancellationToken cancellationToken = default)
@@ -120,7 +120,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         }
 
         var toolNameLookup = BuildToolNameLookup(messages);
-        var result = new Message[messages.Count];
+        var result = new SemanticMessage[messages.Count];
 
         for (var i = 0; i < boundary; i++)
         {
@@ -132,10 +132,10 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             result[i] = messages[i];
         }
 
-        return Task.FromResult<IReadOnlyList<Message>>(result);
+        return Task.FromResult<IReadOnlyList<SemanticMessage>>(result);
     }
 
-    private static Dictionary<string, string> BuildToolNameLookup(IReadOnlyList<Message> messages)
+    private static Dictionary<string, string> BuildToolNameLookup(IReadOnlyList<SemanticMessage> messages)
     {
         var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -155,12 +155,12 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         return lookup;
     }
 
-    private static Message MaskToolResultsIfNeeded(
-        Message message,
+    private static SemanticMessage MaskToolResultsIfNeeded(
+        SemanticMessage semanticMessage,
         IReadOnlyDictionary<string, string> toolNameLookup,
         string placeholderFormat)
     {
-        var content = message.Content;
+        var content = semanticMessage.Content;
         var hasToolResult = false;
 
         for (var i = 0; i < content.Count; i++)
@@ -174,10 +174,10 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         if (!hasToolResult)
         {
-            return message;
+            return semanticMessage;
         }
 
-        var replacedContent = new ContentBlock[content.Count];
+        var replacedContent = new ContentSegment[content.Count];
 
         for (var i = 0; i < content.Count; i++)
         {
@@ -194,7 +194,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             replacedContent[i] = content[i];
         }
 
-        return message with
+        return semanticMessage with
         {
             Content = replacedContent,
             State = CompactionState.Masked,

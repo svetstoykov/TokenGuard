@@ -63,7 +63,7 @@ public sealed class SessionLogger : IDisposable
     /// Logs a complete snapshot of the current message history before prepare runs.
     /// </summary>
     /// <param name="history">The full uncompacted history.</param>
-    public void LogHistoryBeforePrepare(IReadOnlyList<Message> history)
+    public void LogHistoryBeforePrepare(IReadOnlyList<SemanticMessage> history)
     {
         this.LogSnapshot("HISTORY", "Before prepare", history);
     }
@@ -73,7 +73,7 @@ public sealed class SessionLogger : IDisposable
     /// </summary>
     /// <param name="preparedMessages">The prepared messages.</param>
     /// <param name="budget">The active context budget.</param>
-    public void LogPreparedMessages(IReadOnlyList<Message> preparedMessages, ContextBudget budget)
+    public void LogPreparedMessages(IReadOnlyList<SemanticMessage> preparedMessages, ContextBudget budget)
     {
         var totalTokens = preparedMessages.Sum(m => m.TokenCount ?? 0);
         var maskedCount = preparedMessages.Count(m => m.State == CompactionState.Masked);
@@ -89,40 +89,40 @@ public sealed class SessionLogger : IDisposable
     /// <summary>
     /// Logs a newly appended history message.
     /// </summary>
-    /// <param name="message">The appended message.</param>
+    /// <param name="semanticMessage">The appended message.</param>
     /// <param name="label">The event label.</param>
-    public void LogMessageAdded(Message message, string label)
+    public void LogMessageAdded(SemanticMessage semanticMessage, string label)
     {
         this.WriteSection(
             $"Event {Sanitize(label)}",
-            [FormatMessageBullet(message, 0)]);
+            [FormatMessageBullet(semanticMessage, 0)]);
     }
 
     /// <summary>
     /// Logs a model response that was recorded in history.
     /// </summary>
-    /// <param name="message">The recorded model message.</param>
+    /// <param name="semanticMessage">The recorded model message.</param>
     /// <param name="inputTokens">The model input tokens reported by the provider.</param>
     /// <param name="responseKind">The response kind label.</param>
-    public void LogModelResponse(Message message, int? inputTokens, string responseKind)
+    public void LogModelResponse(SemanticMessage semanticMessage, int? inputTokens, string responseKind)
     {
         this.WriteSection(
             $"Model {Sanitize(responseKind)}",
             [
                 $"- Provider input tokens: `{FormatTokenCount(inputTokens)}`",
-                FormatMessageBullet(message, 0),
+                FormatMessageBullet(semanticMessage, 0),
             ]);
     }
 
     /// <summary>
     /// Logs a tool execution result that was recorded in history.
     /// </summary>
-    /// <param name="message">The recorded tool result message.</param>
-    public void LogToolResultRecorded(Message message)
+    /// <param name="semanticMessage">The recorded tool result message.</param>
+    public void LogToolResultRecorded(SemanticMessage semanticMessage)
     {
         this.WriteSection(
             "Tool Result",
-            [FormatMessageBullet(message, 0)]);
+            [FormatMessageBullet(semanticMessage, 0)]);
     }
 
     /// <summary>
@@ -169,7 +169,7 @@ public sealed class SessionLogger : IDisposable
         this._writer.Dispose();
     }
 
-    private void LogSnapshot(string category, string title, IReadOnlyList<Message> messages)
+    private void LogSnapshot(string category, string title, IReadOnlyList<SemanticMessage> messages)
     {
         this._snapshotSequence++;
         var totalTokens = messages.Sum(m => m.TokenCount ?? 0);
@@ -218,24 +218,24 @@ public sealed class SessionLogger : IDisposable
         this._writer.WriteLine();
     }
 
-    private static string FormatMessageBullet(Message message, int index)
-        => $"- [{index:00}] role=`{RoleCode(message.Role)}` state=`{StateCode(message.State)}` tokens=`{FormatTokenCount(message.TokenCount)}` content=\"{Shorten(DescribeMessage(message), 160)}\"";
+    private static string FormatMessageBullet(SemanticMessage semanticMessage, int index)
+        => $"- [{index:00}] role=`{RoleCode(semanticMessage.Role)}` state=`{StateCode(semanticMessage.State)}` tokens=`{FormatTokenCount(semanticMessage.TokenCount)}` content=\"{Shorten(DescribeMessage(semanticMessage), 160)}\"";
 
-    private static string DescribeMessage(Message message)
+    private static string DescribeMessage(SemanticMessage semanticMessage)
     {
-        var parts = message.Content.Select(DescribeContentBlock).Where(part => !string.IsNullOrWhiteSpace(part));
+        var parts = semanticMessage.Content.Select(DescribeContentSegment).Where(part => !string.IsNullOrWhiteSpace(part));
         var description = string.Join(" | ", parts);
         return string.IsNullOrWhiteSpace(description) ? "empty" : Sanitize(description);
     }
 
-    private static string DescribeContentBlock(ContentBlock block)
+    private static string DescribeContentSegment(ContentSegment segment)
     {
-        return block switch
+        return segment switch
         {
             TextContent text => text.Text,
             ToolUseContent toolUse => $"tool-call {toolUse.ToolName} args={Shorten(toolUse.ArgumentsJson, 80)}",
             ToolResultContent toolResult => $"tool-result {toolResult.ToolName} chars={toolResult.Content.Length} preview={Shorten(toolResult.Content, 80)}",
-            _ => block.GetType().Name,
+            _ => segment.GetType().Name,
         };
     }
 

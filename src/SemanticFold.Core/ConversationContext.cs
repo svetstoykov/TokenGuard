@@ -30,8 +30,8 @@ namespace SemanticFold.Core;
 /// </para>
 /// <para>
 /// Token counts are estimated through the configured <see cref="ITokenCounter"/> and cached on
-/// each recorded <see cref="Message"/>. If the provider later reports an exact input token count,
-/// that value can be supplied through <see cref="RecordModelResponse(IEnumerable{ContentBlock}, int?)"/>
+/// each recorded <see cref="SemanticMessage"/>. If the provider later reports an exact input token count,
+/// that value can be supplied through <see cref="RecordModelResponse(IEnumerable{ContentSegment}, int?)"/>
 /// so future preparation stays better aligned with the provider's own counting behavior.
 /// </para>
 /// </remarks>
@@ -41,7 +41,7 @@ public sealed class ConversationContext
     private readonly ITokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
 
-    private readonly List<Message> _history = [];
+    private readonly List<SemanticMessage> _history = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
     private int _lastPreparedTotal;
@@ -86,7 +86,7 @@ public sealed class ConversationContext
     /// same as the request payload returned by <see cref="PrepareAsync(CancellationToken)"/>, which may be compacted.
     /// </para>
     /// </remarks>
-    public IReadOnlyList<Message> History => this._history;
+    public IReadOnlyList<SemanticMessage> History => this._history;
 
     /// <summary>
     /// Sets the system message for the conversation.
@@ -108,7 +108,7 @@ public sealed class ConversationContext
         if (string.IsNullOrWhiteSpace(text))
             throw new ArgumentException("System prompt text cannot be null or whitespace.", nameof(text));
 
-        var message = Message.FromText(MessageRole.System, text);
+        var message = SemanticMessage.FromText(MessageRole.System, text);
 
         var existing = this._history.FindIndex(m => m.Role == MessageRole.System);
         if (existing >= 0)
@@ -133,7 +133,7 @@ public sealed class ConversationContext
         if (string.IsNullOrWhiteSpace(text))
             throw new ArgumentException("User message text cannot be null or whitespace.", nameof(text));
 
-        var message = Message.FromText(MessageRole.User, text);
+        var message = SemanticMessage.FromText(MessageRole.User, text);
         this._history.Add(message);
         this.EnsureCounted(message);
     }
@@ -142,8 +142,8 @@ public sealed class ConversationContext
     /// Records the model response as the next message in the conversation history.
     /// </summary>
     /// <param name="content">
-    /// The content blocks returned by the model. This can contain plain text, tool-use requests,
-    /// or any other supported content blocks for a model message.
+    /// The content segments returned by the model. This can contain plain text, tool-use requests,
+    /// or any other supported content segments for a model message.
     /// </param>
     /// <param name="providerInputTokens">
     /// The exact input token count reported by the provider for the request that produced this
@@ -153,7 +153,7 @@ public sealed class ConversationContext
     /// <remarks>
     /// <para>
     /// Call this after a model response is received. The response is stored as a single
-    /// <see cref="MessageRole.Model"/> message, even when it contains multiple content blocks.
+    /// <see cref="MessageRole.Model"/> message, even when it contains multiple content segments.
     /// </para>
     /// <para>
     /// If <paramref name="providerInputTokens"/> is provided, the context compares the provider's
@@ -164,15 +164,15 @@ public sealed class ConversationContext
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> is empty.</exception>
-    public void RecordModelResponse(IEnumerable<ContentBlock> content, int? providerInputTokens = null)
+    public void RecordModelResponse(IEnumerable<ContentSegment> content, int? providerInputTokens = null)
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        var blocks = content.ToArray();
-        if (blocks.Length == 0)
-            throw new ArgumentException("Content must contain at least one block.", nameof(content));
+        var segments = content.ToArray();
+        if (segments.Length == 0)
+            throw new ArgumentException("Content must contain at least one segment.", nameof(content));
 
-        var message = new Message { Role = MessageRole.Model, Content = blocks };
+        var message = new SemanticMessage { Role = MessageRole.Model, Content = segments };
         this._history.Add(message);
         this.EnsureCounted(message);
         this.ApplyAnchor(providerInputTokens);
@@ -191,7 +191,7 @@ public sealed class ConversationContext
     /// </para>
     /// <para>
     /// This method only records the result. It does not validate whether the tool call identifier
-    /// matches a previously recorded <see cref="ToolUseContent"/> block.
+    /// matches a previously recorded <see cref="ToolUseContent"/> segment.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">
@@ -208,7 +208,7 @@ public sealed class ConversationContext
 
         ArgumentNullException.ThrowIfNull(content);
 
-        var message = Message.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
+        var message = SemanticMessage.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
         this._history.Add(message);
         this.EnsureCounted(message);
     }
@@ -242,11 +242,11 @@ public sealed class ConversationContext
     /// representation of that history should be sent next.
     /// </para>
     /// </remarks>
-    public async Task<IReadOnlyList<Message>> PrepareAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<SemanticMessage>> PrepareAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var messages = (IReadOnlyList<Message>)this._history;
+        var messages = (IReadOnlyList<SemanticMessage>)this._history;
         var total = this.Sum(messages) + this._anchorCorrection;
 
         if (total < this._budget.CompactionTriggerTokens)
@@ -276,15 +276,15 @@ public sealed class ConversationContext
         return result;
     }
 
-    private int Sum(IReadOnlyList<Message> messages) => messages.Sum(this.EnsureCounted);
+    private int Sum(IReadOnlyList<SemanticMessage> messages) => messages.Sum(this.EnsureCounted);
 
-    private int EnsureCounted(Message message)
+    private int EnsureCounted(SemanticMessage semanticMessage)
     {
-        if (message.TokenCount is { } count)
+        if (semanticMessage.TokenCount is { } count)
             return count;
 
-        var computed = this._counter.Count(message);
-        message.TokenCount = computed;
+        var computed = this._counter.Count(semanticMessage);
+        semanticMessage.TokenCount = computed;
         return computed;
     }
 

@@ -3,7 +3,7 @@ using SemanticFold.Core.Models.Content;
 
 namespace SemanticFold.Tests.Models;
 
-public sealed class ContentBlockTests
+public sealed class ContentSegmentTests
 {
     [Fact]
     public void TextContent_Stores_Text()
@@ -83,11 +83,11 @@ public sealed class ContentBlockTests
     }
 
     [Fact]
-    public void ContentBlock_PatternMatching()
+    public void ContentSegment_PatternMatching()
     {
-        static string Describe(ContentBlock block)
+        static string Describe(ContentSegment segment)
         {
-            return block switch
+            return segment switch
             {
                 TextContent => "text",
                 ToolUseContent => "tool_use",

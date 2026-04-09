@@ -13,7 +13,7 @@ public class EstimatedTokenCounterTests
     public void EmptyMessageList_ReturnsZero()
     {
         // Arrange
-        var messages = Array.Empty<Message>();
+        var messages = Array.Empty<SemanticMessage>();
 
         // Act
         int result = this.counter.Count(messages);
@@ -27,7 +27,7 @@ public class EstimatedTokenCounterTests
     {
         // Arrange
         // "Hello" is 5 chars. 5/4 = 1.25. Ceiling is 2. Overhead is 4. Total = 6.
-        var message = Message.FromText(MessageRole.User, "Hello");
+        var message = SemanticMessage.FromText(MessageRole.User, "Hello");
 
         // Act
         int result = this.counter.Count(message);
@@ -44,7 +44,7 @@ public class EstimatedTokenCounterTests
         // ToolUse: name "calc" (4 chars), input "{}" (2 chars)
         // Total chars: 5 + 4 + 2 = 11.
         // 11/4 = 2.75. Ceiling is 3. Overhead is 4. Total = 7.
-        var message = new Message
+        var message = new SemanticMessage
         {
             Role = MessageRole.Model,
             Content = [
@@ -64,8 +64,8 @@ public class EstimatedTokenCounterTests
     public void CountEnumerable_EqualsSumOfIndividualCalls()
     {
         // Arrange
-        var msg1 = Message.FromText(MessageRole.User, "One"); // 3 chars -> 1 token + 4 overhead = 5
-        var msg2 = Message.FromText(MessageRole.Model, "Two"); // 3 chars -> 1 token + 4 overhead = 5
+        var msg1 = SemanticMessage.FromText(MessageRole.User, "One"); // 3 chars -> 1 token + 4 overhead = 5
+        var msg2 = SemanticMessage.FromText(MessageRole.Model, "Two"); // 3 chars -> 1 token + 4 overhead = 5
         var messages = new[] { msg1, msg2 };
 
         // Act
@@ -81,7 +81,7 @@ public class EstimatedTokenCounterTests
     public void MessageWithTokenCountSet_ReturnsCachedValue()
     {
         // Arrange
-        var message = new Message
+        var message = new SemanticMessage
         {
             Role = MessageRole.User,
             Content = [new TextContent("Some text")],
@@ -101,7 +101,7 @@ public class EstimatedTokenCounterTests
         // Arrange
         // ToolResult: ToolCallId "call_1" (6 chars), Content "42" (2 chars)
         // Total chars: 8. 8/4 = 2. Overhead is 4. Total = 6.
-        var message = Message.FromContent(MessageRole.User, new ToolResultContent("call_1", "calc", "42"));
+        var message = SemanticMessage.FromContent(MessageRole.User, new ToolResultContent("call_1", "calc", "42"));
 
         // Act
         int result = this.counter.Count(message);

@@ -157,7 +157,7 @@ while (!taskCompleted)
 
     if (response.FinishReason == ChatFinishReason.ToolCalls)
     {
-        var contentBlocks = new List<ContentBlock>();
+        var contentBlocks = new List<ContentSegment>();
         var responseText = response.Content.Count > 0 ? response.Content[0].Text : string.Empty;
 
         if (!string.IsNullOrWhiteSpace(responseText))

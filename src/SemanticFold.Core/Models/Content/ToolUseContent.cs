@@ -7,7 +7,7 @@ namespace SemanticFold.Core.Models.Content;
 /// <see cref="ToolUseContent"/> preserves provider tool-call intent in a transport-neutral form so calling code can
 /// execute the requested tool and later correlate the response using the same <see cref="ToolCallId"/>.
 /// </remarks>
-public sealed record ToolUseContent : ContentBlock
+public sealed record ToolUseContent : ContentSegment
 {
     /// <summary>
     /// Initializes a new <see cref="ToolUseContent"/> instance.

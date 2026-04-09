@@ -11,8 +11,8 @@ namespace SemanticFold.Extensions.OpenAI;
 /// <remarks>
 /// This class covers both directions of the adapter:
 /// <list type="bullet">
-///   <item>Outbound — <see cref="ForOpenAI"/> converts <see cref="Message"/> instances to OpenAI chat messages before sending.</item>
-///   <item>Inbound — <see cref="ResponseBlocks"/>, <see cref="TextBlocks"/>, and <see cref="ToolUseBlocks"/> extract content
+///   <item>Outbound — <see cref="ForOpenAI"/> converts <see cref="SemanticMessage"/> instances to OpenAI chat messages before sending.</item>
+///   <item>Inbound — <see cref="ResponseSegments"/>, <see cref="TextSegments"/>, and <see cref="ToolUseSegments"/> extract content
 ///   from a <see cref="ChatCompletion"/> to pass back into <c>ConversationContext.RecordModelResponse</c>.</item>
 /// </list>
 /// </remarks>
@@ -26,13 +26,13 @@ public static class OpenAIExtensions
     /// <returns>A list of OpenAI <see cref="ChatMessage"/> instances ready to pass to <c>CompleteChatAsync</c>.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when a message has an unrecognized role.</exception>
-    public static IReadOnlyList<ChatMessage> ForOpenAI(this IReadOnlyList<Message> messages)
+    public static IReadOnlyList<ChatMessage> ForOpenAI(this IReadOnlyList<SemanticMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
 
         List<ChatMessage> result = new(messages.Count);
 
-        foreach (Message message in messages)
+        foreach (var message in messages)
         {
             switch (message.Role)
             {
@@ -47,7 +47,7 @@ public static class OpenAIExtensions
                 case MessageRole.Model:
                     AssistantChatMessage assistant = new(ExtractText(message));
 
-                    foreach (ToolUseContent toolUse in message.Content.OfType<ToolUseContent>())
+                    foreach (var toolUse in message.Content.OfType<ToolUseContent>())
                     {
                         assistant.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
                             toolUse.ToolCallId,
@@ -59,7 +59,7 @@ public static class OpenAIExtensions
                     break;
 
                 case MessageRole.Tool:
-                    ToolResultContent? toolResult = message.Content.OfType<ToolResultContent>().FirstOrDefault();
+                    var toolResult = message.Content.OfType<ToolResultContent>().FirstOrDefault();
 
                     if (toolResult is not null)
                         result.Add(new ToolChatMessage(toolResult.ToolCallId, toolResult.Content));
@@ -75,55 +75,55 @@ public static class OpenAIExtensions
     }
 
     /// <summary>
-    /// Extracts all content blocks from a <see cref="ChatCompletion"/> — both text and tool call requests.
+    /// Extracts all content segments from a <see cref="ChatCompletion"/> — both text and tool call requests.
     /// This is the value to pass to <c>ConversationContext.RecordModelResponse</c> in the typical agent loop.
     /// </summary>
     /// <param name="response">The OpenAI chat completion response.</param>
     /// <returns>
-    /// A list of <see cref="ContentBlock"/> instances. Contains <see cref="TextContent"/> for any non-empty
+    /// A list of <see cref="ContentSegment"/> instances. Contains <see cref="TextContent"/> for any non-empty
     /// text response, and <see cref="ToolUseContent"/> for each tool call the model requested.
     /// </returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="response"/> is null.</exception>
-    public static IReadOnlyList<ContentBlock> ResponseBlocks(this ChatCompletion response) =>
-        [.. response.TextBlocks(), .. response.ToolUseBlocks()];
+    public static IReadOnlyList<ContentSegment> ResponseSegments(this ChatCompletion response) =>
+        [.. response.TextSegments(), .. response.ToolUseSegments()];
 
     /// <summary>
-    /// Extracts only the text content blocks from a <see cref="ChatCompletion"/>.
+    /// Extracts only the text content segments from a <see cref="ChatCompletion"/>.
     /// Use this when you need just the model's text response without tool call metadata,
     /// for example to check task completion conditions or display output to the user.
     /// </summary>
     /// <param name="response">The OpenAI chat completion response.</param>
     /// <returns>
-    /// A list of <see cref="TextContent"/> blocks. Empty if the response contained no non-whitespace text.
+    /// A list of <see cref="TextContent"/> segments. Empty if the response contained no non-whitespace text.
     /// </returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="response"/> is null.</exception>
-    public static IReadOnlyList<TextContent> TextBlocks(this ChatCompletion response)
+    public static IReadOnlyList<TextContent> TextSegments(this ChatCompletion response)
     {
         ArgumentNullException.ThrowIfNull(response);
 
-        List<TextContent> blocks = [];
+        List<TextContent> segments = [];
 
-        foreach (ChatMessageContentPart part in response.Content)
+        foreach (var part in response.Content)
         {
             if (!string.IsNullOrWhiteSpace(part.Text))
-                blocks.Add(new TextContent(part.Text));
+                segments.Add(new TextContent(part.Text));
         }
 
-        return blocks;
+        return segments;
     }
 
     /// <summary>
-    /// Extracts the tool call requests from a <see cref="ChatCompletion"/> as <see cref="ToolUseContent"/> blocks.
-    /// Use this when you need the tool call blocks separately, for example to fan out dispatch logic
-    /// before combining with text blocks for <c>RecordModelResponse</c>.
+    /// Extracts the tool call requests from a <see cref="ChatCompletion"/> as <see cref="ToolUseContent"/> segments.
+    /// Use this when you need the tool call segments separately, for example to fan out dispatch logic
+    /// before combining with text segments for <c>RecordModelResponse</c>.
     /// </summary>
     /// <param name="response">The OpenAI chat completion response.</param>
     /// <returns>
-    /// A list of <see cref="ToolUseContent"/> blocks, one per tool call requested by the model.
+    /// A list of <see cref="ToolUseContent"/> segments, one per tool call requested by the model.
     /// Empty if the model made no tool calls.
     /// </returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="response"/> is null.</exception>
-    public static IReadOnlyList<ToolUseContent> ToolUseBlocks(this ChatCompletion response)
+    public static IReadOnlyList<ToolUseContent> ToolUseSegments(this ChatCompletion response)
     {
         ArgumentNullException.ThrowIfNull(response);
 
@@ -146,6 +146,6 @@ public static class OpenAIExtensions
         return response.Usage?.InputTokenCount;
     }
 
-    private static string ExtractText(Message message) =>
-        message.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
+    private static string ExtractText(SemanticMessage semanticMessage) =>
+        semanticMessage.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
 }

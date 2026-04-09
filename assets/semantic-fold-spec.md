@@ -164,7 +164,7 @@ Adapters will map between this abstraction and provider-specific message formats
 Current implementation notes:
 
 - The core abstraction is implemented as `Message`, with roles `System`, `User`, `Model`, and `Tool`.
-- Message content is represented as `ContentBlock` values, currently `TextContent`, `ToolUseContent`, and `ToolResultContent`.
+- Message content is represented as `ContentSegment` values, currently `TextContent`, `ToolUseContent`, and `ToolResultContent`.
 - Implemented metadata includes `Timestamp`, cached `TokenCount`, and `CompactionState`.
 - A dedicated turn index is not currently stored on the message model.
 
@@ -215,7 +215,7 @@ while (!done)
 
     var response = await chatClient.CompleteChatAsync(providerMessages, chatOptions);
 
-    conversationContext.RecordModelResponse(response.ResponseBlocks(), response.InputTokens());
+    conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
 
     if (response.FinishReason == ChatFinishReason.ToolCalls)
     {
@@ -242,7 +242,7 @@ SemanticFold currently ships with:
 
 Planned adapters remain in scope:
 
-- **Anthropic SDK for .NET** — maps to/from `MessageParam`, handles content blocks, tool use blocks, and tool result blocks.
+- **Anthropic SDK for .NET** — maps to/from `MessageParam`, handles content segments, tool use segments, and tool result segments.
 - **Azure OpenAI / OpenAI SDK** — broader provider coverage beyond the current OpenAI chat adapter surface.
 - **Semantic Kernel** — integrates with SK's `ChatHistory` abstraction.
 - **Raw/Custom** — a generic adapter for any provider, using SemanticFold's own message type.

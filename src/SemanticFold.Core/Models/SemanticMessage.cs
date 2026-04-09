@@ -8,9 +8,9 @@ namespace SemanticFold.Core.Models;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="Message"/> is the canonical unit recorded by <see cref="ConversationContext"/> and consumed by
+/// <see cref="SemanticMessage"/> is the canonical unit recorded by <see cref="ConversationContext"/> and consumed by
 /// compaction strategies, token counters, and provider adapters. Each instance pairs a <see cref="MessageRole"/> with
-/// one or more <see cref="ContentBlock"/> values so a single turn can carry plain text, tool-use instructions, or tool
+/// one or more <see cref="ContentSegment"/> values so a single turn can carry plain text, tool-use instructions, or tool
 /// results.
 /// </para>
 /// <para>
@@ -18,9 +18,9 @@ namespace SemanticFold.Core.Models;
 /// optimization so repeated preparation and compaction passes do not need to recount unchanged messages.
 /// </para>
 /// </remarks>
-public sealed record Message
+public sealed record SemanticMessage
 {
-    private readonly IReadOnlyList<ContentBlock> _content = [];
+    private readonly IReadOnlyList<ContentSegment> _content = [];
 
     /// <summary>
     /// Gets the participant role that produced this message.
@@ -28,15 +28,15 @@ public sealed record Message
     public required MessageRole Role { get; init; }
 
     /// <summary>
-    /// Gets the ordered content blocks carried by this message.
+    /// Gets the ordered content segments carried by this message.
     /// </summary>
     /// <remarks>
-    /// A message must contain at least one block. The assigned sequence is defensively copied during initialization so
+    /// A message must contain at least one segment. The assigned sequence is defensively copied during initialization so
     /// later external mutations do not affect recorded conversation history.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when the assigned value is empty.</exception>
     /// <exception cref="ArgumentNullException">Thrown when the assigned value is null.</exception>
-    public required IReadOnlyList<ContentBlock> Content
+    public required IReadOnlyList<ContentSegment> Content
     {
         get => this._content;
         init
@@ -45,7 +45,7 @@ public sealed record Message
 
             if (value.Count == 0)
             {
-                throw new ArgumentException("Content must contain at least one block.", nameof(this.Content));
+                throw new ArgumentException("Content must contain at least one segment.", nameof(this.Content));
             }
 
             this._content = value.ToArray();
@@ -73,18 +73,18 @@ public sealed record Message
     public int? TokenCount { get; internal set; }
 
     /// <summary>
-    /// Creates a <see cref="Message"/> containing a single <see cref="TextContent"/> block.
+    /// Creates a <see cref="SemanticMessage"/> containing a single <see cref="TextContent"/> segment.
     /// </summary>
     /// <remarks>
-    /// Use this helper for plain-text system, user, or model turns when no richer block structure is needed.
+    /// Use this helper for plain-text system, user, or model turns when no richer segment structure is needed.
     /// </remarks>
     /// <param name="role">The participant role that produced the message.</param>
-    /// <param name="text">The text payload to wrap in a <see cref="TextContent"/> block.</param>
-    /// <returns>A new <see cref="Message"/> containing exactly one <see cref="TextContent"/> block.</returns>
+    /// <param name="text">The text payload to wrap in a <see cref="TextContent"/> segment.</param>
+    /// <returns>A new <see cref="SemanticMessage"/> containing exactly one <see cref="TextContent"/> segment.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
-    public static Message FromText(MessageRole role, string text)
+    public static SemanticMessage FromText(MessageRole role, string text)
     {
-        return new Message
+        return new SemanticMessage
         {
             Role = role,
             Content = [new TextContent(text)],
@@ -92,43 +92,43 @@ public sealed record Message
     }
 
     /// <summary>
-    /// Creates a <see cref="Message"/> from a single existing <see cref="ContentBlock"/>.
+    /// Creates a <see cref="SemanticMessage"/> from a single existing <see cref="ContentSegment"/>.
     /// </summary>
     /// <remarks>
-    /// This overload is useful when a caller has already created a specific block type, such as
+    /// This overload is useful when a caller has already created a specific segment type, such as
     /// <see cref="ToolUseContent"/> or <see cref="ToolResultContent"/>.
     /// </remarks>
     /// <param name="role">The participant role that produced the message.</param>
-    /// <param name="block">The content block to store as the sole payload of the message.</param>
-    /// <returns>A new <see cref="Message"/> containing exactly one content block.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="block"/> is null.</exception>
-    public static Message FromContent(MessageRole role, ContentBlock block)
+    /// <param name="segment">The content segment to store as the sole payload of the message.</param>
+    /// <returns>A new <see cref="SemanticMessage"/> containing exactly one content segment.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="segment"/> is null.</exception>
+    public static SemanticMessage FromContent(MessageRole role, ContentSegment segment)
     {
-        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(segment);
 
-        return new Message
+        return new SemanticMessage
         {
             Role = role,
-            Content = [block],
+            Content = [segment],
         };
     }
 
     /// <summary>
-    /// Creates a <see cref="Message"/> from multiple existing <see cref="ContentBlock"/> values.
+    /// Creates a <see cref="SemanticMessage"/> from multiple existing <see cref="ContentSegment"/> values.
     /// </summary>
     /// <remarks>
-    /// Use this overload when a single turn must preserve multiple content blocks in order, such as a mixed text and
+    /// Use this overload when a single turn must preserve multiple content segments in order, such as a mixed text and
     /// tool-call model response.
     /// </remarks>
     /// <param name="role">The participant role that produced the message.</param>
-    /// <param name="blocks">The ordered content blocks that make up the message payload.</param>
-    /// <returns>A new <see cref="Message"/> containing the supplied content blocks.</returns>
+    /// <param name="blocks">The ordered content segments that make up the message payload.</param>
+    /// <returns>A new <see cref="SemanticMessage"/> containing the supplied content segments.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="blocks"/> is null.</exception>
-    public static Message FromContent(MessageRole role, ContentBlock[] blocks)
+    public static SemanticMessage FromContent(MessageRole role, ContentSegment[] blocks)
     {
         ArgumentNullException.ThrowIfNull(blocks);
 
-        return new Message
+        return new SemanticMessage
         {
             Role = role,
             Content = blocks,

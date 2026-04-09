@@ -1,7 +1,9 @@
+using SemanticFold.Core.Models;
+
 namespace SemanticFold.Core.Enums;
 
 /// <summary>
-/// Describes how a <see cref="SemanticFold.Core.Models.Message"/> has been transformed by compaction.
+/// Describes how a <see cref="SemanticMessage"/> has been transformed by compaction.
 /// </summary>
 /// <remarks>
 /// SemanticFold preserves compaction provenance on each message so callers can inspect whether a prepared payload still
@@ -16,7 +18,7 @@ public enum CompactionState
     Original,
 
     /// <summary>
-    /// The message keeps its position, but one or more content blocks are replaced with placeholders.
+    /// The message keeps its position, but one or more content segments are replaced with placeholders.
     /// </summary>
     Masked,
 

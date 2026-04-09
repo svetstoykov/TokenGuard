@@ -23,20 +23,20 @@ public sealed class EstimatedTokenCounter : ITokenCounter
     private const double CharsPerToken = 4.0;
 
     /// <inheritdoc />
-    public int Count(Message message)
+    public int Count(SemanticMessage semanticMessage)
     {
-        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(semanticMessage);
 
-        if (message.TokenCount is > 0)
+        if (semanticMessage.TokenCount is > 0)
         {
-            return message.TokenCount.Value;
+            return semanticMessage.TokenCount.Value;
         }
 
         long totalChars = 0;
 
-        foreach (var block in message.Content)
+        foreach (var segment in semanticMessage.Content)
         {
-            totalChars += block switch
+            totalChars += segment switch
             {
                 TextContent text => text.Text.Length,
                 ToolUseContent toolUse => toolUse.ToolName.Length + toolUse.ArgumentsJson.Length,
@@ -49,7 +49,7 @@ public sealed class EstimatedTokenCounter : ITokenCounter
     }
 
     /// <inheritdoc />
-    public int Count(IEnumerable<Message> messages)
+    public int Count(IEnumerable<SemanticMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
 

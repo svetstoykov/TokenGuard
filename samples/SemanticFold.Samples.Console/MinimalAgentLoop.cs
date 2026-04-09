@@ -119,11 +119,11 @@ public class MinimalAgentLoop
 
             if (response.FinishReason == ChatFinishReason.ToolCalls)
             {
-                var contentBlocks = new List<ContentBlock>();
+                var contentSegments = new List<ContentSegment>();
 
-                contentBlocks.AddRange(response.ResponseBlocks());
+                contentSegments.AddRange(response.ResponseSegments());
                 
-                conversationContext.RecordModelResponse(contentBlocks, inputTokens);
+                conversationContext.RecordModelResponse(contentSegments, inputTokens);
 
                 foreach (var call in response.ToolCalls)
                 {
@@ -137,7 +137,7 @@ public class MinimalAgentLoop
                 continue;
             }
 
-            var finalResponseText = response.TextBlocks();
+            var finalResponseText = response.TextSegments();
 
             conversationContext.RecordModelResponse(finalResponseText, inputTokens);
 
