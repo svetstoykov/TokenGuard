@@ -6,13 +6,19 @@ using SemanticFold.Abstractions;
 using SemanticFold.Enums;
 using SemanticFold.Models;
 using SemanticFold.Models.Content;
+using SemanticFold.Samples.Console;
 using SemanticFold.Samples.Console.Tools;
 using SemanticFold.Strategies;
 using SemanticFold.TokenCounting;
 
+var startTime = DateTime.Now;
+var tasksDirectory = Path.Combine(Directory.GetCurrentDirectory(), "Tasks");
+
 Console.WriteLine("=========================================");
 Console.WriteLine("   SemanticFold Agentic Loop Sample");
 Console.WriteLine("=========================================\n");
+
+using var logger = new SessionLogger();
 
 var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production";
 
@@ -25,25 +31,24 @@ var configuration = new ConfigurationBuilder()
 
 var apiKey = configuration["OpenRouterAPIKey"] ?? Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") ?? "sk-test-key";
 
-// We use OpenRouter as the API provider per request, falling back to OpenAI if no key is provided.
 var endpoint = new Uri("https://openrouter.ai/api/v1");
 var client = new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = endpoint });
 
-// The model string here should match your preferred OpenRouter or OpenAI model
 var chatClient = client.GetChatClient("qwen/qwen3.6-plus");
 
-// 1. Initialize SemanticFold engine
-// Using a tiny budget (e.g., 500 tokens) to demonstrate compaction kicking in early.
-var budget = ContextBudget.For(maxTokens: 500);
+var budget = ContextBudget.For(maxTokens: 1200);
 var counter = new EstimatedTokenCounter();
 var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4));
 var foldEngine = new FoldingEngine(budget, counter, strategy);
 
-// 2. Define Tools
+logger.LogBudgetInfo(budget, nameof(SlidingWindowStrategy));
+
 var tools = new ITool[]
 {
     new ListFilesTool(),
-    new ReadFileTool()
+    new ReadFileTool(),
+    new CreateTextFileTool(),
+    new EditTextFileTool()
 };
 
 var chatTools = tools.Select(t => t.Name switch
@@ -63,108 +68,157 @@ foreach (var tool in chatTools)
     chatOptions.Tools.Add(tool);
 }
 
-// Set the system prompt
-foldEngine.SetSystemPrompt("You are a helpful AI assistant. You have tools to list and read files in the current directory. Keep responses concise.");
+Directory.CreateDirectory(tasksDirectory);
 
-Console.WriteLine("Assistant is ready! You can ask to list files or read a file.");
-Console.WriteLine("Type 'exit' to quit.\n");
+var taskFilePath = Directory
+    .GetFiles(tasksDirectory, "*.txt")
+    .OrderBy(Path.GetFileName)
+    .FirstOrDefault();
 
-while (true)
+if (taskFilePath is null)
 {
-    Console.Write("User: ");
-    var input = Console.ReadLine();
+    Console.ForegroundColor = ConsoleColor.Red;
+    Console.WriteLine($"No task files found in {tasksDirectory}.");
+    Console.ResetColor();
+    return;
+}
 
-    if (string.IsNullOrWhiteSpace(input)) continue;
-    if (input.Equals("exit", StringComparison.OrdinalIgnoreCase)) break;
+var taskFileName = Path.GetFileName(taskFilePath);
+var taskText = await File.ReadAllTextAsync(taskFilePath);
 
-    // Record user input
-    foldEngine.AddUserMessage(input);
+if (string.IsNullOrWhiteSpace(taskText))
+{
+    Console.ForegroundColor = ConsoleColor.Red;
+    Console.WriteLine($"Task file '{taskFileName}' is empty.");
+    Console.ResetColor();
+    return;
+}
 
-    // Agentic loop for tool calls
-    while (true)
+foldEngine.SetSystemPrompt(
+    "You are an autonomous AI agent running inside a sample agent loop. " +
+    "You must fully complete the assigned task using the available tools when needed. " +
+    "Do not ask the user for clarification, status updates, or permission. " +
+    "Work iteratively until the task is complete. " +
+    "When and only when the task is fully complete, respond with a concise final report that ends with the exact line TASK_COMPLETE. " +
+    "If more work remains, continue working instead of stopping. " +
+    "You have tools to list files, read files, create text files, and edit text files in the current directory. " +
+    "Keep intermediate responses concise."
+);
+
+logger.LogMessageAdded(foldEngine.History.First(), "System Prompt Updated");
+
+Console.WriteLine($"Loaded task: {taskFileName}");
+Console.WriteLine("Running autonomous task from Tasks folder.\n");
+
+int totalCompactionCount = 0;
+
+foldEngine.AddUserMessage($"Task file: {taskFileName}\n\n{taskText}");
+logger.LogMessageAdded(foldEngine.History.Last(), "Task Loaded");
+
+var toolMap = tools.ToDictionary(t => t.Name, t => t);
+var taskCompleted = false;
+
+while (!taskCompleted)
+{
+    logger.LogHistoryBeforePrepare(foldEngine.History);
+
+    var preparedMessages = foldEngine.Prepare();
+    logger.LogPreparedMessages(preparedMessages, budget);
+
+    var compactionTriggered = preparedMessages.Any(m => m.State != CompactionState.Original);
+    if (compactionTriggered)
     {
-        // --- SEMANTICFOLD: Prepare the history ---
-        // If history exceeds the budget, it will automatically apply the SlidingWindowStrategy.
-        var preparedMessages = foldEngine.Prepare();
+        totalCompactionCount++;
+    }
 
-        // Print token usage for demonstration
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"[SemanticFold: Prepared {preparedMessages.Count} messages for LLM]");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine($"[SemanticFold: Prepared {preparedMessages.Count} messages for LLM]");
+    Console.ResetColor();
+
+    var openAiMessages = ConvertToOpenAiMessages(preparedMessages);
+
+    ChatCompletion response;
+    try
+    {
+        response = await chatClient.CompleteChatAsync(openAiMessages, chatOptions);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError("Chat Completion", ex);
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"API Error: {ex.Message}");
         Console.ResetColor();
+        break;
+    }
 
-        // Convert to OpenAI format
-        var openAiMessages = ConvertToOpenAiMessages(preparedMessages);
+    int? inputTokens = response.Usage?.InputTokenCount;
 
-        ChatCompletion response;
-        try
+    if (response.FinishReason == ChatFinishReason.ToolCalls)
+    {
+        var contentBlocks = new List<ContentBlock>();
+        var responseText = response.Content.Count > 0 ? response.Content[0].Text : string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(responseText))
         {
-            response = await chatClient.CompleteChatAsync(openAiMessages, chatOptions);
+            contentBlocks.Add(new TextContent(responseText));
+            Console.WriteLine($"Agent: {responseText}");
         }
-        catch (Exception ex)
+
+        foreach (var call in response.ToolCalls)
         {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"API Error: {ex.Message}");
+            contentBlocks.Add(new ToolUseContent(call.Id, call.FunctionName, call.FunctionArguments.ToString()));
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"[Agent calls tool: {call.FunctionName}({call.FunctionArguments})]");
             Console.ResetColor();
-            break;
         }
 
-        int? inputTokens = response.Usage?.InputTokenCount;
+        foldEngine.RecordModelResponse(contentBlocks, inputTokens);
 
-        if (response.FinishReason == ChatFinishReason.ToolCalls)
+        var recordedMsg = foldEngine.History.Last();
+        var toolCallNames = string.Join(", ", contentBlocks.OfType<ToolUseContent>().Select(t => t.ToolName));
+        logger.LogModelResponse(recordedMsg, inputTokens, $"Tool Calls [{toolCallNames}]");
+
+        foreach (var call in response.ToolCalls)
         {
-            // Assistant requested a tool
-            var contentBlocks = new List<ContentBlock>();
-            var responseText = response.Content.Count > 0 ? response.Content[0].Text : string.Empty;
+            var resultText = toolMap.TryGetValue(call.FunctionName, out var tool)
+                ? tool.Execute(call.FunctionArguments.ToString())
+                : "Error: Unknown tool.";
 
-            if (!string.IsNullOrWhiteSpace(responseText))
-            {
-                contentBlocks.Add(new TextContent(responseText));
-                Console.WriteLine($"Agent: {responseText}");
-            }
-
-            foreach (var call in response.ToolCalls)
-            {
-                contentBlocks.Add(new ToolUseContent(call.Id, call.FunctionName, call.FunctionArguments.ToString()));
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[Agent calls tool: {call.FunctionName}({call.FunctionArguments})]");
-                Console.ResetColor();
-            }
-
-            // --- SEMANTICFOLD: Record assistant message and anchor token count ---
-            foldEngine.RecordModelResponse(contentBlocks, inputTokens);
-
-            // Execute all tools
-            var toolMap = tools.ToDictionary(t => t.Name, t => t);
-            foreach (var call in response.ToolCalls)
-            {
-                var resultText = toolMap.TryGetValue(call.FunctionName, out var tool)
-                    ? tool.Execute(call.FunctionArguments.ToString())
-                    : "Error: Unknown tool.";
-
-                Console.ForegroundColor = ConsoleColor.DarkGreen;
-                Console.WriteLine($"[Tool Result: {resultText.Length} chars]");
-                Console.ResetColor();
-
-                // --- SEMANTICFOLD: Record tool result ---
-                foldEngine.RecordToolResult(call.Id, call.FunctionName, resultText);
-            }
-        }
-        else
-        {
-            // Assistant replied directly
-            var responseText = response.Content.Count > 0 ? response.Content[0].Text : "[No Content]";
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"Agent: {responseText}\n");
+            Console.ForegroundColor = ConsoleColor.DarkGreen;
+            Console.WriteLine($"[Tool Result: {resultText.Length} chars]");
             Console.ResetColor();
 
-            // --- SEMANTICFOLD: Record final reply ---
-            foldEngine.RecordModelResponse([new TextContent(responseText)], inputTokens);
-
-            // Exit the tool loop and await next user input
-            break;
+            foldEngine.RecordToolResult(call.Id, call.FunctionName, resultText);
+            logger.LogToolResultRecorded(foldEngine.History.Last());
         }
+
+        continue;
+    }
+
+    var finalResponseText = response.Content.Count > 0 ? response.Content[0].Text : "[No Content]";
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine($"Agent: {finalResponseText}\n");
+    Console.ResetColor();
+
+    foldEngine.RecordModelResponse([new TextContent(finalResponseText)], inputTokens);
+    logger.LogModelResponse(foldEngine.History.Last(), inputTokens, "Text Response");
+
+    taskCompleted = finalResponseText.Contains("TASK_COMPLETE", StringComparison.Ordinal);
+
+    if (!taskCompleted)
+    {
+        foldEngine.AddUserMessage(
+            "The task is not finished yet. Continue working until it is complete. " +
+            "Only your final completion message may end with the exact line TASK_COMPLETE.");
+        logger.LogMessageAdded(foldEngine.History.Last(), "Continuation Prompt Added");
     }
 }
+
+var duration = DateTime.Now - startTime;
+var finalTokenCount = foldEngine.History.Sum(m => m.TokenCount ?? 0);
+logger.LogSessionSummary(foldEngine.History.Count, totalCompactionCount, duration, finalTokenCount);
+
+Console.WriteLine($"\nSession complete. Log file: {logger.LogFilePath}");
 
 
 static IEnumerable<ChatMessage> ConvertToOpenAiMessages(IReadOnlyList<Message> foldMessages)
