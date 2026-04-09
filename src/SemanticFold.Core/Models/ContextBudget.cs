@@ -1,12 +1,24 @@
 namespace SemanticFold.Core.Models;
 
 /// <summary>
-/// Defines context window limits and compaction trigger thresholds.
+/// Defines the token budget that governs when a conversation compacts and how much history can be sent.
 /// </summary>
-/// <param name="maxTokens">The hard token ceiling for the full context window.</param>
-/// <param name="compactionThreshold">The fraction of available tokens at which normal compaction starts.</param>
-/// <param name="emergencyThreshold">The fraction of available tokens at which emergency compaction starts.</param>
-/// <param name="reservedTokens">Tokens reserved for fixed, non-message content.</param>
+/// <remarks>
+/// <para>
+/// <see cref="ContextBudget"/> separates the model's total context window from the portion that can actually be used for
+/// recorded messages. <paramref name="reservedTokens"/> is subtracted first so callers can hold space for system
+/// overhead, response allowance, or provider-specific framing that is not represented as <see cref="Message"/> values.
+/// </para>
+/// <para>
+/// The threshold properties express policy as fractions of <see cref="AvailableTokens"/> rather than raw counts. This
+/// keeps the same compaction behavior portable across models with different context sizes while still exposing the
+/// derived integer trigger values used by the runtime.
+/// </para>
+/// </remarks>
+/// <param name="maxTokens">The total token capacity of the target model context window.</param>
+/// <param name="compactionThreshold">The fraction of <see cref="AvailableTokens"/> at which normal compaction begins.</param>
+/// <param name="emergencyThreshold">The fraction of <see cref="AvailableTokens"/> at which emergency compaction begins.</param>
+/// <param name="reservedTokens">The token space held back for non-message content.</param>
 public readonly record struct ContextBudget(
     int maxTokens,
     double compactionThreshold = 0.80,
@@ -14,45 +26,49 @@ public readonly record struct ContextBudget(
     int reservedTokens = 0)
 {
     /// <summary>
-    /// Gets the hard token ceiling for the full context window.
+    /// Gets the total token capacity of the target context window.
     /// </summary>
     public int MaxTokens { get; } = ValidateMaxTokens(maxTokens);
 
     /// <summary>
-    /// Gets the fraction of available tokens at which normal compaction starts.
+    /// Gets the fraction of <see cref="AvailableTokens"/> at which normal compaction starts.
     /// </summary>
     public double CompactionThreshold { get; } = ValidateCompactionThreshold(compactionThreshold, emergencyThreshold);
 
     /// <summary>
-    /// Gets the fraction of available tokens at which emergency compaction starts.
+    /// Gets the fraction of <see cref="AvailableTokens"/> at which emergency compaction starts.
     /// </summary>
     public double EmergencyThreshold { get; } = ValidateEmergencyThreshold(emergencyThreshold, compactionThreshold);
 
     /// <summary>
-    /// Gets the number of tokens reserved for fixed, non-message content.
+    /// Gets the token space reserved for content not represented in message history.
     /// </summary>
     public int ReservedTokens { get; } = ValidateReservedTokens(reservedTokens, maxTokens);
 
     /// <summary>
-    /// Gets the token budget available for message history.
+    /// Gets the token budget remaining for recorded message history after reservations are applied.
     /// </summary>
     public int AvailableTokens => this.MaxTokens - this.ReservedTokens;
 
     /// <summary>
-    /// Gets the token count at which normal compaction should trigger.
+    /// Gets the integer token count at which normal compaction should trigger.
     /// </summary>
     public int CompactionTriggerTokens => (int)Math.Floor(this.AvailableTokens * this.CompactionThreshold);
 
     /// <summary>
-    /// Gets the token count at which emergency compaction should trigger.
+    /// Gets the integer token count at which emergency compaction should trigger.
     /// </summary>
     public int EmergencyTriggerTokens => (int)Math.Floor(this.AvailableTokens * this.EmergencyThreshold);
 
     /// <summary>
-    /// Creates a context budget with default thresholds and no reserved tokens.
+    /// Creates a <see cref="ContextBudget"/> that uses the library's default threshold policy.
     /// </summary>
-    /// <param name="maxTokens">The hard token ceiling for the full context window.</param>
-    /// <returns>A new <see cref="ContextBudget"/> instance using default settings.</returns>
+    /// <remarks>
+    /// This helper is used by <see cref="ConversationContextBuilder"/> and by callers that want a sensible budget for a
+    /// known model window without choosing compaction thresholds explicitly.
+    /// </remarks>
+    /// <param name="maxTokens">The total token capacity of the target model context window.</param>
+    /// <returns>A <see cref="ContextBudget"/> configured with default thresholds and no reserved tokens.</returns>
     public static ContextBudget For(int maxTokens)
     {
         return new ContextBudget(maxTokens);

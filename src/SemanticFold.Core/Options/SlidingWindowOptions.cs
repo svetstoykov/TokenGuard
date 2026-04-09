@@ -1,39 +1,41 @@
 using SemanticFold.Core.Models;
+using SemanticFold.Core.Strategies;
 
-namespace SemanticFold.Core.Strategies;
+namespace SemanticFold.Core.Options;
 
 /// <summary>
-/// Configuration for <see cref="SlidingWindowStrategy"/>.
+/// Configures how <see cref="SlidingWindowStrategy"/> protects recent history and masks older tool results.
 /// </summary>
-/// <param name="windowSize">Number of newest messages to preserve unchanged.</param>
-/// <param name="protectedWindowFraction">
-/// Fraction of <see cref="ContextBudget.AvailableTokens"/> allowed for the protected newest-message window.
-/// </param>
-/// <param name="placeholderFormat">
-/// Format string used to replace older tool results. {0} is tool name and {1} is tool call id.
-/// </param>
+/// <remarks>
+/// <see cref="SlidingWindowOptions"/> exposes the trade-off between preserving the newest conversational turns exactly
+/// and reclaiming space from older tool-heavy history. The values are validated at construction time so strategy
+/// instances fail fast when supplied with an impossible or ambiguous policy.
+/// </remarks>
+/// <param name="windowSize">The maximum number of newest messages to preserve unchanged.</param>
+/// <param name="protectedWindowFraction">The fraction of <see cref="ContextBudget.AvailableTokens"/> reserved for the protected newest-message window.</param>
+/// <param name="placeholderFormat">The composite format string used when replacing older tool results, where <c>{0}</c> is the tool name and <c>{1}</c> is the tool call identifier.</param>
 public readonly record struct SlidingWindowOptions(
     int windowSize = 10,
     double protectedWindowFraction = 0.40,
     string placeholderFormat = "[Tool result cleared — {0}, {1}]")
 {
     /// <summary>
-    /// Gets the default sliding-window options.
+    /// Gets the default configuration used by <see cref="SlidingWindowStrategy"/>.
     /// </summary>
     public static SlidingWindowOptions Default => new(10, 0.40, "[Tool result cleared — {0}, {1}]");
 
     /// <summary>
-    /// Gets the number of newest messages to preserve unchanged.
+    /// Gets the maximum number of newest messages to preserve unchanged.
     /// </summary>
     public int WindowSize { get; } = ValidateWindowSize(windowSize);
 
     /// <summary>
-    /// Gets the fraction of available tokens allowed for the protected newest-message window.
+    /// Gets the fraction of available tokens reserved for the protected newest-message window.
     /// </summary>
     public double ProtectedWindowFraction { get; } = ValidateProtectedWindowFraction(protectedWindowFraction);
 
     /// <summary>
-    /// Gets the format string used to replace older tool results.
+    /// Gets the format string used to replace older tool results with placeholders.
     /// </summary>
     public string PlaceholderFormat { get; } = ValidatePlaceholderFormat(placeholderFormat);
 

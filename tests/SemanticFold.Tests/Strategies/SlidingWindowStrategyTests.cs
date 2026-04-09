@@ -2,6 +2,7 @@ using SemanticFold.Core.Abstractions;
 using SemanticFold.Core.Enums;
 using SemanticFold.Core.Models;
 using SemanticFold.Core.Models.Content;
+using SemanticFold.Core.Options;
 using SemanticFold.Core.Strategies;
 
 namespace SemanticFold.Tests.Strategies;
@@ -9,7 +10,7 @@ namespace SemanticFold.Tests.Strategies;
 public sealed class SlidingWindowStrategyTests
 {
     [Fact]
-    public void Compact_WhenAllMessagesFitWithinWindowAndTokenCap_ReturnsOriginalListReference()
+    public async Task CompactAsync_WhenAllMessagesFitWithinWindowAndTokenCap_ReturnsOriginalListReference()
     {
         var messages = new List<Message>
         {
@@ -23,13 +24,13 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 10, protectedWindowFraction: 0.90));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(100), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(100), tokenCounter);
 
         Assert.Same(messages, compacted);
     }
 
     [Fact]
-    public void Compact_WhenTokenCapFiresBeforeWindowSize_BoundaryIsCorrectAndWalkStopsEarly()
+    public async Task CompactAsync_WhenTokenCapFiresBeforeWindowSize_BoundaryIsCorrectAndWalkStopsEarly()
     {
         var messages = new List<Message>
         {
@@ -46,7 +47,7 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4, protectedWindowFraction: 0.50));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(10), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         Assert.Equal(2, tokenCounter.CountCalls);
         Assert.False(tokenCounter.WasCounted(messages[2]));
@@ -55,7 +56,7 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
-    public void Compact_WhenCountFloorFiresBeforeTokenCap_ProtectsExactlyWindowSizeMessages()
+    public async Task CompactAsync_WhenCountFloorFiresBeforeTokenCap_ProtectsExactlyWindowSizeMessages()
     {
         var messages = new List<Message>
         {
@@ -72,7 +73,7 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.90));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(100), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(100), tokenCounter);
 
         Assert.Equal(2, tokenCounter.CountCalls);
         Assert.Same(messages[3], compacted[3]);
@@ -81,7 +82,7 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
-    public void Compact_ProtectedMessages_AreNeverModifiedRegardlessOfContent()
+    public async Task CompactAsync_ProtectedMessages_AreNeverModifiedRegardlessOfContent()
     {
         var protectedToolResult = new Message
         {
@@ -100,7 +101,7 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.80));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(100), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(100), tokenCounter);
 
         Assert.Same(protectedToolResult, compacted[1]);
         Assert.Same(protectedText, compacted[2]);
@@ -108,7 +109,7 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
-    public void Compact_ToolResultBlocksInExposedSegment_AreReplacedWithTextPlaceholders()
+    public async Task CompactAsync_ToolResultBlocksInExposedSegment_AreReplacedWithTextPlaceholders()
     {
         var messages = new List<Message>
         {
@@ -122,7 +123,7 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.30));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(10), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         var masked = compacted[0];
         var text = Assert.IsType<TextContent>(Assert.Single(masked.Content));
@@ -130,7 +131,7 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
-    public void Compact_NonToolResultMessagesInExposedSegment_ArePassedThroughUnchanged()
+    public async Task CompactAsync_NonToolResultMessagesInExposedSegment_ArePassedThroughUnchanged()
     {
         var passthrough = Message.FromText(MessageRole.User, "plain text");
         var protectedMessage = Message.FromText(MessageRole.Model, "recent");
@@ -142,13 +143,13 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.50));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(10), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         Assert.Same(passthrough, compacted[0]);
     }
 
     [Fact]
-    public void Compact_MixedContentMessagesInExposedSegment_OnlyReplaceToolResultBlocks()
+    public async Task CompactAsync_MixedContentMessagesInExposedSegment_OnlyReplaceToolResultBlocks()
     {
         var mixed = new Message
         {
@@ -170,7 +171,7 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.50));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(10), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
         var compactedBlocks = compacted[0].Content;
 
         Assert.Equal(3, compactedBlocks.Count);
@@ -180,7 +181,7 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
-    public void Compact_MaskedMessagesAreMarkedMasked_ProtectedMessagesRetainOriginalState()
+    public async Task CompactAsync_MaskedMessagesAreMarkedMasked_ProtectedMessagesRetainOriginalState()
     {
         var exposed = CreateToolResultMessage("call_1", "tool", "payload");
         var protectedMessage = Message.FromText(MessageRole.User, "recent") with { State = CompactionState.Summarized };
@@ -192,14 +193,14 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.50));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(10), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         Assert.Equal(CompactionState.Masked, compacted[0].State);
         Assert.Equal(CompactionState.Summarized, compacted[1].State);
     }
 
     [Fact]
-    public void Compact_PlaceholderUsesResolvedToolName_WhenMatchingToolUseExistsInAnyMessage()
+    public async Task CompactAsync_PlaceholderUsesResolvedToolName_WhenMatchingToolUseExistsInAnyMessage()
     {
         var toolUseMessage = new Message
         {
@@ -222,14 +223,14 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 3, protectedWindowFraction: 0.50));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(10), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         var text = Assert.IsType<TextContent>(Assert.Single(compacted[1].Content));
         Assert.Equal("[Tool result cleared — calculator, call_1]", text.Text);
     }
 
     [Fact]
-    public void Compact_PlaceholderFallsBackToToolCallId_WhenNoToolUseExists()
+    public async Task CompactAsync_PlaceholderFallsBackToToolCallId_WhenNoToolUseExists()
     {
         var exposed = CreateToolResultMessage("call_missing", "result-tool", "payload");
         var protectedMessage = Message.FromText(MessageRole.Model, "recent");
@@ -241,14 +242,14 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.50));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(10), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         var text = Assert.IsType<TextContent>(Assert.Single(compacted[0].Content));
         Assert.Equal("[Tool result cleared — call_missing, call_missing]", text.Text);
     }
 
     [Fact]
-    public void Compact_DoesNotMutateInputListOrInputMessages()
+    public async Task CompactAsync_DoesNotMutateInputListOrInputMessages()
     {
         var originalMessage = new Message
         {
@@ -266,7 +267,7 @@ public sealed class SlidingWindowStrategyTests
 
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.50));
 
-        var compacted = strategy.Compact(messages, ContextBudget.For(10), tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         Assert.Equal(2, messages.Count);
         Assert.Same(originalMessage, messages[0]);

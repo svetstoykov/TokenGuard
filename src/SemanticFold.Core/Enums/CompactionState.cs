@@ -1,22 +1,27 @@
 namespace SemanticFold.Core.Enums;
 
 /// <summary>
-/// Tracks what has happened to a message during compaction.
+/// Describes how a <see cref="SemanticFold.Core.Models.Message"/> has been transformed by compaction.
 /// </summary>
+/// <remarks>
+/// SemanticFold preserves compaction provenance on each message so callers can inspect whether a prepared payload still
+/// contains original content or a reduced representation. This is especially useful for debugging, auditing, and tests
+/// that need to assert how a strategy handled older history.
+/// </remarks>
 public enum CompactionState
 {
     /// <summary>
-    /// The message is unmodified.
+    /// The message is retained without compaction changes.
     /// </summary>
     Original,
 
     /// <summary>
-    /// Tool result content has been replaced with a placeholder.
+    /// The message keeps its position, but one or more content blocks are replaced with placeholders.
     /// </summary>
     Masked,
 
     /// <summary>
-    /// The message is a synthetic summary replacing one or more original messages.
+    /// The message is a synthetic summary standing in for one or more original messages.
     /// </summary>
     Summarized,
 }

@@ -1,4 +1,5 @@
 using SemanticFold.Core;
+using SemanticFold.Core.Options;
 using SemanticFold.Core.Models;
 using SemanticFold.Core.Models.Content;
 using SemanticFold.Core.Enums;
@@ -11,7 +12,7 @@ namespace SemanticFold.IntegrationTests;
 public sealed class FoldingEngineIntegrationTests
 {
     [Fact]
-    public void AgentLoop_WithLargeContext_ShouldTriggerCompaction_AndManageTokens()
+    public async Task AgentLoop_WithLargeContext_ShouldTriggerCompaction_AndManageTokens()
     {
         // Budget: 1000 tokens max, compact at 80% (800 tokens).
         var budget = new ContextBudget(maxTokens: 1000, compactionThreshold: 0.80);
@@ -22,7 +23,7 @@ public sealed class FoldingEngineIntegrationTests
         // System prompt
         engine.SetSystemPrompt("You are a helpful assistant.");
 
-        var prepared = engine.Prepare();
+        var prepared = await engine.PrepareAsync();
         Assert.Same(engine.History, prepared);
 
         // User makes a request
@@ -47,7 +48,7 @@ public sealed class FoldingEngineIntegrationTests
         var last = engine.History[^1];
 
         // Now we prepare for the next turn.
-        var compactedMessages = engine.Prepare();
+        var compactedMessages = await engine.PrepareAsync();
 
         Assert.NotSame(engine.History, compactedMessages);
 
@@ -73,12 +74,12 @@ public sealed class FoldingEngineIntegrationTests
             [new ToolUseContent("call_456", "check_db", "{\"time\":\"03:00\"}")],
             providerInputTokens: reportedInputTokens);
 
-        var finalPrepared = engine.Prepare();
+        var finalPrepared = await engine.PrepareAsync();
         Assert.NotSame(engine.History, finalPrepared);
     }
 
     [Fact]
-    public void FullConversationLifecycle_WithMultipleCompactionPasses_WorksCorrectly()
+    public async Task FullConversationLifecycle_WithMultipleCompactionPasses_WorksCorrectly()
     {
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.80); // trigger ~400
         var counter = new EstimatedTokenCounter();
@@ -95,7 +96,7 @@ public sealed class FoldingEngineIntegrationTests
         var currentCount = counter.Count(engine.History);
         Assert.True(currentCount < budget.CompactionTriggerTokens,
             $"Expected count {currentCount} to be < {budget.CompactionTriggerTokens}");
-        var prep1 = engine.Prepare();
+        var prep1 = await engine.PrepareAsync();
         Assert.Same(engine.History, prep1);
 
         // Turn 2
@@ -107,7 +108,7 @@ public sealed class FoldingEngineIntegrationTests
         engine.RecordModelResponse([new TextContent("Deleted all 10 files.")]);
 
         // Now total is ~650 tokens > 400 threshold
-        var prep2 = engine.Prepare();
+        var prep2 = await engine.PrepareAsync();
         Assert.NotSame(engine.History, prep2);
 
         // First tool result should be masked, second should possibly be masked depending on protected window.
@@ -122,7 +123,7 @@ public sealed class FoldingEngineIntegrationTests
         // Turn 3
         engine.AddUserMessage("Thanks, what's next?");
 
-        var prep3 = engine.Prepare();
+        var prep3 = await engine.PrepareAsync();
         Assert.NotSame(engine.History, prep3);
 
         var finalMaskedCount = prep3.Count(m => m.State == CompactionState.Masked);

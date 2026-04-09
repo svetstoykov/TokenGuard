@@ -1,16 +1,25 @@
 namespace SemanticFold.Core.Models.Content;
 
 /// <summary>
-/// Represents the result of a tool execution.
+/// Represents the recorded output of a completed tool invocation.
 /// </summary>
+/// <remarks>
+/// <see cref="ToolResultContent"/> closes the loop started by <see cref="ToolUseContent"/>. The stored values let the
+/// model inspect prior tool outputs, and they give compaction strategies enough structure to preserve or mask those
+/// outputs without losing the surrounding conversation flow.
+/// </remarks>
 public sealed record ToolResultContent : ContentBlock
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="ToolResultContent"/> record.
+    /// Initializes a new <see cref="ToolResultContent"/> instance.
     /// </summary>
-    /// <param name="ToolCallId">The tool call identifier this result corresponds to.</param>
-    /// <param name="ToolName">The name of the tool that produced this result.</param>
-    /// <param name="Content">The tool output payload.</param>
+    /// <remarks>
+    /// The constructor enforces the minimum data required to round-trip tool output back to the model and to support
+    /// later masking or inspection.
+    /// </remarks>
+    /// <param name="ToolCallId">The identifier of the original tool call this result answers.</param>
+    /// <param name="ToolName">The name of the tool that produced the result.</param>
+    /// <param name="Content">The raw tool output payload to record in conversation history.</param>
     /// <exception cref="ArgumentException">Thrown when <paramref name="ToolCallId"/> or <paramref name="ToolName"/> is null or whitespace.</exception>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="Content"/> is null.</exception>
     public ToolResultContent(string ToolCallId, string ToolName, string Content)
@@ -33,7 +42,7 @@ public sealed record ToolResultContent : ContentBlock
     }
 
     /// <summary>
-    /// Gets the tool call identifier this result corresponds to.
+    /// Gets the identifier of the tool call this result corresponds to.
     /// </summary>
     public string ToolCallId { get; init; }
 
@@ -43,7 +52,7 @@ public sealed record ToolResultContent : ContentBlock
     public string ToolName { get; init; }
 
     /// <summary>
-    /// Gets the tool output payload.
+    /// Gets the raw tool output payload recorded for this result.
     /// </summary>
     public string Content { get; init; }
 }

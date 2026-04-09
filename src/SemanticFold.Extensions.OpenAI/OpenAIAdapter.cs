@@ -20,7 +20,7 @@ public static class OpenAIExtensions
 {
     /// <summary>
     /// Converts SemanticFold messages into OpenAI chat messages, preserving order.
-    /// Call this on the result of <c>ConversationContext.Prepare()</c> immediately before sending to the OpenAI client.
+    /// Call this on the result of <c>ConversationContext.PrepareAsync()</c> immediately before sending to the OpenAI client.
     /// </summary>
     /// <param name="messages">The prepared SemanticFold messages.</param>
     /// <returns>A list of OpenAI <see cref="ChatMessage"/> instances ready to pass to <c>CompleteChatAsync</c>.</returns>

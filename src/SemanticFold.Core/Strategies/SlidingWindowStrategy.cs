@@ -2,38 +2,94 @@ using SemanticFold.Core.Abstractions;
 using SemanticFold.Core.Enums;
 using SemanticFold.Core.Models;
 using SemanticFold.Core.Models.Content;
+using SemanticFold.Core.Options;
 
 namespace SemanticFold.Core.Strategies;
 
 /// <summary>
-/// Masks tool results in older messages while preserving a newest-message window unchanged.
+///     Masks tool results outside a protected newest-message window.
 /// </summary>
-public sealed class SlidingWindowStrategy : ICompactionStrategy
+/// <remarks>
+///     <para>
+///         Use <see cref="SlidingWindowStrategy"/> when recent messages must remain fully intact for the active
+///         agent turn, while older <see cref="ToolResultContent"/> payloads can be replaced with compact
+///         placeholders to reduce retained context size.
+///     </para>
+///     <para>
+///         The strategy walks backward from the newest message and protects messages until either
+///         <see cref="SlidingWindowOptions.WindowSize"/> is reached or the protected segment would exceed the
+///         token allowance derived from <see cref="ContextBudget.AvailableTokens"/> and
+///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/>. Messages before that boundary keep their
+///         ordering and structure, but any <see cref="ToolResultContent"/> blocks are converted into text
+///         placeholders and the message state is marked as <see cref="CompactionState.Masked"/>.
+///     </para>
+/// </remarks>
+internal sealed class SlidingWindowStrategy : ICompactionStrategy
 {
     private readonly SlidingWindowOptions _options;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="SlidingWindowStrategy"/> class with default options.
+    ///     Initializes a new instance of the <see cref="SlidingWindowStrategy"/> class with default options.
     /// </summary>
+    /// <remarks>
+    ///     This constructor uses <see cref="SlidingWindowOptions.Default"/> so callers can adopt the standard
+    ///     sliding-window behavior without explicitly creating an options value.
+    /// </remarks>
     public SlidingWindowStrategy()
         : this(SlidingWindowOptions.Default)
     {
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="SlidingWindowStrategy"/> class.
+    ///     Initializes a new instance of the <see cref="SlidingWindowStrategy"/> class.
     /// </summary>
-    /// <param name="options">The sliding window options.</param>
+    /// <remarks>
+    ///     Supply <paramref name="options"/> to tune how much of the newest history stays untouched and how older
+    ///     tool results are represented after masking. The provided value is retained for all subsequent
+    ///     <see cref="CompactAsync(IReadOnlyList{Message}, ContextBudget, ITokenCounter, CancellationToken)"/> calls.
+    /// </remarks>
+    /// <param name="options">The sliding-window configuration that controls boundary selection and placeholder generation.</param>
     public SlidingWindowStrategy(SlidingWindowOptions options)
     {
         this._options = options;
     }
 
-    /// <inheritdoc />
-    public IReadOnlyList<Message> Compact(IReadOnlyList<Message> messages, ContextBudget budget, ITokenCounter tokenCounter)
+    /// <summary>
+    ///     Compacts a message history by masking older tool results outside the protected window.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         This method preserves the original message order and leaves the newest protected segment unchanged.
+    ///         The protected boundary is calculated from the end of <paramref name="messages"/> using both the
+    ///         configured window size and the token counts returned by <paramref name="tokenCounter"/>.
+    ///     </para>
+    ///     <para>
+    ///         Messages before the boundary are only modified when they contain <see cref="ToolResultContent"/>.
+    ///         In that case each tool result is replaced with a <see cref="TextContent"/> placeholder built from
+    ///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>, and the returned message clears
+    ///         <see cref="Message.TokenCount"/> so token estimation can be recomputed against the masked content.
+    ///     </para>
+    /// </remarks>
+    /// <param name="messages">The ordered message history to compact.</param>
+    /// <param name="budget">The context budget that supplies the available-token limit for the protected window.</param>
+    /// <param name="tokenCounter">The token counter used to measure candidate messages while determining the protected boundary.</param>
+    /// <param name="cancellationToken">A token that can cancel the compaction operation before it completes.</param>
+    /// <returns>
+    ///     A task that resolves to the original message sequence when the entire history fits inside the protected
+    ///     window; otherwise, a sequence where older tool results are replaced with placeholders.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">
+    ///     Thrown when <paramref name="messages"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
+    /// </exception>
+    public Task<IReadOnlyList<Message>> CompactAsync(
+        IReadOnlyList<Message> messages,
+        ContextBudget budget,
+        ITokenCounter tokenCounter,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(tokenCounter);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var maxProtectedTokens = (int)Math.Floor(budget.AvailableTokens * this._options.ProtectedWindowFraction);
         var protectedCount = 0;
@@ -60,7 +116,7 @@ public sealed class SlidingWindowStrategy : ICompactionStrategy
 
         if (protectedCount == messages.Count)
         {
-            return messages;
+            return Task.FromResult(messages);
         }
 
         var toolNameLookup = BuildToolNameLookup(messages);
@@ -76,7 +132,7 @@ public sealed class SlidingWindowStrategy : ICompactionStrategy
             result[i] = messages[i];
         }
 
-        return result;
+        return Task.FromResult<IReadOnlyList<Message>>(result);
     }
 
     private static Dictionary<string, string> BuildToolNameLookup(IReadOnlyList<Message> messages)

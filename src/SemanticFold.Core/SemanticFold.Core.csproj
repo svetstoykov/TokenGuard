@@ -9,6 +9,7 @@
     <ItemGroup>
         <InternalsVisibleTo Include="SemanticFold.Tests" />
         <InternalsVisibleTo Include="SemanticFold.IntegrationTests" />
+        <InternalsVisibleTo Include="SemanticFold.Samples.Console" />
     </ItemGroup>
 
 </Project>

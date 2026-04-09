@@ -7,6 +7,7 @@ using SemanticFold.Core.Abstractions;
 using SemanticFold.Core.Enums;
 using SemanticFold.Core.Models;
 using SemanticFold.Core.Models.Content;
+using SemanticFold.Core.Options;
 using SemanticFold.Core.Strategies;
 using SemanticFold.Core.TokenCounting;
 using SemanticFold.Samples.Console;
@@ -123,7 +124,7 @@ while (!taskCompleted)
 {
     logger.LogHistoryBeforePrepare(conversationContext.History);
 
-    var preparedMessages = conversationContext.Prepare();
+    var preparedMessages = await conversationContext.PrepareAsync();
     logger.LogPreparedMessages(preparedMessages, budget);
 
     var compactionTriggered = preparedMessages.Any(m => m.State != CompactionState.Original);

@@ -9,7 +9,7 @@ namespace SemanticFold.Tests.Core;
 public sealed class ConversationContextTests
 {
     [Fact]
-    public void Prepare_WhenEstimateIsBelowThreshold_ReturnsOriginalListAndSkipsCompaction()
+    public async Task PrepareAsync_WhenEstimateIsBelowThreshold_ReturnsOriginalListAndSkipsCompaction()
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
@@ -19,14 +19,14 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("hello");
         counter.Set(engine.History[0], 0);
 
-        var prepared = engine.Prepare();
+        var prepared = await engine.PrepareAsync();
 
         Assert.Same(engine.History, prepared);
         Assert.Equal(0, strategy.CompactCalls);
     }
 
     [Fact]
-    public void Prepare_WhenEstimateMeetsThreshold_UsesCompactionStrategyResult()
+    public async Task PrepareAsync_WhenEstimateMeetsThreshold_UsesCompactionStrategyResult()
     {
         var compacted = Message.FromText(MessageRole.Model, "compacted");
         var counter = new TrackingTokenCounter();
@@ -40,7 +40,7 @@ public sealed class ConversationContextTests
 
         engine.AddUserMessage("original");
 
-        var prepared = engine.Prepare();
+        var prepared = await engine.PrepareAsync();
 
         Assert.Equal(1, strategy.CompactCalls);
         Assert.Same(engine.History[0], strategy.LastInput![0]);
@@ -48,7 +48,7 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public void Prepare_WhenSystemMessagesExist_KeepsThemAtTopAndAdjustsBudget()
+    public async Task PrepareAsync_WhenSystemMessagesExist_KeepsThemAtTopAndAdjustsBudget()
     {
         var compacted = Message.FromText(MessageRole.Model, "compacted");
         var counter = new TrackingTokenCounter();
@@ -69,7 +69,7 @@ public sealed class ConversationContextTests
         var sys1 = engine.History[0];
         var user1 = engine.History[1];
 
-        var prepared = engine.Prepare();
+        var prepared = await engine.PrepareAsync();
 
         // System messages excluded from compactable messages
         Assert.Single(strategy.LastInput!);
@@ -87,7 +87,7 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public void SetSystemPrompt_InsertsAtTopAndPrepareReturnsCorrectOrder()
+    public async Task SetSystemPrompt_InsertsAtTopAndPrepareAsyncReturnsCorrectOrder()
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
@@ -102,7 +102,7 @@ public sealed class ConversationContextTests
         counter.Set(sys1, 100);
         counter.Set(user1, 100);
 
-        var prepared = engine.Prepare();
+        var prepared = await engine.PrepareAsync();
 
         Assert.Equal(2, prepared.Count);
         Assert.Same(sys1, prepared[0]);
@@ -110,7 +110,7 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public void RecordModelResponse_PrewarmsCache_SoPrepareDoesNotRecountSameMessage()
+    public async Task RecordModelResponse_PrewarmsCache_SoPrepareAsyncDoesNotRecountSameMessage()
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
@@ -120,13 +120,13 @@ public sealed class ConversationContextTests
         var message = engine.History[0];
         counter.Set(message, 1);
 
-        _ = engine.Prepare();
+        _ = await engine.PrepareAsync();
 
         Assert.Equal(1, counter.GetCountCalls(message));
     }
 
     [Fact]
-    public void RecordModelResponse_WithProviderInputTokens_AppliesAnchorCorrectionOnNextPrepare()
+    public async Task RecordModelResponse_WithProviderInputTokens_AppliesAnchorCorrectionOnNextPrepareAsync()
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy([Message.FromText(MessageRole.Model, "compressed")]);
@@ -135,18 +135,18 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("hello");
         counter.Set(engine.History[0], 0);
 
-        _ = engine.Prepare();
+        _ = await engine.PrepareAsync();
 
         engine.RecordModelResponse([new TextContent("reply")], providerInputTokens: 800);
         counter.Set(engine.History[1], 0);
 
-        _ = engine.Prepare();
+        _ = await engine.PrepareAsync();
 
         Assert.Equal(1, strategy.CompactCalls);
     }
 
     [Fact]
-    public void Prepare_CacheUsesReferenceIdentity_ForEquivalentButDistinctMessages()
+    public async Task PrepareAsync_CacheUsesReferenceIdentity_ForEquivalentButDistinctMessages()
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
@@ -160,14 +160,14 @@ public sealed class ConversationContextTests
         counter.Set(first, 0);
         counter.Set(second, 0);
 
-        _ = engine.Prepare();
+        _ = await engine.PrepareAsync();
 
         Assert.Equal(1, counter.GetCountCalls(first));
         Assert.Equal(1, counter.GetCountCalls(second));
     }
 
     [Fact]
-    public void Prepare_CachesTokenCountOnCompactedMessages_SoTheyAreNotRecounted()
+    public async Task PrepareAsync_CachesTokenCountOnCompactedMessages_SoTheyAreNotRecounted()
     {
         var compacted = Message.FromText(MessageRole.Model, "compacted");
         var counter = new TrackingTokenCounter();
@@ -182,11 +182,11 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("original");
 
         // First Prepare triggers compaction; compacted message counted once and cached
-        _ = engine.Prepare();
+        _ = await engine.PrepareAsync();
 
         // Second Prepare: engine history is still the original message (800 tokens), so compaction
         // fires again. compacted is not counted a second time because its TokenCount property is set.
-        _ = engine.Prepare();
+        _ = await engine.PrepareAsync();
 
         Assert.Equal(1, counter.GetCountCalls(compacted));
     }
@@ -206,13 +206,14 @@ public sealed class ConversationContextTests
 
         public ContextBudget LastBudget { get; private set; }
 
-        public IReadOnlyList<Message> Compact(IReadOnlyList<Message> messages, ContextBudget budget, ITokenCounter tokenCounter)
+        public Task<IReadOnlyList<Message>> CompactAsync(IReadOnlyList<Message> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             this.CompactCalls++;
             this.LastInput = messages;
             this.LastBudget = budget;
 
-            return this._result ?? messages;
+            return Task.FromResult(this._result ?? messages);
         }
     }
 

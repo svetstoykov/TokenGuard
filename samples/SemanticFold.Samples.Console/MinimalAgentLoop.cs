@@ -6,6 +6,7 @@ using SemanticFold.Core;
 using SemanticFold.Core.Abstractions;
 using SemanticFold.Core.Models;
 using SemanticFold.Core.Models.Content;
+using SemanticFold.Core.Options;
 using SemanticFold.Core.Strategies;
 using SemanticFold.Core.TokenCounting;
 using SemanticFold.Samples.Console.Tools;
@@ -100,7 +101,7 @@ public class MinimalAgentLoop
         var taskCompleted = false;
         while (!taskCompleted)
         {
-            var preparedMessages = conversationContext.Prepare();
+            var preparedMessages = await conversationContext.PrepareAsync();
             var openAiMessages = preparedMessages.ForOpenAI();
 
             ChatCompletion response;

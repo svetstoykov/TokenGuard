@@ -5,11 +5,17 @@ using SemanticFold.Core.Models.Content;
 namespace SemanticFold.Core.TokenCounting;
 
 /// <summary>
-/// A token counter that estimates tokens based on character counts using a fixed ratio.
+/// Provides a lightweight heuristic <see cref="ITokenCounter"/> based on character counts.
 /// </summary>
 /// <remarks>
-/// Estimation formula: (int)Math.Ceiling(chars / 4.0).
-/// Each message adds a fixed 4-token overhead.
+/// <para>
+/// <see cref="EstimatedTokenCounter"/> is the default counter used by <see cref="ConversationContextBuilder"/> when no
+/// provider-specific implementation is supplied. It trades precision for zero dependencies and predictable performance.
+/// </para>
+/// <para>
+/// The estimate is calculated as <c>ceiling(totalCharacters / 4.0) + 4</c> per message. This is intentionally simple,
+/// and callers should replace it when exact provider tokenization materially affects compaction behavior.
+/// </para>
 /// </remarks>
 public sealed class EstimatedTokenCounter : ITokenCounter
 {

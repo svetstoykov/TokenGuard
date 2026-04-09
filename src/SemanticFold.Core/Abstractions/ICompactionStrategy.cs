@@ -3,18 +3,33 @@ using SemanticFold.Core.Models;
 namespace SemanticFold.Core.Abstractions;
 
 /// <summary>
-/// Defines a synchronous strategy for compacting message history to fit within a context budget.
+///     Defines a synchronous strategy for compacting message history to fit within a context budget.
 /// </summary>
+/// <remarks>
+///     Implement this interface when a conversation history must be transformed before it is sent to a model,
+///     but the caller needs to preserve a simple synchronous execution flow. Implementations are responsible for
+///     deciding which parts of the message sequence are retained, summarized, or replaced while maintaining a
+///     valid <see cref="Message"/> list for downstream processing.
+/// </remarks>
 public interface ICompactionStrategy
 {
     /// <summary>
-    /// Compacts messages to fit within <paramref name="budget"/>'s available tokens.
+    ///     Compacts messages to fit within <paramref name="budget"/>'s available tokens.
     /// </summary>
-    /// <param name="messages">The source message list that should be compacted.</param>
-    /// <param name="budget">The context budget that defines available token limits.</param>
-    /// <param name="tokenCounter">The token counter used to measure token usage.</param>
+    /// <remarks>
+    ///     Implementations should preserve the logical ordering of <paramref name="messages"/> while producing a
+    ///     sequence suitable for the token constraints described by <paramref name="budget"/>. The supplied
+    ///     <paramref name="tokenCounter"/> is the abstraction used to estimate message cost and should be used
+    ///     consistently so compaction decisions align with the active counting strategy. The task-based contract
+    ///     allows implementations to call external services, including LLM-backed summarizers or reducers,
+    ///     without forcing callers to block a thread.
+    /// </remarks>
+    /// <param name="messages">The ordered source message list to compact.</param>
+    /// <param name="budget">The context budget that defines the available-token limits for the compacted result.</param>
+    /// <param name="tokenCounter">The token counter used to measure message cost during compaction.</param>
     /// <returns>
-    /// A new message list that preserves ordering and fits within <paramref name="budget"/>'s available tokens.
+    ///     A task that resolves to a message sequence preserving ordering semantics and intended to satisfy
+    ///     <paramref name="budget"/>'s available-token constraints.
     /// </returns>
-    IReadOnlyList<Message> Compact(IReadOnlyList<Message> messages, ContextBudget budget, ITokenCounter tokenCounter);
+    Task<IReadOnlyList<Message>> CompactAsync(IReadOnlyList<Message> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default);
 }

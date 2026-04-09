@@ -14,12 +14,12 @@ namespace SemanticFold.Core;
 /// <para>
 /// A <see cref="ConversationContext"/> acts as the central state container for an agent loop or
 /// chat session. Messages are added to the history as user input, model responses, and tool
-/// results occur, and <see cref="Prepare"/> returns the message list that should be sent to the
+/// results occur, and <see cref="PrepareAsync(CancellationToken)"/> returns the message list that should be sent to the
 /// provider for the next request.
 /// </para>
 /// <para>
 /// The context keeps the original recorded history intact. When the conversation is still within
-/// budget, <see cref="Prepare"/> returns that history directly. When the configured compaction
+/// budget, <see cref="PrepareAsync(CancellationToken)"/> returns that history directly. When the configured compaction
 /// trigger is reached, the context delegates to the configured <see cref="ICompactionStrategy"/>
 /// to produce a smaller request payload while preserving the overall conversation flow.
 /// </para>
@@ -43,7 +43,7 @@ public sealed class ConversationContext
 
     private readonly List<Message> _history = [];
 
-    // Token total of the list most recently returned by Prepare — used to compute anchor corrections.
+    // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
     private int _lastPreparedTotal;
 
     // Additive correction applied to every raw estimate to account for systematic estimator drift.
@@ -83,7 +83,7 @@ public sealed class ConversationContext
     /// </para>
     /// <para>
     /// This property is useful for inspection, testing, logging, and debugging. It is not the
-    /// same as the request payload returned by <see cref="Prepare"/>, which may be compacted.
+    /// same as the request payload returned by <see cref="PrepareAsync(CancellationToken)"/>, which may be compacted.
     /// </para>
     /// </remarks>
     public IReadOnlyList<Message> History => this._history;
@@ -125,7 +125,7 @@ public sealed class ConversationContext
     /// <param name="text">The user message text.</param>
     /// <remarks>
     /// This method records the message exactly as a new user turn. It does not trigger
-    /// compaction. Compaction is evaluated only when <see cref="Prepare"/> is called.
+    /// compaction. Compaction is evaluated only when <see cref="PrepareAsync(CancellationToken)"/> is called.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
     public void AddUserMessage(string text)
@@ -148,7 +148,7 @@ public sealed class ConversationContext
     /// <param name="providerInputTokens">
     /// The exact input token count reported by the provider for the request that produced this
     /// response. When supplied, this value is used to correct future token estimates so
-    /// <see cref="Prepare"/> can stay aligned with the provider's counting behavior.
+    /// <see cref="PrepareAsync(CancellationToken)"/> can stay aligned with the provider's counting behavior.
     /// </param>
     /// <remarks>
     /// <para>
@@ -158,7 +158,7 @@ public sealed class ConversationContext
     /// <para>
     /// If <paramref name="providerInputTokens"/> is provided, the context compares the provider's
     /// exact input token count with its most recent prepared estimate and stores the difference as
-    /// a correction factor. That correction is applied to later <see cref="Prepare"/> calls until
+    /// a correction factor. That correction is applied to later <see cref="PrepareAsync(CancellationToken)"/> calls until
     /// the next compaction cycle resets it.
     /// </para>
     /// </remarks>
@@ -177,14 +177,7 @@ public sealed class ConversationContext
         this.EnsureCounted(message);
         this.ApplyAnchor(providerInputTokens);
     }
-
-    /// <summary>
-    /// Provides a convenience overload for use with provider adapters.
-    /// </summary>
-    /// <param name="result"><inheritdoc cref="RecordModelResponse(IEnumerable{ContentBlock}, int?)" path="/param[@name='content']"/></param>
-    /// <inheritdoc cref="RecordModelResponse(IEnumerable{ContentBlock}, int?)" path="/exception"/>
-    public void RecordModelResponse(AdapterResult result) => this.RecordModelResponse(result.Content, result.InputTokens);
-
+    
     /// <summary>
     /// Records the result of one tool execution.
     /// </summary>
@@ -223,19 +216,20 @@ public sealed class ConversationContext
     /// <summary>
     /// Builds the message list to send for the next LLM request.
     /// </summary>
+    /// <param name="cancellationToken">A token that can cancel asynchronous compaction before the prepared list is produced.</param>
     /// <returns>
-    /// The full history when it fits within the configured budget, or a compacted message list
-    /// when compaction is required.
+    /// A task that resolves to the full history when it fits within the configured budget, or to a
+    /// compacted message list when compaction is required.
     /// </returns>
     /// <remarks>
     /// <para>
-    /// This is the main read operation of the context. Call it immediately before every provider
+    /// This is the main read operation of the context. Await it immediately before every provider
     /// request. The returned list is the list that should be sent to the model.
     /// </para>
     /// <para>
     /// If the estimated token total is below the compaction trigger, the current history is
     /// returned directly. If the trigger is reached, the configured <see cref="ICompactionStrategy"/>
-    /// is asked to produce a smaller list.
+    /// is awaited to produce a smaller list.
     /// </para>
     /// <para>
     /// System messages are handled specially. They are separated from the rest of the history,
@@ -248,8 +242,10 @@ public sealed class ConversationContext
     /// representation of that history should be sent next.
     /// </para>
     /// </remarks>
-    public IReadOnlyList<Message> Prepare()
+    public async Task<IReadOnlyList<Message>> PrepareAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var messages = (IReadOnlyList<Message>)this._history;
         var total = this.Sum(messages) + this._anchorCorrection;
 
@@ -270,7 +266,7 @@ public sealed class ConversationContext
             this._budget.ReservedTokens + systemTotal
         );
 
-        var compacted = this._strategy.Compact(compactableMessages, adjustedBudget, this._counter);
+        var compacted = await this._strategy.CompactAsync(compactableMessages, adjustedBudget, this._counter, cancellationToken);
 
         var result = systemMessages.Count == 0 ? compacted : systemMessages.Concat(compacted).ToList();
 
