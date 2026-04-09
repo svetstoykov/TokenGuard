@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using OpenAI;
 using OpenAI.Chat;
+using SemanticFold.Adapters.OpenAI;
 using SemanticFold.Core;
 using SemanticFold.Core.Abstractions;
 using SemanticFold.Core.Enums;
@@ -135,8 +136,8 @@ while (!taskCompleted)
     Console.WriteLine($"[SemanticFold.Core: Prepared {preparedMessages.Count} messages for LLM]");
     Console.ResetColor();
 
-    var openAiMessages = ConvertToOpenAiMessages(preparedMessages);
-
+    var openAiMessages = preparedMessages.ForOpenAI();
+    
     ChatCompletion response;
     try
     {
@@ -219,52 +220,3 @@ var finalTokenCount = conversationContext.History.Sum(m => m.TokenCount ?? 0);
 logger.LogSessionSummary(conversationContext.History.Count, totalCompactionCount, duration, finalTokenCount);
 
 Console.WriteLine($"\nSession complete. Log file: {logger.LogFilePath}");
-
-
-static IEnumerable<ChatMessage> ConvertToOpenAiMessages(IReadOnlyList<Message> foldMessages)
-{
-    var result = new List<ChatMessage>();
-
-    foreach (var msg in foldMessages)
-    {
-        switch (msg.Role)
-        {
-            case MessageRole.System:
-                var sysText = msg.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
-                result.Add(new SystemChatMessage(sysText));
-                break;
-
-            case MessageRole.User:
-                var userText = msg.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
-                result.Add(new UserChatMessage(userText));
-                break;
-
-            case MessageRole.Model:
-                var assistText = msg.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
-                var assistantMsg = new AssistantChatMessage(assistText);
-
-                foreach (var toolUse in msg.Content.OfType<ToolUseContent>())
-                {
-                    assistantMsg.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
-                        toolUse.ToolCallId,
-                        toolUse.ToolName,
-                        BinaryData.FromString(toolUse.ArgumentsJson)
-                    ));
-                }
-
-                result.Add(assistantMsg);
-                break;
-
-            case MessageRole.Tool:
-                var toolResult = msg.Content.OfType<ToolResultContent>().FirstOrDefault();
-                if (toolResult != null)
-                {
-                    result.Add(new ToolChatMessage(toolResult.ToolCallId, toolResult.Content));
-                }
-
-                break;
-        }
-    }
-
-    return result;
-}

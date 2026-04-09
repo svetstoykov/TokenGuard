@@ -179,6 +179,13 @@ public sealed class ConversationContext
     }
 
     /// <summary>
+    /// Provides a convenience overload for use with provider adapters.
+    /// </summary>
+    /// <param name="result"><inheritdoc cref="RecordModelResponse(IEnumerable{ContentBlock}, int?)" path="/param[@name='content']"/></param>
+    /// <inheritdoc cref="RecordModelResponse(IEnumerable{ContentBlock}, int?)" path="/exception"/>
+    public void RecordModelResponse(AdapterResult result) => this.RecordModelResponse(result.Content, result.InputTokens);
+
+    /// <summary>
     /// Records the result of one tool execution.
     /// </summary>
     /// <param name="toolCallId">The tool call identifier this result corresponds to.</param>
