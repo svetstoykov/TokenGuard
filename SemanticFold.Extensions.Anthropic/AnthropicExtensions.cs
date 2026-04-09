@@ -63,8 +63,7 @@ public static class AnthropicExtensions
                                 {
                                     Text = ExtractText(message),
                                 },
-                            },
-                            null),
+                            }),
                     });
                     break;
 
@@ -115,8 +114,7 @@ public static class AnthropicExtensions
                                         ToolUseID = toolResult.ToolCallId,
                                         Content = toolResult.Content,
                                     },
-                                },
-                                null),
+                                }),
                         });
                     }
 
@@ -240,6 +238,6 @@ public static class AnthropicExtensions
             }
         }
 
-        return systemBlocks.Count == 0 ? null : new MessageCreateParamsSystem(systemBlocks, null);
+        return systemBlocks.Count == 0 ? null : new MessageCreateParamsSystem(systemBlocks);
     }
 }

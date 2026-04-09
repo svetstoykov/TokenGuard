@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\SemanticFold.Extensions.Anthropic\SemanticFold.Extensions.Anthropic.csproj" />
     <ProjectReference Include="..\..\src\SemanticFold.Extensions.OpenAI\SemanticFold.Extensions.OpenAI.csproj" />
     <ProjectReference Include="..\..\src\SemanticFold.Core\SemanticFold.Core.csproj" />
   </ItemGroup>

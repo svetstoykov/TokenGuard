@@ -1,21 +1,22 @@
+using Anthropic;
+using Anthropic.Models.Messages;
 using Microsoft.Extensions.Configuration;
-using OpenAI;
-using OpenAI.Chat;
-using SemanticFold.Extensions.OpenAI;
 using SemanticFold.Core;
 using SemanticFold.Core.Abstractions;
 using SemanticFold.Core.Models;
-using SemanticFold.Core.Models.Content;
 using SemanticFold.Core.Options;
 using SemanticFold.Core.Strategies;
 using SemanticFold.Core.TokenCounting;
+using SemanticFold.Extensions.Anthropic;
 using SemanticFold.Samples.Console.Tools;
 
-namespace SemanticFold.Samples.Console;
+namespace SemanticFold.Samples.Console.AgentLoops;
 
-public class MinimalAgentLoop
+public sealed class AnthropicAgentLoop : IAgentLoop
 {
-    public async Task Run()
+    public string Name => "Minimal Anthropic loop";
+
+    public async Task RunAsync()
     {
         var tasksDirectory = Path.Combine(Directory.GetCurrentDirectory(), "Tasks");
 
@@ -28,41 +29,14 @@ public class MinimalAgentLoop
             .AddEnvironmentVariables()
             .Build();
 
-        var apiKey = configuration["OpenRouterAPIKey"] ?? Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") ?? "sk-test-key";
-
-        var endpoint = new Uri("https://openrouter.ai/api/v1");
-        var client = new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = endpoint });
-        var chatClient = client.GetChatClient("qwen/qwen3.6-plus");
+        var client = new AnthropicClient() { ApiKey = configuration["AnthropicAPIKey"] ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? "sk-test-key" };
 
         var budget = ContextBudget.For(maxTokens: 10000);
         var counter = new EstimatedTokenCounter();
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4));
         var conversationContext = new ConversationContext(budget, counter, strategy);
 
-        var tools = new ITool[]
-        {
-            new ListFilesTool(),
-            new ReadFileTool(),
-            new CreateTextFileTool(),
-            new EditTextFileTool()
-        };
-
-        var chatTools = tools.Select(t => t.Name switch
-        {
-            "list_files" => ChatTool.CreateFunctionTool(
-                functionName: t.Name,
-                functionDescription: t.Description),
-            _ => ChatTool.CreateFunctionTool(
-                functionName: t.Name,
-                functionDescription: t.Description,
-                functionParameters: BinaryData.FromString(t.ParametersSchema!.RootElement.GetRawText()))
-        }).ToList();
-
-        var chatOptions = new ChatCompletionOptions();
-        foreach (var tool in chatTools)
-        {
-            chatOptions.Tools.Add(tool);
-        }
+        var tools = CreateTools();
 
         Directory.CreateDirectory(tasksDirectory);
 
@@ -91,8 +65,7 @@ public class MinimalAgentLoop
             "When and only when the task is fully complete, respond with a concise final report that ends with the exact line TASK_COMPLETE. " +
             "If more work remains, continue working instead of stopping. " +
             "You have tools to list files, read files, create text files, and edit text files in the current directory. " +
-            "Keep intermediate responses concise."
-        );
+            "Keep intermediate responses concise.");
 
         conversationContext.AddUserMessage($"Task file: {taskFileName}\n\n{taskText}");
 
@@ -102,12 +75,15 @@ public class MinimalAgentLoop
         while (!taskCompleted)
         {
             var preparedMessages = await conversationContext.PrepareAsync();
-            var openAiMessages = preparedMessages.ForOpenAI();
+            var parameters = preparedMessages.ForAnthropic(model: "claude-opus-4-6", maxTokens: 1024);
 
-            ChatCompletion response;
+            // Tool registration with the Anthropic SDK is not documented in the provided guide.
+            // Leave the request as message-only until the intended tool wiring is confirmed.
+
+            Message response;
             try
             {
-                response = await chatClient.CompleteChatAsync(openAiMessages, chatOptions);
+                response = await client.Messages.Create(parameters);
             }
             catch
             {
@@ -115,31 +91,26 @@ public class MinimalAgentLoop
             }
 
             int? inputTokens = response.InputTokens();
-            
+            var contentSegments = response.ResponseSegments();
 
-            if (response.FinishReason == ChatFinishReason.ToolCalls)
+            conversationContext.RecordModelResponse(contentSegments, inputTokens);
+
+            var toolCalls = response.ToolUseSegments();
+            if (toolCalls.Count > 0)
             {
-                var contentSegments = new List<ContentSegment>();
-
-                contentSegments.AddRange(response.ResponseSegments());
-                
-                conversationContext.RecordModelResponse(contentSegments, inputTokens);
-
-                foreach (var call in response.ToolCalls)
+                foreach (var call in toolCalls)
                 {
-                    var resultText = toolMap.TryGetValue(call.FunctionName, out var tool)
-                        ? tool.Execute(call.FunctionArguments.ToString())
+                    var resultText = toolMap.TryGetValue(call.ToolName, out var tool)
+                        ? tool.Execute(call.ArgumentsJson)
                         : "Error: Unknown tool.";
 
-                    conversationContext.RecordToolResult(call.Id, call.FunctionName, resultText);
+                    conversationContext.RecordToolResult(call.ToolCallId, call.ToolName, resultText);
                 }
 
                 continue;
             }
 
             var finalResponseText = response.TextSegments();
-
-            conversationContext.RecordModelResponse(finalResponseText, inputTokens);
 
             taskCompleted = finalResponseText.Any(b => b.Text.Equals("TASK_COMPLETE", StringComparison.Ordinal));
 
@@ -151,4 +122,12 @@ public class MinimalAgentLoop
             }
         }
     }
+
+    private static ITool[] CreateTools() =>
+    [
+        new ListFilesTool(),
+        new ReadFileTool(),
+        new CreateTextFileTool(),
+        new EditTextFileTool(),
+    ];
 }
