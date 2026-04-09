@@ -86,9 +86,9 @@ public sealed class MessageTests
     public void Message_FromContent_CreatesSingleBlockMessage()
     {
         var block = new ToolUseContent("call_1", "read_file", "{}");
-        var message = Message.FromContent(MessageRole.Assistant, block);
+        var message = Message.FromContent(MessageRole.Model, block);
 
-        Assert.Equal(MessageRole.Assistant, message.Role);
+        Assert.Equal(MessageRole.Model, message.Role);
         Assert.Single(message.Content);
         Assert.Same(block, message.Content[0]);
         Assert.Equal(CompactionState.Original, message.State);
@@ -100,7 +100,7 @@ public sealed class MessageTests
     {
         var original = new Message
         {
-            Role = MessageRole.Assistant,
+            Role = MessageRole.Model,
             Content =
             [
                 new TextContent("Thinking"),
@@ -124,7 +124,7 @@ public sealed class MessageTests
     {
         var message = new Message
         {
-            Role = MessageRole.Assistant,
+            Role = MessageRole.Model,
             Content =
             [
                 new TextContent("I will call a tool."),
@@ -132,7 +132,7 @@ public sealed class MessageTests
             ],
         };
 
-        Assert.Equal(MessageRole.Assistant, message.Role);
+        Assert.Equal(MessageRole.Model, message.Role);
         Assert.Equal(2, message.Content.Count);
         Assert.IsType<TextContent>(message.Content[0]);
         Assert.IsType<ToolUseContent>(message.Content[1]);

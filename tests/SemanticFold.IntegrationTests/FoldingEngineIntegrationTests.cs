@@ -34,7 +34,7 @@ public sealed class FoldingEngineIntegrationTests
         
         // Assistant calls a tool
         var toolUse = new ToolUseContent("call_123", "analyze_logs", "{\"timespan\":\"24h\"}");
-        var assistantToolCall = Message.FromContent(MessageRole.Assistant, new ContentBlock[] { toolUse });
+        var assistantToolCall = Message.FromContent(MessageRole.Model, new ContentBlock[] { toolUse });
         messages.Add(assistantToolCall);
         
         engine.Observe(assistantToolCall); 
@@ -48,7 +48,7 @@ public sealed class FoldingEngineIntegrationTests
         engine.Observe(toolResultMessage); 
 
         // Assistant responds
-        var assistantResponse1 = Message.FromText(MessageRole.Assistant, "The logs show that the system was running normally, but there was a spike in memory usage at 3 AM.");
+        var assistantResponse1 = Message.FromText(MessageRole.Model, "The logs show that the system was running normally, but there was a spike in memory usage at 3 AM.");
         messages.Add(assistantResponse1);
         engine.Observe(assistantResponse1);
         
@@ -80,7 +80,7 @@ public sealed class FoldingEngineIntegrationTests
         // Test anchor correction
         int reportedInputTokens = 300;
         
-        var assistantToolCall2 = Message.FromContent(MessageRole.Assistant, new ContentBlock[] { new ToolUseContent("call_456", "check_db", "{\"time\":\"03:00\"}") });
+        var assistantToolCall2 = Message.FromContent(MessageRole.Model, new ContentBlock[] { new ToolUseContent("call_456", "check_db", "{\"time\":\"03:00\"}") });
         messages.Add(assistantToolCall2);
         
         engine.Observe(assistantToolCall2, apiReportedInputTokens: reportedInputTokens);
@@ -103,7 +103,7 @@ public sealed class FoldingEngineIntegrationTests
         // Turn 1
         messages.Add(Message.FromText(MessageRole.User, "Scan the directory for large files."));
         var toolUse1 = new ToolUseContent("call_1", "scan_dir", "{}");
-        var assistantMsg1 = Message.FromContent(MessageRole.Assistant, new ContentBlock[] { toolUse1 });
+        var assistantMsg1 = Message.FromContent(MessageRole.Model, new ContentBlock[] { toolUse1 });
         messages.Add(assistantMsg1);
         engine.Observe(assistantMsg1);
 
@@ -112,7 +112,7 @@ public sealed class FoldingEngineIntegrationTests
         messages.Add(toolMsg1);
         engine.Observe(toolMsg1);
 
-        var asstResponse1 = Message.FromText(MessageRole.Assistant, "Found 10 large files.");
+        var asstResponse1 = Message.FromText(MessageRole.Model, "Found 10 large files.");
         messages.Add(asstResponse1);
         engine.Observe(asstResponse1);
 
@@ -125,7 +125,7 @@ public sealed class FoldingEngineIntegrationTests
         // Turn 2
         messages.Add(Message.FromText(MessageRole.User, "Can you delete them?"));
         var toolUse2 = new ToolUseContent("call_2", "delete_files", "{}");
-        var assistantMsg2 = Message.FromContent(MessageRole.Assistant, new ContentBlock[] { toolUse2 });
+        var assistantMsg2 = Message.FromContent(MessageRole.Model, new ContentBlock[] { toolUse2 });
         messages.Add(assistantMsg2);
         engine.Observe(assistantMsg2);
 
@@ -137,7 +137,7 @@ public sealed class FoldingEngineIntegrationTests
         messages.Add(toolMsg2);
         engine.Observe(toolMsg2);
 
-        var asstResponse2 = Message.FromText(MessageRole.Assistant, "Deleted all 10 files.");
+        var asstResponse2 = Message.FromText(MessageRole.Model, "Deleted all 10 files.");
         messages.Add(asstResponse2);
         engine.Observe(asstResponse2);
 

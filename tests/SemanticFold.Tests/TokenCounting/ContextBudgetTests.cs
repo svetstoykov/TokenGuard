@@ -1,6 +1,6 @@
 using SemanticFold.Models;
 
-namespace SemanticFold.Tests;
+namespace SemanticFold.Tests.TokenCounting;
 
 public sealed class ContextBudgetTests
 {

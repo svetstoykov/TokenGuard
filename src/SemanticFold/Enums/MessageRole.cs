@@ -6,6 +6,11 @@ namespace SemanticFold.Enums;
 public enum MessageRole
 {
     /// <summary>
+    /// A system-level instruction or context message.
+    /// </summary>
+    System,
+
+    /// <summary>
     /// A message from the human user.
     /// </summary>
     User,
@@ -13,7 +18,7 @@ public enum MessageRole
     /// <summary>
     /// A message from the language model.
     /// </summary>
-    Assistant,
+    Model,
 
     /// <summary>
     /// A message containing tool execution output.

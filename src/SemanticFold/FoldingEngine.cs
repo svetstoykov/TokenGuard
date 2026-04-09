@@ -1,4 +1,5 @@
 using SemanticFold.Abstractions;
+using SemanticFold.Enums;
 using SemanticFold.Models;
 
 namespace SemanticFold;
@@ -85,16 +86,54 @@ public sealed class FoldingEngine
         if (total < this._budget.CompactionTriggerTokens)
         {
             this._lastPreparedTotal = total;
+            
+            if (HasMisplacedSystemMessages(messages))
+            {
+                var systemMessages = messages.Where(m => m.Role == MessageRole.System);
+                var otherMessages = messages.Where(m => m.Role != MessageRole.System);
+                return systemMessages.Concat(otherMessages).ToList();
+            }
+            
             return messages;
         }
 
-        var compacted = this._strategy.Compact(messages, this._budget, this._counter);
+        var sysMsgs = messages.Where(m => m.Role == MessageRole.System).ToList();
+        var compactableMessages = sysMsgs.Count == 0 ? messages : messages.Where(m => m.Role != MessageRole.System).ToList();
+        var systemTotal = this.SumWithCaching(sysMsgs);
+        
+        var adjustedBudget = new ContextBudget(
+            this._budget.MaxTokens,
+            this._budget.CompactionThreshold,
+            this._budget.EmergencyThreshold,
+            this._budget.ReservedTokens + systemTotal
+        );
+
+        var compacted = this._strategy.Compact(compactableMessages, adjustedBudget, this._counter);
+
+        var result = sysMsgs.Count == 0 ? compacted : sysMsgs.Concat(compacted).ToList();
 
         // Compacted messages are ephemeral instances owned by the strategy, not the caller.
         // Count them without caching to avoid retaining strong references indefinitely.
-        this._lastPreparedTotal = this.SumWithoutCaching(compacted) + this._anchorCorrection;
+        this._lastPreparedTotal = this.SumWithoutCaching(result) + this._anchorCorrection;
 
-        return compacted;
+        return result;
+    }
+
+    private static bool HasMisplacedSystemMessages(IReadOnlyList<Message> messages)
+    {
+        bool seenNonSystem = false;
+        foreach (var m in messages)
+        {
+            if (m.Role == MessageRole.System)
+            {
+                if (seenNonSystem) return true;
+            }
+            else
+            {
+                seenNonSystem = true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

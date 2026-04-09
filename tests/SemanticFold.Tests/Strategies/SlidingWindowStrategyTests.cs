@@ -14,7 +14,7 @@ public sealed class SlidingWindowStrategyTests
         var messages = new List<Message>
         {
             Message.FromText(MessageRole.User, "one"),
-            Message.FromText(MessageRole.Assistant, "two"),
+            Message.FromText(MessageRole.Model, "two"),
         };
 
         var tokenCounter = new TrackingTokenCounter();
@@ -90,7 +90,7 @@ public sealed class SlidingWindowStrategyTests
             State = CompactionState.Summarized,
         };
 
-        var protectedText = Message.FromText(MessageRole.Assistant, "keep");
+        var protectedText = Message.FromText(MessageRole.Model, "keep");
         var exposed = CreateToolResultMessage("call_0", "search", "payload");
         var messages = new List<Message> { exposed, protectedToolResult, protectedText };
 
@@ -133,7 +133,7 @@ public sealed class SlidingWindowStrategyTests
     public void Compact_NonToolResultMessagesInExposedSegment_ArePassedThroughUnchanged()
     {
         var passthrough = Message.FromText(MessageRole.User, "plain text");
-        var protectedMessage = Message.FromText(MessageRole.Assistant, "recent");
+        var protectedMessage = Message.FromText(MessageRole.Model, "recent");
         var messages = new List<Message> { passthrough, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
@@ -161,7 +161,7 @@ public sealed class SlidingWindowStrategyTests
             ],
         };
 
-        var protectedMessage = Message.FromText(MessageRole.Assistant, "recent");
+        var protectedMessage = Message.FromText(MessageRole.Model, "recent");
         var messages = new List<Message> { mixed, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
@@ -203,7 +203,7 @@ public sealed class SlidingWindowStrategyTests
     {
         var toolUseMessage = new Message
         {
-            Role = MessageRole.Assistant,
+            Role = MessageRole.Model,
             Content = [new ToolUseContent("call_1", "calculator", "{}")],
         };
 
@@ -232,7 +232,7 @@ public sealed class SlidingWindowStrategyTests
     public void Compact_PlaceholderFallsBackToToolCallId_WhenNoToolUseExists()
     {
         var exposed = CreateToolResultMessage("call_missing", "result-tool", "payload");
-        var protectedMessage = Message.FromText(MessageRole.Assistant, "recent");
+        var protectedMessage = Message.FromText(MessageRole.Model, "recent");
         var messages = new List<Message> { exposed, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
@@ -257,7 +257,7 @@ public sealed class SlidingWindowStrategyTests
             State = CompactionState.Original,
         };
 
-        var protectedMessage = Message.FromText(MessageRole.Assistant, "recent");
+        var protectedMessage = Message.FromText(MessageRole.Model, "recent");
         var messages = new List<Message> { originalMessage, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();

@@ -46,7 +46,7 @@ public class EstimatedTokenCounterTests
         // 11/4 = 2.75. Ceiling is 3. Overhead is 4. Total = 7.
         var message = new Message
         {
-            Role = MessageRole.Assistant,
+            Role = MessageRole.Model,
             Content = [
                 new TextContent("Hello"),
                 new ToolUseContent("call_1", "calc", "{}")
@@ -65,7 +65,7 @@ public class EstimatedTokenCounterTests
     {
         // Arrange
         var msg1 = Message.FromText(MessageRole.User, "One"); // 3 chars -> 1 token + 4 overhead = 5
-        var msg2 = Message.FromText(MessageRole.Assistant, "Two"); // 3 chars -> 1 token + 4 overhead = 5
+        var msg2 = Message.FromText(MessageRole.Model, "Two"); // 3 chars -> 1 token + 4 overhead = 5
         var messages = new[] { msg1, msg2 };
 
         // Act
