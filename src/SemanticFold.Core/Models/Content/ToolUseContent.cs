@@ -1,4 +1,4 @@
-namespace SemanticFold.Models.Content;
+namespace SemanticFold.Core.Models.Content;
 
 /// <summary>
 /// Represents a tool call requested by the assistant.

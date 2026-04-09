@@ -1,4 +1,4 @@
-namespace SemanticFold.Models.Content;
+namespace SemanticFold.Core.Models.Content;
 
 /// <summary>
 /// A block of plain text content.

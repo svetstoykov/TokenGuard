@@ -1,4 +1,4 @@
-using SemanticFold.Models;
+using SemanticFold.Core.Models;
 
 namespace SemanticFold.Tests.TokenCounting;
 

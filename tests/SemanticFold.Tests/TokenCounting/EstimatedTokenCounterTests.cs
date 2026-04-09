@@ -1,7 +1,7 @@
-using SemanticFold.Enums;
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
-using SemanticFold.TokenCounting;
+using SemanticFold.Core.Enums;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
+using SemanticFold.Core.TokenCounting;
 
 namespace SemanticFold.Tests.TokenCounting;
 

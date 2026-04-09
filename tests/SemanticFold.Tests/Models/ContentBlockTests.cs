@@ -1,5 +1,5 @@
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
 
 namespace SemanticFold.Tests.Models;
 

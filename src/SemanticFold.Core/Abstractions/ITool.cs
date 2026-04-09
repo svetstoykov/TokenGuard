@@ -1,7 +1,7 @@
 using System.Text.Json;
-using SemanticFold.Models.Content;
+using SemanticFold.Core.Models.Content;
 
-namespace SemanticFold.Abstractions;
+namespace SemanticFold.Core.Abstractions;
 
 /// <summary>
 /// Defines a callable tool that can be invoked by an LLM during an agentic loop.

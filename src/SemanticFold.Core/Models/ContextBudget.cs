@@ -1,4 +1,4 @@
-namespace SemanticFold.Models;
+namespace SemanticFold.Core.Models;
 
 /// <summary>
 /// Defines context window limits and compaction trigger thresholds.

@@ -1,9 +1,9 @@
-using SemanticFold.Abstractions;
-using SemanticFold.Enums;
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
+using SemanticFold.Core.Abstractions;
+using SemanticFold.Core.Enums;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
 
-namespace SemanticFold.Strategies;
+namespace SemanticFold.Core.Strategies;
 
 /// <summary>
 /// Masks tool results in older messages while preserving a newest-message window unchanged.

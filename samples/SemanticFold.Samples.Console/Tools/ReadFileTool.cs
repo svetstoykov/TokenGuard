@@ -1,5 +1,5 @@
 using System.Text.Json;
-using SemanticFold.Abstractions;
+using SemanticFold.Core.Abstractions;
 
 namespace SemanticFold.Samples.Console.Tools;
 

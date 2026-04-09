@@ -1,6 +1,6 @@
-using SemanticFold.Enums;
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
+using SemanticFold.Core.Enums;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
 
 namespace SemanticFold.Tests.Models;
 

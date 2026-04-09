@@ -1,4 +1,4 @@
-namespace SemanticFold.Models.Content;
+namespace SemanticFold.Core.Models.Content;
 
 /// <summary>
 /// Represents the result of a tool execution.

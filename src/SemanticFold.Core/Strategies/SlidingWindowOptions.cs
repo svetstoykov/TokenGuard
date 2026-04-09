@@ -1,6 +1,6 @@
-using SemanticFold.Models;
+using SemanticFold.Core.Models;
 
-namespace SemanticFold.Strategies;
+namespace SemanticFold.Core.Strategies;
 
 /// <summary>
 /// Configuration for <see cref="SlidingWindowStrategy"/>.

@@ -1,4 +1,4 @@
-namespace SemanticFold.Models.Content;
+namespace SemanticFold.Core.Models.Content;
 
 /// <summary>
 /// Base type for all content blocks in a message.

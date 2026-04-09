@@ -1,21 +1,21 @@
 using Microsoft.Extensions.Configuration;
 using OpenAI;
 using OpenAI.Chat;
-using SemanticFold;
-using SemanticFold.Abstractions;
-using SemanticFold.Enums;
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
+using SemanticFold.Core;
+using SemanticFold.Core.Abstractions;
+using SemanticFold.Core.Enums;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
+using SemanticFold.Core.Strategies;
+using SemanticFold.Core.TokenCounting;
 using SemanticFold.Samples.Console;
 using SemanticFold.Samples.Console.Tools;
-using SemanticFold.Strategies;
-using SemanticFold.TokenCounting;
 
 var startTime = DateTime.Now;
 var tasksDirectory = Path.Combine(Directory.GetCurrentDirectory(), "Tasks");
 
 Console.WriteLine("=========================================");
-Console.WriteLine("   SemanticFold Agentic Loop Sample");
+Console.WriteLine("   SemanticFold.Core Agentic Loop Sample");
 Console.WriteLine("=========================================\n");
 
 using var logger = new SessionLogger();
@@ -36,10 +36,10 @@ var client = new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), n
 
 var chatClient = client.GetChatClient("qwen/qwen3.6-plus");
 
-var budget = ContextBudget.For(maxTokens: 1200);
+var budget = ContextBudget.For(maxTokens: 10000);
 var counter = new EstimatedTokenCounter();
 var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4));
-var foldEngine = new FoldingEngine(budget, counter, strategy);
+var conversationContext = new ConversationContext(budget, counter, strategy);
 
 logger.LogBudgetInfo(budget, nameof(SlidingWindowStrategy));
 
@@ -94,7 +94,7 @@ if (string.IsNullOrWhiteSpace(taskText))
     return;
 }
 
-foldEngine.SetSystemPrompt(
+conversationContext.SetSystemPrompt(
     "You are an autonomous AI agent running inside a sample agent loop. " +
     "You must fully complete the assigned task using the available tools when needed. " +
     "Do not ask the user for clarification, status updates, or permission. " +
@@ -105,24 +105,24 @@ foldEngine.SetSystemPrompt(
     "Keep intermediate responses concise."
 );
 
-logger.LogMessageAdded(foldEngine.History.First(), "System Prompt Updated");
+logger.LogMessageAdded(conversationContext.History.First(), "System Prompt Updated");
 
 Console.WriteLine($"Loaded task: {taskFileName}");
 Console.WriteLine("Running autonomous task from Tasks folder.\n");
 
 int totalCompactionCount = 0;
 
-foldEngine.AddUserMessage($"Task file: {taskFileName}\n\n{taskText}");
-logger.LogMessageAdded(foldEngine.History.Last(), "Task Loaded");
+conversationContext.AddUserMessage($"Task file: {taskFileName}\n\n{taskText}");
+logger.LogMessageAdded(conversationContext.History.Last(), "Task Loaded");
 
 var toolMap = tools.ToDictionary(t => t.Name, t => t);
 var taskCompleted = false;
 
 while (!taskCompleted)
 {
-    logger.LogHistoryBeforePrepare(foldEngine.History);
+    logger.LogHistoryBeforePrepare(conversationContext.History);
 
-    var preparedMessages = foldEngine.Prepare();
+    var preparedMessages = conversationContext.Prepare();
     logger.LogPreparedMessages(preparedMessages, budget);
 
     var compactionTriggered = preparedMessages.Any(m => m.State != CompactionState.Original);
@@ -132,7 +132,7 @@ while (!taskCompleted)
     }
 
     Console.ForegroundColor = ConsoleColor.DarkGray;
-    Console.WriteLine($"[SemanticFold: Prepared {preparedMessages.Count} messages for LLM]");
+    Console.WriteLine($"[SemanticFold.Core: Prepared {preparedMessages.Count} messages for LLM]");
     Console.ResetColor();
 
     var openAiMessages = ConvertToOpenAiMessages(preparedMessages);
@@ -172,9 +172,9 @@ while (!taskCompleted)
             Console.ResetColor();
         }
 
-        foldEngine.RecordModelResponse(contentBlocks, inputTokens);
+        conversationContext.RecordModelResponse(contentBlocks, inputTokens);
 
-        var recordedMsg = foldEngine.History.Last();
+        var recordedMsg = conversationContext.History.Last();
         var toolCallNames = string.Join(", ", contentBlocks.OfType<ToolUseContent>().Select(t => t.ToolName));
         logger.LogModelResponse(recordedMsg, inputTokens, $"Tool Calls [{toolCallNames}]");
 
@@ -188,8 +188,8 @@ while (!taskCompleted)
             Console.WriteLine($"[Tool Result: {resultText.Length} chars]");
             Console.ResetColor();
 
-            foldEngine.RecordToolResult(call.Id, call.FunctionName, resultText);
-            logger.LogToolResultRecorded(foldEngine.History.Last());
+            conversationContext.RecordToolResult(call.Id, call.FunctionName, resultText);
+            logger.LogToolResultRecorded(conversationContext.History.Last());
         }
 
         continue;
@@ -200,23 +200,23 @@ while (!taskCompleted)
     Console.WriteLine($"Agent: {finalResponseText}\n");
     Console.ResetColor();
 
-    foldEngine.RecordModelResponse([new TextContent(finalResponseText)], inputTokens);
-    logger.LogModelResponse(foldEngine.History.Last(), inputTokens, "Text Response");
+    conversationContext.RecordModelResponse([new TextContent(finalResponseText)], inputTokens);
+    logger.LogModelResponse(conversationContext.History.Last(), inputTokens, "Text Response");
 
     taskCompleted = finalResponseText.Contains("TASK_COMPLETE", StringComparison.Ordinal);
 
     if (!taskCompleted)
     {
-        foldEngine.AddUserMessage(
+        conversationContext.AddUserMessage(
             "The task is not finished yet. Continue working until it is complete. " +
             "Only your final completion message may end with the exact line TASK_COMPLETE.");
-        logger.LogMessageAdded(foldEngine.History.Last(), "Continuation Prompt Added");
+        logger.LogMessageAdded(conversationContext.History.Last(), "Continuation Prompt Added");
     }
 }
 
 var duration = DateTime.Now - startTime;
-var finalTokenCount = foldEngine.History.Sum(m => m.TokenCount ?? 0);
-logger.LogSessionSummary(foldEngine.History.Count, totalCompactionCount, duration, finalTokenCount);
+var finalTokenCount = conversationContext.History.Sum(m => m.TokenCount ?? 0);
+logger.LogSessionSummary(conversationContext.History.Count, totalCompactionCount, duration, finalTokenCount);
 
 Console.WriteLine($"\nSession complete. Log file: {logger.LogFilePath}");
 

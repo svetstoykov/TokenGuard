@@ -1,8 +1,8 @@
-using SemanticFold.Abstractions;
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
+using SemanticFold.Core.Abstractions;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
 
-namespace SemanticFold.TokenCounting;
+namespace SemanticFold.Core.TokenCounting;
 
 /// <summary>
 /// A token counter that estimates tokens based on character counts using a fixed ratio.

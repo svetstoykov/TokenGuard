@@ -1,8 +1,8 @@
-using SemanticFold.Abstractions;
-using SemanticFold.Enums;
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
-using SemanticFold.Strategies;
+using SemanticFold.Core.Abstractions;
+using SemanticFold.Core.Enums;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
+using SemanticFold.Core.Strategies;
 
 namespace SemanticFold.Tests.Strategies;
 

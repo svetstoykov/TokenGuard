@@ -1,9 +1,9 @@
-using SemanticFold;
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
-using SemanticFold.Enums;
-using SemanticFold.Strategies;
-using SemanticFold.TokenCounting;
+using SemanticFold.Core;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
+using SemanticFold.Core.Enums;
+using SemanticFold.Core.Strategies;
+using SemanticFold.Core.TokenCounting;
 using Xunit;
 
 namespace SemanticFold.IntegrationTests;
@@ -17,7 +17,7 @@ public sealed class FoldingEngineIntegrationTests
         var budget = new ContextBudget(maxTokens: 1000, compactionThreshold: 0.80);
         var counter = new EstimatedTokenCounter();
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
-        var engine = new FoldingEngine(budget, counter, strategy);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         // System prompt
         engine.SetSystemPrompt("You are a helpful assistant.");
@@ -83,7 +83,7 @@ public sealed class FoldingEngineIntegrationTests
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.80); // trigger ~400
         var counter = new EstimatedTokenCounter();
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 3, protectedWindowFraction: 0.5));
-        var engine = new FoldingEngine(budget, counter, strategy);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         // Turn 1
         engine.AddUserMessage("Scan the directory for large files.");

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\SemanticFold\SemanticFold.csproj" />
+    <ProjectReference Include="..\..\src\SemanticFold.Core\SemanticFold.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

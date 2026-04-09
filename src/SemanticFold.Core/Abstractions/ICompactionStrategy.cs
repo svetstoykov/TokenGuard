@@ -1,6 +1,6 @@
-using SemanticFold.Models;
+using SemanticFold.Core.Models;
 
-namespace SemanticFold.Abstractions;
+namespace SemanticFold.Core.Abstractions;
 
 /// <summary>
 /// Defines a synchronous strategy for compacting message history to fit within a context budget.

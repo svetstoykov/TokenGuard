@@ -1,8 +1,8 @@
 using System.Text;
-using SemanticFold;
-using SemanticFold.Enums;
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
+using SemanticFold.Core;
+using SemanticFold.Core.Enums;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
 
 namespace SemanticFold.Samples.Console;
 
@@ -194,7 +194,7 @@ public sealed class SessionLogger : IDisposable
 
     private void WriteSessionHeader()
     {
-        this._writer.WriteLine("# SemanticFold Session Log");
+        this._writer.WriteLine("# SemanticFold.Core Session Log");
         this._writer.WriteLine();
         this._writer.WriteLine($"- Started: `{this._startedAt:yyyy-MM-dd HH:mm:ss zzz}`");
         this._writer.WriteLine($"- File: `{Path.GetFileName(this.LogFilePath)}`");

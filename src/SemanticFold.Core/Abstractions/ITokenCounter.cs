@@ -1,6 +1,6 @@
-using SemanticFold.Models;
+using SemanticFold.Core.Models;
 
-namespace SemanticFold.Abstractions;
+namespace SemanticFold.Core.Abstractions;
 
 /// <summary>
 /// Defines a contract for estimating or counting tokens in messages.

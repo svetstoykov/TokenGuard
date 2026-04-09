@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\SemanticFold\SemanticFold.csproj" />
+    <ProjectReference Include="..\..\src\SemanticFold.Core\SemanticFold.Core.csproj" />
   </ItemGroup>
 
 </Project>

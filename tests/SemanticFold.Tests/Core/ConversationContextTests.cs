@@ -1,18 +1,19 @@
-using SemanticFold.Abstractions;
-using SemanticFold.Enums;
-using SemanticFold.Models;
-using SemanticFold.Models.Content;
+using SemanticFold.Core;
+using SemanticFold.Core.Abstractions;
+using SemanticFold.Core.Enums;
+using SemanticFold.Core.Models;
+using SemanticFold.Core.Models.Content;
 
 namespace SemanticFold.Tests.Core;
 
-public sealed class FoldingEngineTests
+public sealed class ConversationContextTests
 {
     [Fact]
     public void Prepare_WhenEstimateIsBelowThreshold_ReturnsOriginalListAndSkipsCompaction()
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
-        var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         // AddUserMessage pre-warms the cache; set its token count to 0
         engine.AddUserMessage("hello");
@@ -35,7 +36,7 @@ public sealed class FoldingEngineTests
         counter.Set(compacted, 800);
 
         var strategy = new TrackingCompactionStrategy([compacted]);
-        var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
 
@@ -60,7 +61,7 @@ public sealed class FoldingEngineTests
 
         var strategy = new TrackingCompactionStrategy([compacted]);
         var budget = ContextBudget.For(1_000); // threshold is 800
-        var engine = new FoldingEngine(budget, counter, strategy);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt("sys1");
         engine.AddUserMessage("user1");
@@ -90,7 +91,7 @@ public sealed class FoldingEngineTests
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
-        var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("user1");
         engine.SetSystemPrompt("sys1");
@@ -113,7 +114,7 @@ public sealed class FoldingEngineTests
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
-        var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.RecordModelResponse([new TextContent("hello")]);
         var message = engine.History[0];
@@ -129,7 +130,7 @@ public sealed class FoldingEngineTests
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy([Message.FromText(MessageRole.Model, "compressed")]);
-        var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("hello");
         counter.Set(engine.History[0], 0);
@@ -149,7 +150,7 @@ public sealed class FoldingEngineTests
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
-        var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("same");
         engine.AddUserMessage("same");
@@ -176,7 +177,7 @@ public sealed class FoldingEngineTests
         counter.Set(compacted, 800);
 
         var strategy = new TrackingCompactionStrategy([compacted]);
-        var engine = new FoldingEngine(ContextBudget.For(1_000), counter, strategy);
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
 
@@ -251,7 +252,7 @@ public sealed class FoldingEngineTests
             if (this._counts.TryGetValue(message, out var cached))
                 return cached;
 
-            var firstText = message.Content.OfType<SemanticFold.Models.Content.TextContent>().FirstOrDefault()?.Text;
+            var firstText = message.Content.OfType<SemanticFold.Core.Models.Content.TextContent>().FirstOrDefault()?.Text;
             if (firstText != null && this._countsByText.TryGetValue(firstText, out var byText))
                 return byText;
 
