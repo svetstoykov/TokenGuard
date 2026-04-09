@@ -1,5 +1,4 @@
 using SemanticFold.Models;
-using SemanticFold.Models.Messages;
 
 namespace SemanticFold.Abstractions;
 

@@ -1,3 +1,5 @@
+using SemanticFold.Models;
+
 namespace SemanticFold.Tests;
 
 public sealed class ContextBudgetTests

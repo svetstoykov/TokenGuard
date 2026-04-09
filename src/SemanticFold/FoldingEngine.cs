@@ -1,5 +1,5 @@
 using SemanticFold.Abstractions;
-using SemanticFold.Models.Messages;
+using SemanticFold.Models;
 
 namespace SemanticFold;
 
@@ -82,7 +82,7 @@ public sealed class FoldingEngine
     {
         var total = this.SumWithCaching(messages) + this._anchorCorrection;
 
-        if (total < this._budget.CompactionThreshold)
+        if (total < this._budget.CompactionTriggerTokens)
         {
             this._lastPreparedTotal = total;
             return messages;

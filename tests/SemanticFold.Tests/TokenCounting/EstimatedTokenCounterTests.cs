@@ -1,6 +1,6 @@
+using SemanticFold.Enums;
 using SemanticFold.Models;
 using SemanticFold.Models.Content;
-using SemanticFold.Models.Messages;
 using SemanticFold.TokenCounting;
 
 namespace SemanticFold.Tests.TokenCounting;

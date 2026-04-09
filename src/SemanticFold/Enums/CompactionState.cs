@@ -1,4 +1,4 @@
-namespace SemanticFold.Models;
+namespace SemanticFold.Enums;
 
 /// <summary>
 /// Tracks what has happened to a message during compaction.

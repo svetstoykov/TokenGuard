@@ -1,7 +1,6 @@
 using SemanticFold.Abstractions;
 using SemanticFold.Models;
 using SemanticFold.Models.Content;
-using SemanticFold.Models.Messages;
 
 namespace SemanticFold.TokenCounting;
 

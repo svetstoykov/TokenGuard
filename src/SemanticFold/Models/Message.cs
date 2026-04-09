@@ -1,6 +1,7 @@
+using SemanticFold.Enums;
 using SemanticFold.Models.Content;
 
-namespace SemanticFold.Models.Messages;
+namespace SemanticFold.Models;
 
 /// <summary>
 /// The immutable unit of conversation history.
