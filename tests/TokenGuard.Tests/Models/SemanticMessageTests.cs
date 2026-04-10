@@ -9,6 +9,7 @@ public sealed class SemanticMessageTests
     [Fact]
     public void Message_RequiresRoleAndContent()
     {
+        // Arrange
         var now = DateTimeOffset.UtcNow;
         var message = new SemanticMessage
         {
@@ -16,6 +17,9 @@ public sealed class SemanticMessageTests
             Content = [new TextContent("hello")],
         };
 
+        // Act
+
+        // Assert
         Assert.Equal(MessageRole.User, message.Role);
         Assert.Single(message.Content);
         Assert.Equal(CompactionState.Original, message.State);
@@ -27,28 +31,41 @@ public sealed class SemanticMessageTests
     [Fact]
     public void Message_RejectsNullContent()
     {
-        Assert.Throws<ArgumentNullException>(() =>
+        // Arrange
+
+        // Act
+        Action act = () =>
             _ = new SemanticMessage
             {
                 Role = MessageRole.User,
                 Content = null!,
-            });
+            };
+
+        // Assert
+        Assert.Throws<ArgumentNullException>(act);
     }
 
     [Fact]
     public void Message_RejectsEmptyContent()
     {
-        Assert.Throws<ArgumentException>(() =>
+        // Arrange
+
+        // Act
+        Action act = () =>
             _ = new SemanticMessage
             {
                 Role = MessageRole.User,
                 Content = [],
-            });
+            };
+
+        // Assert
+        Assert.Throws<ArgumentException>(act);
     }
 
     [Fact]
     public void Message_ContentListIsImmutable()
     {
+        // Arrange
         var source = new List<ContentSegment> { new TextContent("first") };
         var message = new SemanticMessage
         {
@@ -56,8 +73,10 @@ public sealed class SemanticMessageTests
             Content = source,
         };
 
+        // Act
         source.Add(new TextContent("second"));
 
+        // Assert
         Assert.Single(message.Content);
         Assert.Equal("first", Assert.IsType<TextContent>(message.Content[0]).Text);
     }
@@ -65,8 +84,12 @@ public sealed class SemanticMessageTests
     [Fact]
     public void Message_FromText_CreatesTextMessage()
     {
+        // Arrange
+
+        // Act
         var message = SemanticMessage.FromText(MessageRole.User, "hello");
 
+        // Assert
         Assert.Equal(MessageRole.User, message.Role);
         Assert.Single(message.Content);
         Assert.Equal("hello", Assert.IsType<TextContent>(message.Content[0]).Text);
@@ -77,17 +100,29 @@ public sealed class SemanticMessageTests
     [Fact]
     public void Message_FromText_RejectsNullOrWhitespace()
     {
-        Assert.Throws<ArgumentException>(() => SemanticMessage.FromText(MessageRole.User, null!));
-        Assert.Throws<ArgumentException>(() => SemanticMessage.FromText(MessageRole.User, string.Empty));
-        Assert.Throws<ArgumentException>(() => SemanticMessage.FromText(MessageRole.User, "   "));
+        // Arrange
+
+        // Act
+        Action actOnNull = () => SemanticMessage.FromText(MessageRole.User, null!);
+        Action actOnEmpty = () => SemanticMessage.FromText(MessageRole.User, string.Empty);
+        Action actOnWhitespace = () => SemanticMessage.FromText(MessageRole.User, "   ");
+
+        // Assert
+        Assert.Throws<ArgumentException>(actOnNull);
+        Assert.Throws<ArgumentException>(actOnEmpty);
+        Assert.Throws<ArgumentException>(actOnWhitespace);
     }
 
     [Fact]
     public void Message_FromContent_CreatesSingleSegmentMessage()
     {
+        // Arrange
         var segment = new ToolUseContent("call_1", "read_file", "{}");
+
+        // Act
         var message = SemanticMessage.FromContent(MessageRole.Model, segment);
 
+        // Assert
         Assert.Equal(MessageRole.Model, message.Role);
         Assert.Single(message.Content);
         Assert.Same(segment, message.Content[0]);
@@ -98,6 +133,7 @@ public sealed class SemanticMessageTests
     [Fact]
     public void Message_WithModifiedState_PreservesOtherProperties()
     {
+        // Arrange
         var original = new SemanticMessage
         {
             Role = MessageRole.Model,
@@ -110,8 +146,10 @@ public sealed class SemanticMessageTests
             TokenCount = 42,
         };
 
+        // Act
         var modified = original with { State = CompactionState.Masked };
 
+        // Assert
         Assert.Equal(CompactionState.Masked, modified.State);
         Assert.Equal(original.Role, modified.Role);
         Assert.Equal(original.Content, modified.Content);
@@ -122,6 +160,9 @@ public sealed class SemanticMessageTests
     [Fact]
     public void Message_MixedContent_AssistantWithTextAndToolUse()
     {
+        // Arrange
+
+        // Act
         var message = new SemanticMessage
         {
             Role = MessageRole.Model,
@@ -132,6 +173,7 @@ public sealed class SemanticMessageTests
             ],
         };
 
+        // Assert
         Assert.Equal(MessageRole.Model, message.Role);
         Assert.Equal(2, message.Content.Count);
         Assert.IsType<TextContent>(message.Content[0]);

@@ -44,3 +44,10 @@ Document all public members using structured XML tags like <summary>, <remarks>,
 - Do not refactor existing code unless the task specifically calls for it.
 - Do not propose adding dependencies without flagging it first.
 - The project spec lives in `assets/token-guard-spec.md`. Consult it for domain context — do not re-derive architecture from scratch.
+
+---
+
+## Skills
+
+- **Use `task-writer` when task authoring is needed.** Invoke this skill when the user asks to create a task, write a ticket, define work items, plan a feature, break down work, or formalize a change into a scoped implementation task.
+- **Use `testing-principles` when test guidance or test code is needed.** Invoke this skill when the user asks to write, review, improve, or structure tests of any kind, including unit tests, integration tests, and live-LLM e2e coverage.
