@@ -8,7 +8,7 @@ using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Core.TokenCounting;
 using TokenGuard.Extensions.Anthropic;
-using TokenGuard.Samples.Console.Tools;
+using TokenGuard.TestCommon.Tools;
 
 namespace TokenGuard.Samples.Console.AgentLoops;
 
@@ -36,7 +36,7 @@ public sealed class AnthropicAgentLoop : IAgentLoop
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4));
         var conversationContext = new ConversationContext(budget, counter, strategy);
 
-        var tools = CreateTools();
+        var tools = CreateTools(Directory.GetCurrentDirectory());
 
         Directory.CreateDirectory(tasksDirectory);
 
@@ -123,11 +123,11 @@ public sealed class AnthropicAgentLoop : IAgentLoop
         }
     }
 
-    private static ITool[] CreateTools() =>
+    private static ITool[] CreateTools(string workspaceDirectory) =>
     [
-        new ListFilesTool(),
-        new ReadFileTool(),
-        new CreateTextFileTool(),
-        new EditTextFileTool(),
+        new ListFilesTool(workspaceDirectory),
+        new ReadFileTool(workspaceDirectory),
+        new CreateTextFileTool(workspaceDirectory),
+        new EditTextFileTool(workspaceDirectory),
     ];
 }

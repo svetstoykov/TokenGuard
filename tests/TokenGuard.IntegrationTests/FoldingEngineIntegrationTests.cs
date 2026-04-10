@@ -1,3 +1,4 @@
+using FluentAssertions;
 using TokenGuard.Core;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Models;
@@ -12,124 +13,132 @@ namespace TokenGuard.IntegrationTests;
 public sealed class FoldingEngineIntegrationTests
 {
     [Fact]
-    public async Task AgentLoop_WithLargeContext_ShouldTriggerCompaction_AndManageTokens()
+    public async Task PrepareAsync_WhenLargeToolResultPushesHistoryOverThreshold_MasksOldToolResultAndPreservesRecentMessages()
     {
-        // Budget: 1000 tokens max, compact at 80% (800 tokens).
+        // Arrange
         var budget = new ContextBudget(maxTokens: 1000, compactionThreshold: 0.80);
         var counter = new EstimatedTokenCounter();
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
         var engine = new ConversationContext(budget, counter, strategy);
-
-        // System prompt
+        
         engine.SetSystemPrompt("You are a helpful assistant.");
-
-        var prepared = await engine.PrepareAsync();
-        Assert.Same(engine.History, prepared);
-
-        // User makes a request
         engine.AddUserMessage("Please analyze the logs for the last 24 hours.");
-
-        // Assistant calls a tool
-        var toolUse = new ToolUseContent("call_123", "analyze_logs", "{\"timespan\":\"24h\"}");
+        
+        var toolUse = new ToolUseContent("call_123", "analyze_Ïlogs", "{\"timespan\":\"24h\"}");
         engine.RecordModelResponse([toolUse]);
-
-        // Tool responds with a massive log (~1000 tokens)
+        
         var massiveLog = new string('A', 4000);
         engine.RecordToolResult("call_123", "analyze_logs", massiveLog);
-
-        // Assistant responds
         engine.RecordModelResponse([new TextContent("The logs show that the system was running normally, but there was a spike in memory usage at 3 AM.")]);
-
-        // User asks a follow up
         engine.AddUserMessage("Can you check the database logs around 3 AM?");
-
-        // Capture the last two messages before compaction for reference-identity checks
+        
         var secondToLast = engine.History[^2];
         var last = engine.History[^1];
 
-        // Now we prepare for the next turn.
+        // Act
         var compactedMessages = await engine.PrepareAsync();
 
-        Assert.NotSame(engine.History, compactedMessages);
+        // Assert
+        compactedMessages.Should().NotBeSameAs(engine.History,
+            because: "preparing an over-budget conversation should return a compacted view");
 
-        // Verify tool result masking
         var compactedToolResult = compactedMessages.FirstOrDefault(m =>
             m.Role == MessageRole.Tool &&
-            m.Content.Any(c => c is TextContent tc && tc.Text.Contains("[Tool result cleared —", StringComparison.OrdinalIgnoreCase)));
+            m.Content.Any(c => c is TextContent tc && tc.Text.Contains("[Tool result cleared", StringComparison.OrdinalIgnoreCase)));
 
-        Assert.NotNull(compactedToolResult);
-        Assert.Equal(CompactionState.Masked, compactedToolResult.State);
-
-        // Verify window protection
-        Assert.Same(last, compactedMessages[^1]);
-        Assert.Same(secondToLast, compactedMessages[^2]);
+        compactedToolResult.Should().NotBeNull(
+            because: "old oversized tool output should be masked during compaction");
+        compactedToolResult!.State.Should().Be(CompactionState.Masked,
+            because: "masked tool results must be marked accordingly");
+        compactedMessages[^1].Should().BeSameAs(last,
+            because: "the newest message should remain in the protected window");
+        compactedMessages[^2].Should().BeSameAs(secondToLast,
+            because: "recent messages should remain untouched by compaction");
 
         var compactedTokenCount = counter.Count(compactedMessages);
-        Assert.True(compactedTokenCount < budget.CompactionTriggerTokens,
-            $"Compacted tokens ({compactedTokenCount}) should be less than the threshold ({budget.CompactionTriggerTokens})");
+        compactedTokenCount.Should().BeLessThan(budget.CompactionTriggerTokens,
+            because: "compaction should reduce the prepared context below the configured threshold");
+    }
 
-        // Test anchor correction: record another model response with provider token count
+    [Fact]
+    public async Task PrepareAsync_WhenProviderInputTokensAreRecordedAfterCompaction_ReturnsCompactedViewAgain()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 1000, compactionThreshold: 0.80);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
+        var engine = new ConversationContext(budget, counter, strategy);
+        engine.SetSystemPrompt("You are a helpful assistant.");
+        engine.AddUserMessage("Please analyze the logs for the last 24 hours.");
+        engine.RecordModelResponse([new ToolUseContent("call_123", "analyze_logs", "{\"timespan\":\"24h\"}")]);
+        engine.RecordToolResult("call_123", "analyze_logs", new string('A', 4000));
+        engine.RecordModelResponse([new TextContent("The logs show that the system was running normally, but there was a spike in memory usage at 3 AM.")]);
+        engine.AddUserMessage("Can you check the database logs around 3 AM?");
+        await engine.PrepareAsync();
+
         int reportedInputTokens = 300;
+
+        // Act
         engine.RecordModelResponse(
             [new ToolUseContent("call_456", "check_db", "{\"time\":\"03:00\"}")],
             providerInputTokens: reportedInputTokens);
 
         var finalPrepared = await engine.PrepareAsync();
-        Assert.NotSame(engine.History, finalPrepared);
+
+        // Assert
+        finalPrepared.Should().NotBeSameAs(engine.History,
+            because: "provider-reported input tokens should keep the prepared view in compacted mode when the history remains over budget");
     }
 
     [Fact]
-    public async Task FullConversationLifecycle_WithMultipleCompactionPasses_WorksCorrectly()
+    public async Task PrepareAsync_WhenConversationNeedsMultipleCompactionPasses_MasksOnlyTheLargeUnprotectedToolResults()
     {
-        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.80); // trigger ~400
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.80);
         var counter = new EstimatedTokenCounter();
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 3, protectedWindowFraction: 0.5));
         var engine = new ConversationContext(budget, counter, strategy);
 
-        // Turn 1
         engine.AddUserMessage("Scan the directory for large files.");
         engine.RecordModelResponse([new ToolUseContent("call_1", "scan_dir", "{}")]);
-        engine.RecordToolResult("call_1", "scan_dir", new string('F', 1200)); // ~300 tokens
+        engine.RecordToolResult("call_1", "scan_dir", new string('F', 1200));
         engine.RecordModelResponse([new TextContent("Found 10 large files.")]);
 
-        // Should not be compacted yet, total ~320 tokens < 400
         var currentCount = counter.Count(engine.History);
-        Assert.True(currentCount < budget.CompactionTriggerTokens,
-            $"Expected count {currentCount} to be < {budget.CompactionTriggerTokens}");
-        var prep1 = await engine.PrepareAsync();
-        Assert.Same(engine.History, prep1);
+        currentCount.Should().BeLessThan(budget.CompactionTriggerTokens,
+            because: "the first turn alone should still fit within the compaction threshold");
 
-        // Turn 2
+        // Act
+        var prep1 = await engine.PrepareAsync();
+        prep1.Should().BeSameAs(engine.History,
+            because: "preparing an under-budget conversation should not create a compacted copy");
+
         engine.AddUserMessage("Can you delete them?");
         engine.RecordModelResponse(
             [new ToolUseContent("call_2", "delete_files", "{}")],
             providerInputTokens: 330);
-        engine.RecordToolResult("call_2", "delete_files", new string('D', 1200)); // ~300 tokens
+        engine.RecordToolResult("call_2", "delete_files", new string('D', 1200));
         engine.RecordModelResponse([new TextContent("Deleted all 10 files.")]);
 
-        // Now total is ~650 tokens > 400 threshold
         var prep2 = await engine.PrepareAsync();
-        Assert.NotSame(engine.History, prep2);
+        prep2.Should().NotBeSameAs(engine.History,
+            because: "preparing an over-budget conversation should return a compacted projection");
 
-        // First tool result should be masked, second should possibly be masked depending on protected window.
-        // The protected tokens = 500 * 0.5 = 250.
-        // Window size = 3 messages. Newest: asstResponse2, toolMsg2, assistantMsg2.
-        // toolMsg2 is ~300 tokens, which exceeds maxProtectedTokens (250).
-        // This means it will break early, protecting only the newest ones that fit (asstResponse2).
-        // So toolMsg2 should ALSO be masked.
         var maskedCount = prep2.Count(m => m.State == CompactionState.Masked);
-        Assert.Equal(2, maskedCount); // both large tool results masked
+        maskedCount.Should().Be(2,
+            because: "both oversized tool results fall outside the protected window and should be masked");
 
-        // Turn 3
         engine.AddUserMessage("Thanks, what's next?");
 
         var prep3 = await engine.PrepareAsync();
-        Assert.NotSame(engine.History, prep3);
+        prep3.Should().NotBeSameAs(engine.History,
+            because: "the conversation should still require compaction after the third user turn");
 
         var finalMaskedCount = prep3.Count(m => m.State == CompactionState.Masked);
-        Assert.Equal(2, finalMaskedCount);
+        finalMaskedCount.Should().Be(2,
+            because: "adding a small follow-up should not unmask previously compacted tool results");
 
-        // Assert that the user's latest message is strictly protected (as it's small)
-        Assert.Same(engine.History[^1], prep3[^1]);
+        prep3[^1].Should().BeSameAs(engine.History[^1],
+            because: "the latest user message should remain protected when it fits inside the window");
     }
 }

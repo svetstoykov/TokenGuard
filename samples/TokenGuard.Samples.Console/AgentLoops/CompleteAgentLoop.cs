@@ -10,7 +10,7 @@ using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Core.TokenCounting;
 using TokenGuard.Extensions.OpenAI;
-using TokenGuard.Samples.Console.Tools;
+using TokenGuard.TestCommon.Tools;
 
 namespace TokenGuard.Samples.Console.AgentLoops;
 
@@ -54,7 +54,7 @@ public sealed class CompleteAgentLoop : IAgentLoop
 
         logger.LogBudgetInfo(budget, nameof(SlidingWindowStrategy));
 
-        var tools = CreateTools();
+        var tools = CreateTools(Directory.GetCurrentDirectory());
         var chatTools = tools.Select(t => t.Name switch
         {
             "list_files" => ChatTool.CreateFunctionTool(
@@ -224,11 +224,11 @@ public sealed class CompleteAgentLoop : IAgentLoop
         Console.WriteLine($"\nSession complete. Log file: {logger.LogFilePath}");
     }
 
-    private static ITool[] CreateTools() =>
+    private static ITool[] CreateTools(string workspaceDirectory) =>
     [
-        new ListFilesTool(),
-        new ReadFileTool(),
-        new CreateTextFileTool(),
-        new EditTextFileTool(),
+        new ListFilesTool(workspaceDirectory),
+        new ReadFileTool(workspaceDirectory),
+        new CreateTextFileTool(workspaceDirectory),
+        new EditTextFileTool(workspaceDirectory),
     ];
 }

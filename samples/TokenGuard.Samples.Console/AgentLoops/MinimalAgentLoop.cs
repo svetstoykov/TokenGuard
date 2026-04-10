@@ -9,7 +9,7 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Extensions.OpenAI;
-using TokenGuard.Samples.Console.Tools;
+using TokenGuard.TestCommon.Tools;
 
 namespace TokenGuard.Samples.Console.AgentLoops;
 
@@ -48,7 +48,7 @@ public sealed class MinimalAgentLoop : IAgentLoop
             .GetRequiredService<IConversationContextFactory>()
             .Create();
 
-        var tools = CreateTools();
+        var tools = CreateTools(Directory.GetCurrentDirectory());
         var chatTools = tools.Select(t => t.Name switch
         {
             "list_files" => ChatTool.CreateFunctionTool(
@@ -150,11 +150,11 @@ public sealed class MinimalAgentLoop : IAgentLoop
         }
     }
 
-    private static ITool[] CreateTools() =>
+    private static ITool[] CreateTools(string workspaceDirectory) =>
     [
-        new ListFilesTool(),
-        new ReadFileTool(),
-        new CreateTextFileTool(),
-        new EditTextFileTool(),
+        new ListFilesTool(workspaceDirectory),
+        new ReadFileTool(workspaceDirectory),
+        new CreateTextFileTool(workspaceDirectory),
+        new EditTextFileTool(workspaceDirectory),
     ];
 }

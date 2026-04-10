@@ -22,5 +22,5 @@ internal static class SlidingWindowDefaults
     /// <summary>
     /// Gets the default placeholder format used when masking older tool results.
     /// </summary>
-    internal const string PlaceholderFormat = "[Tool result cleared - {0}, {1}]";
+    internal const string PlaceholderFormat = "[Tool result cleared — {0}, {1}]";
 }

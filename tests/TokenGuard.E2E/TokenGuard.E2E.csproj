@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\TokenGuard.Core\TokenGuard.Core.csproj" />
     <ProjectReference Include="..\..\src\TokenGuard.Extensions.OpenAI\TokenGuard.Extensions.OpenAI.csproj" />
+    <ProjectReference Include="..\TokenGuard.TestCommon\TokenGuard.TestCommon.csproj" />
   </ItemGroup>
 
 </Project>

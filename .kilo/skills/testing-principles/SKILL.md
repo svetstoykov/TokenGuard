@@ -1,12 +1,12 @@
 ---
 name: testing-principles
 description: >
-  Apply best practices for writing unit, integration, and end-to-end (e2e) tests.
+  Apply best practices for writing unit, integration, and end-to-end (E2E) tests.
   Use this skill whenever the user asks for help writing, reviewing, or structuring
   tests of any kind — including xUnit, NUnit, MSTest, Vitest, or any other framework.
   Trigger on phrases like "write a test", "add unit tests", "review my tests",
-  "how should I test this", "help with integration tests", "e2e test setup", or any
-  request to improve test coverage or test quality. E2e in this context means running
+  "how should I test this", "help with integration tests", "E2E test setup", or any
+  request to improve test coverage or test quality. E2E in this context means running
   a real agent loop against a live LLM API (OpenRouter, Anthropic, etc.), not browser
   automation. Also trigger when the user shares existing test code that smells wrong
   or is hard to maintain — even if they don't explicitly ask for a review.
@@ -15,9 +15,9 @@ description: >
 # Testing Principles
 
 A decision-making and code-generation guide for writing high-quality unit, integration,
-and e2e tests. These five principles apply across all frameworks and languages but
+and E2E tests. These five principles apply across all frameworks and languages but
 examples are given in C#/.NET (xUnit + FluentAssertions) to reflect the primary usage
-context. E2e in this context means running a real agent loop against a live LLM API
+context. E2E in this context means running a real agent loop against a live LLM API
 — not browser automation.
 
 ---
@@ -102,7 +102,7 @@ implementation assumptions; fakes encode behavioral contracts.
 |---|---|
 | **Unit** | No I/O. Inject all dependencies. Use fakes/stubs for time, randomness, and LLM calls. |
 | **Integration** | Own your state. Swap real LLM clients for deterministic fakes at the boundary. Each test constructs its own conversation from scratch. |
-| **E2e** | Real LLM API calls (OpenRouter, Anthropic, etc.). Gate behind a `[Trait]` category so they never run in standard CI. Each test constructs its own conversation from scratch — no shared state. Assert structurally, not on exact text. |
+| **E2E** | Real LLM API calls (OpenRouter, Anthropic, etc.). Gate behind a `[Trait]` category so they never run in standard CI. Each test constructs its own conversation from scratch — no shared state. Assert structurally, not on exact text. |
 
 ```csharp
 // Controlling time in .NET
@@ -136,7 +136,7 @@ result.Items.Should().HaveCount(3, because: "three line items were submitted in 
 
 ## Decision Guide: Which Layer to Use
 
-| Question | Unit | Integration | E2e |
+| Question | Unit | Integration | E2E |
 |---|---|---|---|
 | Pure logic / algorithm? | ✅ | — | — |
 | Token counting / threshold math? | ✅ | — | — |
@@ -149,7 +149,7 @@ result.Items.Should().HaveCount(3, because: "three line items were submitted in 
 
 Aim for the [Testing Trophy](https://kentcdodds.com/blog/the-testing-trophy-and-testing-classifications):
 the bulk of tests should be integration tests, with a smaller pyramid of unit tests
-for pure logic and a lean set of e2e tests for critical paths.
+for pure logic and a lean set of E2E tests for critical paths.
 
 ---
 
@@ -351,7 +351,7 @@ public static class TestEnvironment
 }
 
 // In xUnit v2: use a custom [ConditionalFact] attribute or check-and-return
-[Trait("Category", "E2e")]
+[Trait("Category", "E2E")]
 [Fact]
 public async Task AgentLoop_CompactsAndContinues()
 {
@@ -369,7 +369,7 @@ public async Task AgentLoop_CompactsAndContinues()
 
 Use conditional skipping for:
 
-- **E2e tests** that need API keys (OpenRouter, Anthropic)
+- **E2E tests** that need API keys (OpenRouter, Anthropic)
 - **Platform-specific tests** (e.g., token counting behavior on Windows vs Linux due to line endings)
 - **Slow tests** you want to opt-in to locally via an environment flag
 
@@ -486,11 +486,11 @@ contents of a `CompactionEvent`, or the output of a provider adapter mapping.
 |---|---|
 | Test name is the method name (`SaveOrder_Test`) | Rename to behavior: `Compact_WhenThresholdExceeded_ReducesTokenCount` |
 | 20-line Arrange block | Extract a builder or factory method (`ConversationBuilder`) |
-| `Thread.Sleep` in integration/e2e test | Use `WaitForAsync` / polling / event-driven assertions |
+| `Thread.Sleep` in integration/E2E test | Use `WaitForAsync` / polling / event-driven assertions |
 | Asserting on `mock.Verify` for every call | Assert on outcome state; verify only for side effects with no other observable signal |
 | Tests sharing a static mutable collection | Reset in constructor / `[BeforeEach]`, or use immutable seeds |
-| E2e test asserts on exact LLM output text | Assert structurally: token count dropped, required keys present, no exception thrown |
-| E2e test runs in standard CI | Gate with `[Trait("Category", "E2e")]` and a separate pipeline step |
+| E2E test asserts on exact LLM output text | Assert structurally: token count dropped, required keys present, no exception thrown |
+| E2E test runs in standard CI | Gate with `[Trait("Category", "E2E")]` and a separate pipeline step |
 | Same strategy contract tested differently per impl | Extract an abstract spec base class; each impl inherits and overrides only the factory |
 | Test silently passes when API key is missing | Use conditional skip so the test shows as "skipped" in reports, not "passed" |
 | Fixture builds expensive state but tests mutate it | Split: read-only tests use the fixture; mutating tests build their own via the builder |
@@ -515,15 +515,15 @@ result.Should().BeEquivalentTo(expected, opts => opts
     .Excluding(x => x.CreatedAt));
 ```
 
-### Gating E2e Tests (Live LLM API)
+### Gating E2E Tests (Live LLM API)
 
-E2e tests call real APIs, cost real money, and can be throttled or flaky due to
+E2E tests call real APIs, cost real money, and can be throttled or flaky due to
 network conditions. They must never run in standard CI.
 
 ```csharp
-// Mark every e2e test with a trait
-[Trait("Category", "E2e")]
-public class SemanticFoldE2eTests
+// Mark every E2E test with a trait
+[Trait("Category", "E2E")]
+public class SemanticFoldE2ETests
 {
     [Fact]
     public async Task AgentLoop_WhenContextExceedsThreshold_CompactsAndContinues()
@@ -552,11 +552,11 @@ public class SemanticFoldE2eTests
 Filter them out of your default CI run and into a dedicated nightly or manual pipeline:
 
 ```bash
-# Run everything except e2e
-dotnet test --filter "Category!=E2e"
+# Run everything except E2E
+dotnet test --filter "Category!=E2E"
 
-# Run only e2e (nightly / manual trigger)
-dotnet test --filter "Category=E2e"
+# Run only E2E (nightly / manual trigger)
+dotnet test --filter "Category=E2E"
 ```
 
 Store API keys in CI secrets, never in source. Treat a failing e2e test as a
@@ -570,7 +570,7 @@ are outside your control.
 - [ ] Test name describes behavior and expected outcome
 - [ ] AAA structure is clearly identifiable
 - [ ] Only one behavior is tested
-- [ ] No I/O in unit tests; state is owned in integration/e2e tests
+- [ ] No I/O in unit tests; state is owned in integration/E2E tests
 - [ ] Time, randomness, and external calls are controlled
 - [ ] Failure message would be informative without reading the source code
 - [ ] Test passes reliably when run in isolation and in parallel
