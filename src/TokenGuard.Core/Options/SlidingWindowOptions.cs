@@ -11,59 +11,74 @@ namespace TokenGuard.Core.Options;
 /// and reclaiming space from older tool-heavy history. The values are validated at construction time so strategy
 /// instances fail fast when supplied with an impossible or ambiguous policy.
 /// </remarks>
-/// <param name="windowSize">The maximum number of newest messages to preserve unchanged.</param>
-/// <param name="protectedWindowFraction">The fraction of <see cref="ContextBudget.AvailableTokens"/> reserved for the protected newest-message window.</param>
-/// <param name="placeholderFormat">The composite format string used when replacing older tool results, where <c>{0}</c> is the tool name and <c>{1}</c> is the tool call identifier.</param>
-public readonly record struct SlidingWindowOptions(
-    int windowSize = 10,
-    double protectedWindowFraction = 0.40,
-    string placeholderFormat = "[Tool result cleared — {0}, {1}]")
+public readonly record struct SlidingWindowOptions
 {
+    /// <summary>
+    /// Initializes a <see cref="SlidingWindowOptions"/> value with validated masking behavior.
+    /// </summary>
+    /// <remarks>
+    /// The constructor validates the protected window size, token fraction, and placeholder format before the value
+    /// participates in record equality. This keeps the record state aligned with the exposed validated properties rather
+    /// than capturing duplicate hidden primary-constructor fields.
+    /// </remarks>
+    /// <param name="windowSize">The maximum number of newest messages to preserve unchanged.</param>
+    /// <param name="protectedWindowFraction">The fraction of <see cref="ContextBudget.AvailableTokens"/> reserved for the protected newest-message window.</param>
+    /// <param name="placeholderFormat">The composite format string used when replacing older tool results, where <c>{0}</c> is the tool name and <c>{1}</c> is the tool call identifier.</param>
+    public SlidingWindowOptions(
+        int windowSize = SlidingWindowDefaults.WindowSize,
+        double protectedWindowFraction = SlidingWindowDefaults.ProtectedWindowFraction,
+        string placeholderFormat = SlidingWindowDefaults.PlaceholderFormat)
+    {
+        this.WindowSize = ValidateWindowSize(windowSize, nameof(windowSize));
+        this.ProtectedWindowFraction = ValidateProtectedWindowFraction(protectedWindowFraction, nameof(protectedWindowFraction));
+        this.PlaceholderFormat = ValidatePlaceholderFormat(placeholderFormat, nameof(placeholderFormat));
+    }
+
     /// <summary>
     /// Gets the default configuration used by <see cref="SlidingWindowStrategy"/>.
     /// </summary>
-    public static SlidingWindowOptions Default => new(10, 0.40, "[Tool result cleared — {0}, {1}]");
+    public static SlidingWindowOptions Default => new(SlidingWindowDefaults.WindowSize);
 
     /// <summary>
     /// Gets the maximum number of newest messages to preserve unchanged.
     /// </summary>
-    public int WindowSize { get; } = ValidateWindowSize(windowSize);
+    public int WindowSize { get; }
 
     /// <summary>
     /// Gets the fraction of available tokens reserved for the protected newest-message window.
     /// </summary>
-    public double ProtectedWindowFraction { get; } = ValidateProtectedWindowFraction(protectedWindowFraction);
+    public double ProtectedWindowFraction { get; }
 
     /// <summary>
     /// Gets the format string used to replace older tool results with placeholders.
     /// </summary>
-    public string PlaceholderFormat { get; } = ValidatePlaceholderFormat(placeholderFormat);
+    public string PlaceholderFormat { get; }
 
-    private static int ValidateWindowSize(int value)
+    private static int ValidateWindowSize(int value, string paramName)
     {
         if (value <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(windowSize), "WindowSize must be greater than zero.");
+            throw new ArgumentOutOfRangeException(paramName, "WindowSize must be greater than zero.");
         }
 
         return value;
     }
 
-    private static string ValidatePlaceholderFormat(string value)
+    private static string ValidatePlaceholderFormat(string value, string paramName)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            throw new ArgumentException("PlaceholderFormat cannot be null or whitespace.", nameof(placeholderFormat));
+            throw new ArgumentException("PlaceholderFormat cannot be null or whitespace.", paramName);
         }
 
         return value;
     }
 
-    private static double ValidateProtectedWindowFraction(double value)
+    private static double ValidateProtectedWindowFraction(double value, string paramName)
     {
         if (value <= 0.0 || value >= 1.0)
         {
-            throw new ArgumentOutOfRangeException(nameof(protectedWindowFraction), "ProtectedWindowFraction must be in the range (0.0, 1.0).");
+            throw new ArgumentOutOfRangeException(paramName, "ProtectedWindowFraction must be in the range (0.0, 1.0).");
         }
 
         return value;

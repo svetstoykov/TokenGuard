@@ -35,13 +35,15 @@ public sealed class ConversationConfigBuilder
     /// <remarks>
     ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
-    ///     the resulting configuration uses a maximum token budget of 100,000.
+    ///     the resulting configuration uses the library default profile: 100,000 tokens, a 0.80 compaction
+    ///     threshold, a 0.95 emergency threshold, 0 reserved tokens, <see cref="EstimatedTokenCounter"/>,
+    ///     and <see cref="SlidingWindowStrategy"/>.
     /// </remarks>
     /// <param name="maxTokens">
     ///     The hard token ceiling for the full context window. Defaults to 100,000 when omitted.
     /// </param>
     /// <returns>A configured <see cref="ConversationContextConfiguration"/> instance.</returns>
-    public static ConversationContextConfiguration Default(int maxTokens = 100_000) =>
+    public static ConversationContextConfiguration Default(int maxTokens = ConversationDefaults.MaxTokens) =>
         new ConversationConfigBuilder()
             .WithMaxTokens(maxTokens)
             .Build();
@@ -65,7 +67,8 @@ public sealed class ConversationConfigBuilder
     ///     Sets the fraction of available tokens at which normal compaction starts.
     /// </summary>
     /// <remarks>
-    ///     When this value is not configured, the default value from <see cref="ContextBudget.For(int)"/> is used.
+    ///     When this value is not configured, the library default value from <see cref="ContextBudget.For(int)"/>
+    ///     is used, which is 0.80 for the configured maximum token count.
     /// </remarks>
     /// <param name="compactionThreshold">The compaction trigger threshold.</param>
     /// <returns>The current builder instance.</returns>
@@ -79,7 +82,8 @@ public sealed class ConversationConfigBuilder
     ///     Sets the fraction of available tokens at which emergency compaction starts.
     /// </summary>
     /// <remarks>
-    ///     When this value is not configured, the default value from <see cref="ContextBudget.For(int)"/> is used.
+    ///     When this value is not configured, the library default value from <see cref="ContextBudget.For(int)"/>
+    ///     is used, which is 0.95 for the configured maximum token count.
     /// </remarks>
     /// <param name="emergencyThreshold">The emergency compaction trigger threshold.</param>
     /// <returns>The current builder instance.</returns>
@@ -93,7 +97,8 @@ public sealed class ConversationConfigBuilder
     ///     Sets the number of tokens reserved for fixed, non-message content.
     /// </summary>
     /// <remarks>
-    ///     When this value is not configured, the default value from <see cref="ContextBudget.For(int)"/> is used.
+    ///     When this value is not configured, the library default value from <see cref="ContextBudget.For(int)"/>
+    ///     is used, which is 0 reserved tokens.
     /// </remarks>
     /// <param name="reservedTokens">The reserved token count.</param>
     /// <returns>The current builder instance.</returns>
@@ -137,8 +142,9 @@ public sealed class ConversationConfigBuilder
     /// </summary>
     /// <remarks>
     ///     <para>
-    ///         Any budget values not explicitly configured on the builder are merged with the defaults from
-    ///         <see cref="ContextBudget.For(int)"/> for the configured maximum token count.
+    ///         Any budget values not explicitly configured on the builder are merged with the library defaults
+    ///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count: 0.80 compaction,
+    ///         0.95 emergency, and 0 reserved tokens.
     ///     </para>
     ///     <para>
     ///         If no token counter or compaction strategy has been configured, this method uses
@@ -179,8 +185,9 @@ public sealed class ConversationConfigBuilder
     /// <remarks>
     ///     <para>
     ///         This method applies exactly the same defaulting logic as <see cref="Build"/>: any budget
-    ///         values not explicitly configured are merged with the defaults from
-    ///         <see cref="ContextBudget.For(int)"/>, and missing counter or strategy choices fall back to
+    ///         values not explicitly configured are merged with the library defaults from
+    ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction, 0.95 emergency, and 0 reserved tokens,
+    ///         and missing counter or strategy choices fall back to
     ///         <see cref="TokenCounting.EstimatedTokenCounter"/> and <see cref="Strategies.SlidingWindowStrategy"/>,
     ///         respectively.
     ///     </para>

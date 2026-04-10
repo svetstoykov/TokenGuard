@@ -10,11 +10,12 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
 
     /// <summary>
     /// Initialises the factory with the standard default configuration: a 100,000-token budget,
+    /// 0.80 compaction threshold, 0.95 emergency threshold, 0 reserved tokens,
     /// <see cref="TokenCounting.EstimatedTokenCounter"/>, and <see cref="Strategies.SlidingWindowStrategy"/>.
     /// </summary>
     /// <remarks>
-    /// The default configuration is identical to the one produced by
-    /// <c>new ConversationContextConfigurationBuilder().WithMaxTokens(100_000).Build()</c>.
+    /// The default configuration is identical to the library default profile produced by
+    /// <c>new ConversationConfigBuilder().WithMaxTokens(100_000).Build()</c>.
     /// It can be overridden per call site by registering a named configuration with
     /// <see cref="AddNamed"/> and calling <see cref="Create(string)"/> instead.
     /// </remarks>

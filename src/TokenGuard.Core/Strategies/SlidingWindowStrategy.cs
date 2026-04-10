@@ -67,7 +67,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///         Messages before the boundary are only modified when they contain <see cref="ToolResultContent"/>.
     ///         In that case each tool result is replaced with a <see cref="TextContent"/> placeholder built from
     ///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>, and the returned message clears
-    ///         <see cref="ConversaSemanticMessagesage/> so token estimation can be recomputed against the masked content.
+    ///         <see cref="ContextMessage.TokenCount"/> so token estimation can be recomputed against the masked content.
     ///     </para>
     /// </remarks>
     /// <param name="messages">The ordered message history to compact.</param>
@@ -103,7 +103,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
                 break;
             }
 
-            var candidateTokens = tokenCounter.Count(messages[i]);
+            var candidateTokens = messages[i].TokenCount ?? tokenCounter.Count(messages[i]);
             if (protectedTokens + candidateTokens > maxProtectedTokens)
             {
                 break;
@@ -139,13 +139,13 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     {
         var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        for (var i = 0; i < messages.Count; i++)
+        foreach (var message in messages)
         {
-            var content = messages[i].Content;
+            var content = message.Content;
 
-            for (var j = 0; j < content.Count; j++)
+            foreach (var contentSegment in content)
             {
-                if (content[j] is ToolUseContent toolUse)
+                if (contentSegment is ToolUseContent toolUse)
                 {
                     lookup[toolUse.ToolCallId] = toolUse.ToolName;
                 }
@@ -163,13 +163,12 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         var content = contextMessage.Content;
         var hasToolResult = false;
 
-        for (var i = 0; i < content.Count; i++)
+        foreach (var contentSegment in content)
         {
-            if (content[i] is ToolResultContent)
-            {
-                hasToolResult = true;
-                break;
-            }
+            if (contentSegment is not ToolResultContent) continue;
+
+            hasToolResult = true;
+            break;
         }
 
         if (!hasToolResult)

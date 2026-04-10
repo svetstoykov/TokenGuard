@@ -36,8 +36,11 @@ public static class ServiceCollectionExtensions
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
     /// <remarks>
     /// This overload ensures <see cref="IConversationContextFactory"/> is available as a singleton
-    /// while preserving any previously registered named profiles. For non-DI scenarios, construct
-    /// <see cref="ConversationContext"/> directly instead of registering custom factory instances.
+    /// while preserving any previously registered named profiles. The library default profile uses
+    /// 100,000 max tokens, 0.80 compaction, 0.95 emergency, 0 reserved tokens,
+    /// <see cref="TokenCounting.EstimatedTokenCounter"/>, and <see cref="Strategies.SlidingWindowStrategy"/>.
+    /// For non-DI scenarios, construct <see cref="ConversationContext"/> directly instead of registering
+    /// custom factory instances.
     /// </remarks>
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="services"/> is null.
