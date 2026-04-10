@@ -1,3 +1,4 @@
+using FluentAssertions;
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
@@ -23,8 +24,8 @@ public sealed class ConversationContextTests
         var prepared = await engine.PrepareAsync();
 
         // Assert
-        Assert.Same(engine.History, prepared);
-        Assert.Equal(0, strategy.CompactCalls);
+        prepared.Should().BeSameAs(engine.History);
+        strategy.CompactCalls.Should().Be(0);
     }
 
     [Fact]
@@ -46,9 +47,9 @@ public sealed class ConversationContextTests
         var prepared = await engine.PrepareAsync();
 
         // Assert
-        Assert.Equal(1, strategy.CompactCalls);
-        Assert.Same(engine.History[0], strategy.LastInput![0]);
-        Assert.Same(compacted, Assert.Single(prepared));
+        strategy.CompactCalls.Should().Be(1);
+        strategy.LastInput.Should().ContainSingle().Which.Should().BeSameAs(engine.History[0]);
+        prepared.Should().ContainSingle().Which.Should().BeSameAs(compacted);
     }
 
     [Fact]
@@ -76,14 +77,13 @@ public sealed class ConversationContextTests
         var prepared = await engine.PrepareAsync();
 
         // Assert
-        Assert.Single(strategy.LastInput!);
-        Assert.Same(user1, strategy.LastInput![0]);
-        Assert.Equal(100, strategy.LastBudget.ReservedTokens);
-        Assert.Equal(1000, strategy.LastBudget.MaxTokens);
-        Assert.Equal(900, strategy.LastBudget.AvailableTokens);
-        Assert.Equal(2, prepared.Count);
-        Assert.Same(sys1, prepared[0]);
-        Assert.Same(compacted, prepared[1]);
+        strategy.LastInput.Should().ContainSingle().Which.Should().BeSameAs(user1);
+        strategy.LastBudget.ReservedTokens.Should().Be(100);
+        strategy.LastBudget.MaxTokens.Should().Be(1000);
+        strategy.LastBudget.AvailableTokens.Should().Be(900);
+        prepared.Should().HaveCount(2);
+        prepared[0].Should().BeSameAs(sys1);
+        prepared[1].Should().BeSameAs(compacted);
     }
 
     [Fact]
@@ -107,9 +107,9 @@ public sealed class ConversationContextTests
         var prepared = await engine.PrepareAsync();
 
         // Assert
-        Assert.Equal(2, prepared.Count);
-        Assert.Same(sys1, prepared[0]);
-        Assert.Equal(0, strategy.CompactCalls);
+        prepared.Should().HaveCount(2);
+        prepared[0].Should().BeSameAs(sys1);
+        strategy.CompactCalls.Should().Be(0);
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public sealed class ConversationContextTests
         _ = await engine.PrepareAsync();
 
         // Assert
-        Assert.Equal(1, counter.GetCountCalls(message));
+        counter.GetCountCalls(message).Should().Be(1);
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public sealed class ConversationContextTests
         _ = await engine.PrepareAsync();
 
         // Assert
-        Assert.Equal(1, strategy.CompactCalls);
+        strategy.CompactCalls.Should().Be(1);
     }
 
     [Fact]
@@ -174,8 +174,8 @@ public sealed class ConversationContextTests
         _ = await engine.PrepareAsync();
 
         // Assert
-        Assert.Equal(1, counter.GetCountCalls(first));
-        Assert.Equal(1, counter.GetCountCalls(second));
+        counter.GetCountCalls(first).Should().Be(1);
+        counter.GetCountCalls(second).Should().Be(1);
     }
 
     [Fact]
@@ -199,7 +199,7 @@ public sealed class ConversationContextTests
         _ = await engine.PrepareAsync();
 
         // Assert
-        Assert.Equal(1, counter.GetCountCalls(compacted));
+        counter.GetCountCalls(compacted).Should().Be(1);
     }
 
     [Fact]
@@ -214,7 +214,8 @@ public sealed class ConversationContextTests
         engine.Dispose();
 
         // Assert
-        Assert.Throws<ObjectDisposedException>(() => engine.History);
+        Action act = () => _ = engine.History;
+        act.Should().Throw<ObjectDisposedException>();
     }
 
     [Fact]
@@ -223,9 +224,11 @@ public sealed class ConversationContextTests
         // Arrange
         var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
 
-        // Act & Assert — no exception on double dispose
+        // Act
         engine.Dispose();
         engine.Dispose();
+
+        // Assert
     }
 
     [Theory]
@@ -240,8 +243,8 @@ public sealed class ConversationContextTests
         var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
         engine.Dispose();
 
-        // Act & Assert
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => member switch
+        // Act
+        Func<Task> act = () => member switch
         {
             "SetSystemPrompt"     => Sync(() => engine.SetSystemPrompt("x")),
             "AddUserMessage"      => Sync(() => engine.AddUserMessage("x")),
@@ -249,7 +252,10 @@ public sealed class ConversationContextTests
             "RecordToolResult"    => Sync(() => engine.RecordToolResult("id", "tool", "x")),
             "PrepareAsync"        => engine.PrepareAsync(),
             _                     => throw new ArgumentOutOfRangeException(nameof(member))
-        });
+        };
+
+        // Assert
+        await act.Should().ThrowAsync<ObjectDisposedException>();
     }
 
     private static Task Sync(Action action)

@@ -101,7 +101,7 @@ implementation assumptions; fakes encode behavioral contracts.
 | Layer | Isolation strategy |
 |---|---|
 | **Unit** | No I/O. Inject all dependencies. Use fakes/stubs for time, randomness, and LLM calls. |
-| **Integration** | Own your state. Use transactions rolled back after each test, or dedicated test schemas. Swap real LLM clients for deterministic fakes at the boundary. |
+| **Integration** | Own your state. Swap real LLM clients for deterministic fakes at the boundary. Each test constructs its own conversation from scratch. |
 | **E2e** | Real LLM API calls (OpenRouter, Anthropic, etc.). Gate behind a `[Trait]` category so they never run in standard CI. Each test constructs its own conversation from scratch — no shared state. Assert structurally, not on exact text. |
 
 ```csharp
@@ -153,6 +153,333 @@ for pure logic and a lean set of e2e tests for critical paths.
 
 ---
 
+## Test Data Builders
+
+When Arrange blocks grow beyond 5–6 lines, extract a builder that constructs the
+object graph with sensible defaults and lets individual tests override only the values
+they care about. This is especially important for `ConversationContext` and message
+lists, which are the primary inputs across most TokenGuard tests.
+
+```csharp
+public class ConversationBuilder
+{
+    private int _maxTokens = 10_000;
+    private double _compactionThreshold = 0.80;
+    private ITokenCounter _counter = new EstimatedTokenCounter();
+    private ICompactionStrategy _strategy = new SlidingWindowStrategy(
+        new SlidingWindowOptions(windowSize: 10));
+    private readonly List<Action<ConversationContext>> _messages = [];
+
+    public ConversationBuilder WithMaxTokens(int max) { _maxTokens = max; return this; }
+    public ConversationBuilder WithThreshold(double t) { _compactionThreshold = t; return this; }
+    public ConversationBuilder WithCounter(ITokenCounter c) { _counter = c; return this; }
+    public ConversationBuilder WithStrategy(ICompactionStrategy s) { _strategy = s; return this; }
+
+    public ConversationBuilder WithUserMessage(string text)
+    {
+        _messages.Add(ctx => ctx.AddUserMessage(text));
+        return this;
+    }
+
+    public ConversationBuilder WithToolResult(string callId, string name, string result)
+    {
+        _messages.Add(ctx => ctx.RecordToolResult(callId, name, result));
+        return this;
+    }
+
+    public ConversationContext Build()
+    {
+        var ctx = new ConversationContextBuilder()
+            .WithMaxTokens(_maxTokens)
+            .WithCompactionThreshold(_compactionThreshold)
+            .WithTokenCounter(_counter)
+            .WithStrategy(_strategy)
+            .Build();
+
+        foreach (var addMessage in _messages)
+            addMessage(ctx);
+
+        return ctx;
+    }
+}
+```
+
+Usage in a test:
+
+```csharp
+[Fact]
+public void Prepare_WhenOverThreshold_CompactsOldToolResults()
+{
+    // Arrange — only specify what this test cares about
+    var ctx = new ConversationBuilder()
+        .WithMaxTokens(500)
+        .WithThreshold(0.60)
+        .WithUserMessage("Read file X")
+        .WithToolResult("call-1", "read_file", new string('x', 400))
+        .WithUserMessage("Now fix the bug")
+        .Build();
+
+    // Act
+    var prepared = ctx.Prepare();
+
+    // Assert
+    prepared.Should().Contain(m =>
+        m.CompactionState == CompactionState.Masked,
+        because: "the old tool result should be masked after threshold exceeded");
+}
+```
+
+Adapt the builder as the public API evolves. The pattern stays the same: defaults for
+everything, fluent overrides for what matters per test, and a `Build()` that returns
+the SUT ready to act on.
+
+---
+
+## Specification Tests (Cross-Implementation Contract Testing)
+
+When multiple classes implement the same interface — like `ICompactionStrategy` — define
+the behavioral contract once as an abstract test base. Each implementation inherits the
+base and plugs in its own factory. This ensures every strategy passes the same contract
+tests and prevents drift between implementations.
+
+This is the pattern the EF Core repo uses for its `Specification.Tests` project: abstract
+base classes define what a correct provider must do, and each provider (SQL Server,
+SQLite, Cosmos) inherits them with its own fixture.
+
+```csharp
+public abstract class CompactionStrategyContractTests
+{
+    protected abstract ICompactionStrategy CreateStrategy();
+
+    [Fact]
+    public void Compact_WhenNoMessagesExceedBudget_ReturnsAllOriginal()
+    {
+        // Arrange
+        var strategy = CreateStrategy();
+        var messages = new ConversationBuilder()
+            .WithMaxTokens(10_000)
+            .WithUserMessage("Hello")
+            .Build();
+
+        // Act
+        var result = strategy.Compact(messages.Messages, budget: 10_000);
+
+        // Assert
+        result.Should().OnlyContain(m => m.CompactionState == CompactionState.Original);
+    }
+
+    [Fact]
+    public void Compact_WhenBudgetExceeded_ReducesTotalTokenCount()
+    {
+        var strategy = CreateStrategy();
+        var ctx = new ConversationBuilder()
+            .WithMaxTokens(500)
+            .WithUserMessage("First message")
+            .WithToolResult("c1", "tool", new string('x', 400))
+            .WithUserMessage("Second message")
+            .WithToolResult("c2", "tool", new string('y', 400))
+            .Build();
+        var before = ctx.TokenCount;
+
+        var result = strategy.Compact(ctx.Messages, budget: 500);
+
+        result.Sum(m => m.TokenCount).Should().BeLessThan(before,
+            because: "compaction must reduce total token usage");
+    }
+
+    [Fact]
+    public void Compact_NeverDropsSystemMessage()
+    {
+        var strategy = CreateStrategy();
+        var ctx = new ConversationBuilder()
+            .WithMaxTokens(200)
+            .WithUserMessage("Do something")
+            .WithToolResult("c1", "tool", new string('x', 300))
+            .Build();
+        ctx.SetSystemPrompt("You are helpful.");
+
+        var result = strategy.Compact(ctx.Messages, budget: 200);
+
+        result.Should().Contain(m => m.Role == Role.System,
+            because: "system messages must always survive compaction");
+    }
+}
+
+// Each strategy implementation inherits and plugs in its factory:
+public class SlidingWindowStrategyContractTests : CompactionStrategyContractTests
+{
+    protected override ICompactionStrategy CreateStrategy()
+        => new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 5));
+}
+
+public class LlmSummarizationStrategyContractTests : CompactionStrategyContractTests
+{
+    protected override ICompactionStrategy CreateStrategy()
+        => new LlmSummarizationStrategy(new FakeLlmClient(responseTokens: 50));
+}
+```
+
+When adding a new strategy, create a one-line subclass and get the full contract suite
+for free. If a contract test doesn't apply to a specific strategy, override and skip it
+with a clear reason — never silently delete it.
+
+---
+
+## Conditional Test Skipping
+
+Some tests depend on runtime conditions: an API key being set, a service being reachable,
+or a specific OS. Use conditional skipping to make these tests self-documenting rather
+than failing with cryptic errors.
+
+xUnit doesn't ship a `[ConditionalFact]` attribute, but you can build one trivially
+with `Skip`:
+
+```csharp
+[Fact(Skip = "Requires OPENROUTER_API_KEY")]  // static skip — always skipped
+```
+
+For dynamic skipping based on runtime checks, use the `Skip` property on xUnit v3 or
+a helper that throws `SkipException`:
+
+```csharp
+public static class TestEnvironment
+{
+    public static string? OpenRouterApiKey =>
+        Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
+
+    public static bool HasOpenRouterKey => OpenRouterApiKey is not null;
+}
+
+// In xUnit v2: use a custom [ConditionalFact] attribute or check-and-return
+[Trait("Category", "E2e")]
+[Fact]
+public async Task AgentLoop_CompactsAndContinues()
+{
+    if (!TestEnvironment.HasOpenRouterKey)
+    {
+        // xUnit v2: output a message and return early
+        // xUnit v3: throw new SkipException("...")
+        return;
+    }
+
+    var client = new OpenRouterClient(TestEnvironment.OpenRouterApiKey!);
+    // ... rest of e2e test
+}
+```
+
+Use conditional skipping for:
+
+- **E2e tests** that need API keys (OpenRouter, Anthropic)
+- **Platform-specific tests** (e.g., token counting behavior on Windows vs Linux due to line endings)
+- **Slow tests** you want to opt-in to locally via an environment flag
+
+Do not use conditional skipping to hide broken tests. If a test is broken, fix it or
+delete it.
+
+---
+
+## Shared Fixtures for Expensive Setup
+
+Some test resources are expensive to create — a configured `ConversationContext`, a
+fake LLM client with a large fixture response set, or a pre-built message history. Use
+xUnit's `IClassFixture<T>` to share these across tests in a class without recreating
+them per test.
+
+```csharp
+public class LargeConversationFixture
+{
+    public ConversationContext Context { get; }
+
+    public LargeConversationFixture()
+    {
+        var builder = new ConversationBuilder()
+            .WithMaxTokens(100_000)
+            .WithStrategy(new SlidingWindowStrategy(
+                new SlidingWindowOptions(windowSize: 20)));
+
+        // Simulate a 50-turn conversation
+        for (int i = 0; i < 50; i++)
+        {
+            builder.WithUserMessage($"Turn {i}: do something");
+            builder.WithToolResult($"call-{i}", "execute", new string('x', 1500));
+        }
+
+        Context = builder.Build();
+    }
+}
+
+public class SlidingWindowOnLargeHistoryTests : IClassFixture<LargeConversationFixture>
+{
+    private readonly LargeConversationFixture _fixture;
+
+    public SlidingWindowOnLargeHistoryTests(LargeConversationFixture fixture)
+        => _fixture = fixture;
+
+    [Fact]
+    public void Prepare_KeepsRecentTurnsIntact()
+    {
+        var prepared = _fixture.Context.Prepare();
+
+        prepared.TakeLast(20).Should().OnlyContain(
+            m => m.CompactionState == CompactionState.Original,
+            because: "the 20 most recent turns are inside the window");
+    }
+}
+```
+
+Rules for fixtures:
+
+- **Read-only tests only.** If a test mutates fixture state, other tests become order-dependent.
+  For tests that mutate, build a fresh instance per test (via the builder).
+- **No collection fixtures for parallelism.** xUnit collection fixtures disable parallel
+  execution for all classes in the collection. Prefer class fixtures unless you genuinely
+  need cross-class sharing.
+- **Lock-and-flag for truly global setup.** If multiple fixtures need to initialize the
+  same singleton (rare in TokenGuard since there's no DB), use the lock pattern:
+
+```csharp
+private static readonly object _lock = new();
+private static bool _initialized;
+
+public MyFixture()
+{
+    lock (_lock)
+    {
+        if (!_initialized)
+        {
+            // one-time expensive setup
+            _initialized = true;
+        }
+    }
+}
+```
+
+---
+
+## Separate Mutation from Verification
+
+When a test mutates state and then reads it back to assert, be careful not to assert
+against cached or in-memory state that was never actually committed. This is a general
+principle, not just a database concern.
+
+```csharp
+// Bad: asserting on the same object reference we just mutated
+ctx.AddUserMessage("new message");
+ctx.Messages.Last().Content.Should().Be("new message"); // trivially true, tests nothing
+
+// Good: round-trip through the public API
+ctx.AddUserMessage("new message");
+var prepared = ctx.Prepare(); // the real public surface
+prepared.Last().Segments.OfType<TextContent>().First().Text
+    .Should().Be("new message");
+```
+
+The general rule: **never assert on the same object you just wrote to.** Assert on
+what a consumer of the API would actually see — the return value of `Prepare()`, the
+contents of a `CompactionEvent`, or the output of a provider adapter mapping.
+
+---
+
 ## Common Smells and Fixes
 
 | Smell | Fix |
@@ -164,6 +491,9 @@ for pure logic and a lean set of e2e tests for critical paths.
 | Tests sharing a static mutable collection | Reset in constructor / `[BeforeEach]`, or use immutable seeds |
 | E2e test asserts on exact LLM output text | Assert structurally: token count dropped, required keys present, no exception thrown |
 | E2e test runs in standard CI | Gate with `[Trait("Category", "E2e")]` and a separate pipeline step |
+| Same strategy contract tested differently per impl | Extract an abstract spec base class; each impl inherits and overrides only the factory |
+| Test silently passes when API key is missing | Use conditional skip so the test shows as "skipped" in reports, not "passed" |
+| Fixture builds expensive state but tests mutate it | Split: read-only tests use the fixture; mutating tests build their own via the builder |
 
 ---
 
@@ -244,3 +574,7 @@ are outside your control.
 - [ ] Time, randomness, and external calls are controlled
 - [ ] Failure message would be informative without reading the source code
 - [ ] Test passes reliably when run in isolation and in parallel
+- [ ] Contract behaviors are in a shared spec base, not duplicated per implementation
+- [ ] Tests that need external resources skip cleanly when those resources are absent
+- [ ] Builders are used when Arrange exceeds ~5 lines
+- [ ] Assertions verify API output, not the same object that was mutated
