@@ -10,7 +10,7 @@ using Xunit;
 
 namespace TokenGuard.IntegrationTests;
 
-public sealed class FoldingEngineIntegrationTests
+public sealed class ConversationContextIntegrationTests
 {
     [Fact]
     public async Task PrepareAsync_WhenLargeToolResultPushesHistoryOverThreshold_MasksOldToolResultAndPreservesRecentMessages()

@@ -52,6 +52,48 @@ public sealed class ContextBudgetTests
         Assert.Equal(600, budget.EmergencyTriggerTokens);
     }
 
+    [Fact]
+    public void CompactionTriggerTokens_ComputesExactBoundaryValue()
+    {
+        // Arrange
+        var budget = new ContextBudget(
+            maxTokens: 1_000,
+            compactionThreshold: 0.30,
+            emergencyThreshold: 0.60,
+            reservedTokens: 0);
+
+        // Act
+        var exactBoundary = budget.CompactionTriggerTokens;
+        var oneAboveBoundary = budget.CompactionTriggerTokens + 1;
+
+        // Assert
+        Assert.Equal(300, exactBoundary);
+        Assert.Equal(301, oneAboveBoundary);
+        Assert.True(exactBoundary <= budget.AvailableTokens);
+        Assert.True(oneAboveBoundary <= budget.AvailableTokens);
+    }
+
+    [Fact]
+    public void EmergencyTriggerTokens_ComputesExactBoundaryValue()
+    {
+        // Arrange
+        var budget = new ContextBudget(
+            maxTokens: 1_000,
+            compactionThreshold: 0.30,
+            emergencyThreshold: 0.95,
+            reservedTokens: 0);
+
+        // Act
+        var exactBoundary = budget.EmergencyTriggerTokens;
+        var oneAboveBoundary = budget.EmergencyTriggerTokens + 1;
+
+        // Assert
+        Assert.Equal(950, exactBoundary);
+        Assert.Equal(951, oneAboveBoundary);
+        Assert.True(exactBoundary <= budget.AvailableTokens);
+        Assert.True(oneAboveBoundary <= budget.AvailableTokens);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]

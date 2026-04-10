@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Anthropic;
 using Anthropic.Models.Messages;
 using Microsoft.Extensions.Configuration;
@@ -11,13 +12,18 @@ using TokenGuard.Tools.Tools;
 
 namespace TokenGuard.Samples.Console.AgentLoops;
 
+using Console = System.Console;
+
 public sealed class AnthropicAgentLoop : IAgentLoop
 {
     public string Name => "Minimal Anthropic loop";
 
     public async Task RunAsync()
     {
+        var startTime = DateTime.Now;
         var tasksDirectory = Path.Combine(Directory.GetCurrentDirectory(), "Tasks");
+
+        using var logger = new SessionLogger();
 
         var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production";
 
@@ -35,6 +41,8 @@ public sealed class AnthropicAgentLoop : IAgentLoop
         var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4));
         var conversationContext = new ConversationContext(budget, counter, strategy);
 
+        logger.LogBudgetInfo(budget, nameof(SlidingWindowStrategy));
+
         var tools = CreateTools(Directory.GetCurrentDirectory());
 
         Directory.CreateDirectory(tasksDirectory);
@@ -45,14 +53,15 @@ public sealed class AnthropicAgentLoop : IAgentLoop
             .FirstOrDefault();
         if (taskFilePath is null)
         {
+            Console.WriteLine($"No task files found in {tasksDirectory}.");
             return;
         }
 
         var taskFileName = Path.GetFileName(taskFilePath);
-
         var taskText = await File.ReadAllTextAsync(taskFilePath);
         if (string.IsNullOrWhiteSpace(taskText))
         {
+            Console.WriteLine($"Task file '{taskFileName}' is empty.");
             return;
         }
 
@@ -65,27 +74,36 @@ public sealed class AnthropicAgentLoop : IAgentLoop
             "If more work remains, continue working instead of stopping. " +
             "You have tools to list files, read files, create text files, and edit text files in the current directory. " +
             "Keep intermediate responses concise.");
+        logger.LogMessageAdded(conversationContext.History.First(), "System Prompt Updated");
 
         conversationContext.AddUserMessage($"Task file: {taskFileName}\n\n{taskText}");
+        logger.LogMessageAdded(conversationContext.History.Last(), "Task Loaded");
 
         var toolMap = tools.ToDictionary(t => t.Name, t => t);
+        var anthropicTools = tools.Select(tool => (ToolUnion)ToAnthropicTool(tool)).ToList();
 
         var taskCompleted = false;
         while (!taskCompleted)
         {
             var preparedMessages = await conversationContext.PrepareAsync();
-            var parameters = preparedMessages.ForAnthropic(model: "claude-opus-4-6", maxTokens: 1024);
-
-            // Tool registration with the Anthropic SDK is not documented in the provided guide.
-            // Leave the request as message-only until the intended tool wiring is confirmed.
+            var (messages, system) = preparedMessages.ForAnthropic();
+            var parameters = new MessageCreateParams
+            {
+                Model = "claude-3-haiku-20240307",
+                MaxTokens = 1024,
+                Messages = messages,
+                System = system,
+                Tools = anthropicTools,
+            };
 
             Message response;
             try
             {
                 response = await client.Messages.Create(parameters);
             }
-            catch
+            catch (Exception ex)
             {
+                logger.LogError("Anthropic Messages.Create", ex);
                 break;
             }
 
@@ -93,6 +111,10 @@ public sealed class AnthropicAgentLoop : IAgentLoop
             var contentSegments = response.ResponseSegments();
 
             conversationContext.RecordModelResponse(contentSegments, inputTokens);
+            logger.LogModelResponse(
+                conversationContext.History.Last(),
+                inputTokens,
+                response.ToolUseSegments().Count > 0 ? "Tool Calls" : "Text Response");
 
             var toolCalls = response.ToolUseSegments();
             if (toolCalls.Count > 0)
@@ -104,13 +126,13 @@ public sealed class AnthropicAgentLoop : IAgentLoop
                         : "Error: Unknown tool.";
 
                     conversationContext.RecordToolResult(call.ToolCallId, call.ToolName, resultText);
+                    logger.LogToolResultRecorded(conversationContext.History.Last());
                 }
 
                 continue;
             }
 
             var finalResponseText = response.TextSegments();
-
             taskCompleted = finalResponseText.Any(b => b.Content.Equals("TASK_COMPLETE", StringComparison.Ordinal));
 
             if (!taskCompleted)
@@ -118,8 +140,47 @@ public sealed class AnthropicAgentLoop : IAgentLoop
                 conversationContext.AddUserMessage(
                     "The task is not finished yet. Continue working until it is complete. " +
                     "Only your final completion message may end with the exact line TASK_COMPLETE.");
+                logger.LogMessageAdded(conversationContext.History.Last(), "Continuation Prompt Added");
             }
         }
+
+        var duration = DateTime.Now - startTime;
+        var finalTokenCount = conversationContext.History.Sum(m => m.TokenCount ?? 0);
+        logger.LogSessionSummary(conversationContext.History.Count, totalCompactionCount: 0, duration, finalTokenCount);
+
+        Console.WriteLine($"Session complete. Log file: {logger.LogFilePath}");
+    }
+
+    private static Tool ToAnthropicTool(ITool tool)
+    {
+        var properties = new Dictionary<string, JsonElement>();
+        var required = Array.Empty<string>();
+
+        if (tool.ParametersSchema is { } schema)
+        {
+            var root = schema.RootElement;
+
+            if (root.TryGetProperty("properties", out var propsElement))
+            {
+                foreach (var prop in propsElement.EnumerateObject())
+                    properties[prop.Name] = prop.Value.Clone();
+            }
+
+            if (root.TryGetProperty("required", out var reqElement))
+            {
+                required = reqElement.EnumerateArray()
+                    .Select(static e => e.GetString())
+                    .OfType<string>()
+                    .ToArray();
+            }
+        }
+
+        return new Tool
+        {
+            Name        = tool.Name,
+            Description = tool.Description,
+            InputSchema = new() { Properties = properties, Required = required },
+        };
     }
 
     private static ITool[] CreateTools(string workspaceDirectory) =>

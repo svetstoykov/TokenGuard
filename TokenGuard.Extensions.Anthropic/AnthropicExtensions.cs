@@ -12,36 +12,26 @@ namespace TokenGuard.Extensions.Anthropic;
 /// <remarks>
 /// This class covers both directions of the adapter:
 /// <list type="bullet">
-///   <item>Outbound — <see cref="ForAnthropic"/> converts prepared <see cref="ContextMessage"/> instances into Anthropic <see cref="MessageCreateParams"/> values, including the separate system field required by Anthropic.</item>
+///   <item>Outbound — <see cref="ForAnthropic"/> converts prepared <see cref="ContextMessage"/> instances into Anthropic-compatible <see cref="MessageParam"/> values plus the separate system payload required by Anthropic. Request construction remains at the call site.</item>
 ///   <item>Inbound — <see cref="ResponseSegments"/>, <see cref="TextSegments"/>, and <see cref="ToolUseSegments"/> extract model text and tool requests from an Anthropic <see cref="Anthropic.Models.Messages.Message"/> to pass back into <c>ConversationContext.RecordModelResponse</c>.</item>
 /// </list>
 /// </remarks>
 public static class AnthropicExtensions
 {
     /// <summary>
-    /// Converts TokenGuard messages into an Anthropic request payload, preserving order.
-    /// Call this on the result of <c>ConversationContext.PrepareAsync()</c> immediately before sending to <c>client.Messages.Create</c>.
+    /// Converts TokenGuard messages into Anthropic-compatible message content, preserving order.
+    /// Call this on the result of <c>ConversationContext.PrepareAsync()</c> immediately before constructing a <see cref="MessageCreateParams"/> request.
     /// </summary>
     /// <param name="messages">The prepared TokenGuard messages.</param>
-    /// <param name="model">The Anthropic model identifier.</param>
-    /// <param name="maxTokens">The maximum number of tokens Anthropic may generate for the response.</param>
-    /// <returns>A populated Anthropic <see cref="MessageCreateParams"/> request.</returns>
+    /// <returns>
+    /// A tuple containing the Anthropic <see cref="MessageParam"/> list and the optional <see cref="MessageCreateParamsSystem"/>
+    /// built from system messages.
+    /// </returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> is null or whitespace.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="maxTokens"/> is less than or equal to zero.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when a message has an unrecognized role.</exception>
-    public static MessageCreateParams ForAnthropic(this IReadOnlyList<ContextMessage> messages, string model, long maxTokens)
+    public static (List<MessageParam> Messages, MessageCreateParamsSystem? System) ForAnthropic(this IReadOnlyList<ContextMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            throw new ArgumentException("Model cannot be null or whitespace.", nameof(model));
-        }
-
-        if (maxTokens <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maxTokens), maxTokens, "Max tokens must be greater than zero.");
-        }
 
         List<MessageParam> result = new(messages.Count);
 
@@ -125,13 +115,7 @@ public static class AnthropicExtensions
             }
         }
 
-        return new MessageCreateParams
-        {
-            MaxTokens = maxTokens,
-            Model = model,
-            Messages = result,
-            System = BuildSystemPrompt(messages),
-        };
+        return (result, BuildSystemPrompt(messages));
     }
 
     /// <summary>
