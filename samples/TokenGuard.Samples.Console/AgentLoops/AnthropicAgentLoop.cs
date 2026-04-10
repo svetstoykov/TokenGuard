@@ -7,7 +7,7 @@ using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Core.TokenCounting;
 using TokenGuard.Extensions.Anthropic;
-using TokenGuard.TestCommon.Tools;
+using TokenGuard.Tools.Tools;
 
 namespace TokenGuard.Samples.Console.AgentLoops;
 

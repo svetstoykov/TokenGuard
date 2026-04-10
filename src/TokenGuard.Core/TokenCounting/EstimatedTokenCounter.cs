@@ -16,6 +16,11 @@ namespace TokenGuard.Core.TokenCounting;
 /// The estimate is calculated as <c>ceiling(totalCharacters / 4.0) + 4</c> per message. This is intentionally simple,
 /// and callers should replace it when exact provider tokenization materially affects compaction behavior.
 /// </para>
+/// <para>
+/// Character counts are based on <see cref="string.Length"/>, which measures UTF-16 code units rather than Unicode
+/// scalar values or grapheme clusters. That means supplementary-plane characters such as emoji can count as more than
+/// one character for this heuristic, by design, in exchange for keeping the implementation allocation-free and fast.
+/// </para>
 /// </remarks>
 public sealed class EstimatedTokenCounter : ITokenCounter
 {

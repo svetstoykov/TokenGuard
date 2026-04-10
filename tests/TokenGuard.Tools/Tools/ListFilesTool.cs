@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace TokenGuard.TestCommon.Tools;
+namespace TokenGuard.Tools.Tools;
 
 /// <summary>
 /// Lists files within a configured workspace directory.

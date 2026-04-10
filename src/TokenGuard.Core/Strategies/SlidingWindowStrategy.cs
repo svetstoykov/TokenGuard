@@ -64,6 +64,10 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///         configured window size and the token counts returned by <paramref name="tokenCounter"/>.
     ///     </para>
     ///     <para>
+    ///         An empty <paramref name="messages"/> list is treated as a valid no-op input and is returned
+    ///         unchanged so callers can compose compaction without adding special-case guards.
+    ///     </para>
+    ///     <para>
     ///         Messages before the boundary are only modified when they contain <see cref="ToolResultContent"/>.
     ///         In that case each tool result is replaced with a <see cref="TextContent"/> placeholder built from
     ///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>, and the returned message clears
@@ -76,7 +80,8 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <param name="cancellationToken">A token that can cancel the compaction operation before it completes.</param>
     /// <returns>
     ///     A task that resolves to the original message sequence when the entire history fits inside the protected
-    ///     window; otherwise, a sequence where older tool results are replaced with placeholders.
+    ///     window, including when <paramref name="messages"/> is empty; otherwise, a sequence where older tool
+    ///     results are replaced with placeholders.
     /// </returns>
     /// <exception cref="ArgumentNullException">
     ///     Thrown when <paramref name="messages"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.

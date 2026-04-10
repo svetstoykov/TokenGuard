@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace TokenGuard.TestCommon.Tools;
+namespace TokenGuard.Tools.Tools;
 
 /// <summary>
 /// Creates a text file within a test-owned workspace.

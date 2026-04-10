@@ -10,6 +10,23 @@ namespace TokenGuard.Tests.Strategies;
 public sealed class SlidingWindowStrategyTests
 {
     [Fact]
+    public async Task CompactAsync_WithEmptyMessageList_ReturnsEmptyList()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages = [];
+        var tokenCounter = new TrackingTokenCounter();
+        var strategy = new SlidingWindowStrategy();
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, ContextBudget.For(100), tokenCounter);
+
+        // Assert
+        Assert.Same(messages, compacted);
+        Assert.Empty(compacted);
+        Assert.Equal(0, tokenCounter.CountCalls);
+    }
+
+    [Fact]
     public async Task CompactAsync_WhenAllMessagesFitWithinWindowAndTokenCap_ReturnsOriginalListReference()
     {
         // Arrange

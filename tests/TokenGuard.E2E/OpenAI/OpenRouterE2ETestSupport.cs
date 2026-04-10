@@ -1,6 +1,6 @@
 using OpenAI;
 using OpenAI.Chat;
-using TokenGuard.TestCommon.Tools;
+using TokenGuard.Tools.Tools;
 
 namespace TokenGuard.E2E.OpenAI;
 

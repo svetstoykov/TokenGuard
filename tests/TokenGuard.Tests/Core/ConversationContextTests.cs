@@ -155,6 +155,66 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
+    public async Task RecordModelResponse_WithProviderTokensLessThanEstimate_DecreasesRunningTotal()
+    {
+        // Arrange
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        engine.AddUserMessage("hello");
+        counter.Set(engine.History[0], 100);
+
+        _ = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new TextContent("reply")], providerInputTokens: 25);
+        counter.Set(engine.History[1], 50);
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        prepared.Should().BeSameAs(engine.History);
+        strategy.CompactCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task RecordModelResponse_WithMultipleSequentialProviderCorrections_AccumulatesCorrectly()
+    {
+        // Arrange
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        engine.AddUserMessage("u1");
+        counter.Set(engine.History[0], 100);
+
+        _ = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new TextContent("m1")], providerInputTokens: 80);
+        counter.Set(engine.History[1], 50);
+
+        var firstPrepared = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new TextContent("m2")], providerInputTokens: 90);
+        counter.Set(engine.History[2], 20);
+
+        var secondPrepared = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new TextContent("m3")], providerInputTokens: 95);
+        counter.Set(engine.History[3], 10);
+
+        // Act
+        var thirdPrepared = await engine.PrepareAsync();
+
+        // Assert
+        firstPrepared.Should().BeSameAs(engine.History);
+        secondPrepared.Should().BeSameAs(engine.History);
+        thirdPrepared.Should().BeSameAs(engine.History);
+        strategy.CompactCalls.Should().Be(0);
+    }
+
+    [Fact]
     public async Task PrepareAsync_CacheUsesReferenceIdentity_ForEquivalentButDistinctMessages()
     {
         // Arrange

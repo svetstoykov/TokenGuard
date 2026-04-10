@@ -1,4 +1,4 @@
-namespace TokenGuard.TestCommon.Tools;
+namespace TokenGuard.Tools.Tools;
 
 /// <summary>
 /// Resolves model-supplied relative paths inside a bounded workspace directory.

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using TokenGuard.Core.Models.Content;
 
-namespace TokenGuard.TestCommon.Tools;
+namespace TokenGuard.Tools.Tools;
 
 /// <summary>
 /// Defines a callable tool that a live agent-loop test can expose to the model.

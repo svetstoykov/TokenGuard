@@ -7,7 +7,7 @@ using TokenGuard.Core.Extensions;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Extensions.OpenAI;
-using TokenGuard.TestCommon.Tools;
+using TokenGuard.Tools.Tools;
 
 namespace TokenGuard.Samples.Console.AgentLoops;
 

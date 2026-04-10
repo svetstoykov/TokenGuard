@@ -36,6 +36,41 @@ public class EstimatedTokenCounterTests
     }
 
     [Fact]
+    public void EmptyTextContent_IsRejectedByMessageModelBeforeCounting()
+    {
+        // Arrange
+        // Act
+        var exception = Assert.Throws<ArgumentException>(() => ContextMessage.FromText(MessageRole.User, string.Empty));
+
+        // Assert
+        Assert.Equal("Content", exception.ParamName);
+    }
+
+    [Fact]
+    public void WhitespaceOnlyTextContent_IsRejectedByMessageModelBeforeCounting()
+    {
+        // Arrange
+        // Act
+        var exception = Assert.Throws<ArgumentException>(() => ContextMessage.FromText(MessageRole.User, "    "));
+
+        // Assert
+        Assert.Equal("Content", exception.ParamName);
+    }
+
+    [Fact]
+    public void UnicodeSupplementaryCharacters_UseUtf16CodeUnitLengthForEstimate()
+    {
+        // Arrange
+        var message = ContextMessage.FromText(MessageRole.User, "🎵🎵");
+
+        // Act
+        var result = this._counter.Count(message);
+
+        // Assert
+        Assert.Equal(5, result);
+    }
+
+    [Fact]
     public void MultiBlockMessage_AccumulatesCharacterCounts()
     {
         // Arrange
