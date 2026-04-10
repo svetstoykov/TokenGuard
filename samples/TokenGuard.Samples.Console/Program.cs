@@ -10,7 +10,7 @@ var loops = new IAgentLoop[]
 Console.WriteLine("=========================================");
 Console.WriteLine("   TokenGuard.Core Agentic Loop Sample");
 Console.WriteLine("=========================================\n");
-Console.WriteLine("Choose an agent loop:\n");
+Console.WriteLine($"Choose an agent loop (index 1-{loops.Length}):\n");
 
 for (var i = 0; i < loops.Length; i++)
 {
