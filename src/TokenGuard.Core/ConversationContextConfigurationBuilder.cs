@@ -6,11 +6,11 @@ using TokenGuard.Core.TokenCounting;
 namespace TokenGuard.Core;
 
 /// <summary>
-///     Provides a fluent API for configuring and creating <see cref="ConversationContext"/> instances.
+///     Provides a fluent API for configuring <see cref="ConversationContextConfiguration"/> instances.
 /// </summary>
 /// <remarks>
 ///     <para>
-///         Use <see cref="ConversationContextBuilder"/> when a conversation context needs to be composed from
+///         Use <see cref="ConversationContextConfigurationBuilder"/> when a conversation-context configuration needs to be composed from
 ///         a token budget, a token counter, and a compaction strategy without constructing the underlying
 ///         <see cref="ContextBudget"/> manually.
 ///     </para>
@@ -20,7 +20,7 @@ namespace TokenGuard.Core;
 ///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count.
 ///     </para>
 /// </remarks>
-public sealed class ConversationContextBuilder
+public sealed class ConversationContextConfigurationBuilder
 {
     private int? _maxTokens;
     private double? _compactionThreshold;
@@ -30,19 +30,19 @@ public sealed class ConversationContextBuilder
     private ITokenCounter? _tokenCounter;
 
     /// <summary>
-    ///     Creates a <see cref="ConversationContext"/> using the default builder configuration.
+    ///     Creates a <see cref="ConversationContextConfiguration"/> using the default builder configuration.
     /// </summary>
     /// <remarks>
-    ///     This method delegates to a new <see cref="ConversationContextBuilder"/> instance and applies only
+    ///     This method delegates to a new <see cref="ConversationContextConfigurationBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
-    ///     the context is created with a maximum token budget of 100,000.
+    ///     the resulting configuration uses a maximum token budget of 100,000.
     /// </remarks>
     /// <param name="maxTokens">
     ///     The hard token ceiling for the full context window. Defaults to 100,000 when omitted.
     /// </param>
-    /// <returns>A configured <see cref="ConversationContext"/> instance.</returns>
-    public static ConversationContext Default(int maxTokens = 100_000) =>
-        new ConversationContextBuilder()
+    /// <returns>A configured <see cref="ConversationContextConfiguration"/> instance.</returns>
+    public static ConversationContextConfiguration Default(int maxTokens = 100_000) =>
+        new ConversationContextConfigurationBuilder()
             .WithMaxTokens(maxTokens)
             .Build();
 
@@ -55,7 +55,7 @@ public sealed class ConversationContextBuilder
     /// </remarks>
     /// <param name="maxTokens">The maximum number of tokens allowed in the context window.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextBuilder WithMaxTokens(int maxTokens)
+    public ConversationContextConfigurationBuilder WithMaxTokens(int maxTokens)
     {
         this._maxTokens = maxTokens;
         return this;
@@ -69,7 +69,7 @@ public sealed class ConversationContextBuilder
     /// </remarks>
     /// <param name="compactionThreshold">The compaction trigger threshold.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextBuilder WithCompactionThreshold(double compactionThreshold)
+    public ConversationContextConfigurationBuilder WithCompactionThreshold(double compactionThreshold)
     {
         this._compactionThreshold = compactionThreshold;
         return this;
@@ -83,7 +83,7 @@ public sealed class ConversationContextBuilder
     /// </remarks>
     /// <param name="emergencyThreshold">The emergency compaction trigger threshold.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextBuilder WithEmergencyThreshold(double emergencyThreshold)
+    public ConversationContextConfigurationBuilder WithEmergencyThreshold(double emergencyThreshold)
     {
         this._emergencyThreshold = emergencyThreshold;
         return this;
@@ -97,7 +97,7 @@ public sealed class ConversationContextBuilder
     /// </remarks>
     /// <param name="reservedTokens">The reserved token count.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextBuilder WithReservedTokens(int reservedTokens)
+    public ConversationContextConfigurationBuilder WithReservedTokens(int reservedTokens)
     {
         this._reservedTokens = reservedTokens;
         return this;
@@ -111,7 +111,7 @@ public sealed class ConversationContextBuilder
     /// </remarks>
     /// <param name="strategy">The compaction strategy.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextBuilder WithStrategy(ICompactionStrategy strategy)
+    public ConversationContextConfigurationBuilder WithStrategy(ICompactionStrategy strategy)
     {
         this._strategy = strategy ?? throw new ArgumentNullException(nameof(strategy));
         return this;
@@ -125,14 +125,15 @@ public sealed class ConversationContextBuilder
     /// </remarks>
     /// <param name="tokenCounter">The token counter.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextBuilder WithTokenCounter(ITokenCounter tokenCounter)
+    public ConversationContextConfigurationBuilder WithTokenCounter(ITokenCounter tokenCounter)
     {
         this._tokenCounter = tokenCounter ?? throw new ArgumentNullException(nameof(tokenCounter));
         return this;
     }
 
     /// <summary>
-    ///     Creates a <see cref="ConversationContext"/> from the configured builder values.
+    ///     Captures an immutable snapshot of the current builder state as a
+    ///     <see cref="ConversationContextConfiguration"/>.
     /// </summary>
     /// <remarks>
     ///     <para>
@@ -144,12 +145,31 @@ public sealed class ConversationContextBuilder
     ///         <see cref="EstimatedTokenCounter"/> and <see cref="SlidingWindowStrategy"/>, respectively.
     ///     </para>
     /// </remarks>
-    /// <returns>A configured <see cref="ConversationContext"/> instance.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when <see cref="WithMaxTokens(int)"/> was not called.</exception>
-    public ConversationContext Build()
+    /// <returns>
+    ///     An immutable <see cref="ConversationContextConfiguration"/> reflecting the builder's current
+    ///     configuration with all defaults applied.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown when <see cref="WithMaxTokens(int)"/> has not been called.
+    /// </exception>
+    public ConversationContextConfiguration Build()
     {
-        var config = this.BuildConfiguration();
-        return new ConversationContext(config.Budget, config.Counter, config.Strategy);
+        if (!this._maxTokens.HasValue)
+        {
+            throw new InvalidOperationException("ConversationContextConfigurationBuilder requires WithMaxTokens(...) to be called before Build().");
+        }
+
+        var defaults = ContextBudget.For(this._maxTokens.Value);
+        var budget = new ContextBudget(
+            this._maxTokens.Value,
+            this._compactionThreshold ?? defaults.CompactionThreshold,
+            this._emergencyThreshold ?? defaults.EmergencyThreshold,
+            this._reservedTokens ?? defaults.ReservedTokens);
+
+        var counter = this._tokenCounter ?? new EstimatedTokenCounter();
+        var strategy = this._strategy ?? new SlidingWindowStrategy();
+
+        return new ConversationContextConfiguration(budget, counter, strategy);
     }
 
     /// <summary>
@@ -179,23 +199,5 @@ public sealed class ConversationContextBuilder
     /// <exception cref="InvalidOperationException">
     ///     Thrown when <see cref="WithMaxTokens(int)"/> has not been called.
     /// </exception>
-    public ConversationContextConfiguration BuildConfiguration()
-    {
-        if (!this._maxTokens.HasValue)
-        {
-            throw new InvalidOperationException("ConversationContextBuilder requires WithMaxTokens(...) to be called before BuildConfiguration().");
-        }
-
-        var defaults = ContextBudget.For(this._maxTokens.Value);
-        var budget = new ContextBudget(
-            this._maxTokens.Value,
-            this._compactionThreshold ?? defaults.CompactionThreshold,
-            this._emergencyThreshold ?? defaults.EmergencyThreshold,
-            this._reservedTokens ?? defaults.ReservedTokens);
-
-        var counter = this._tokenCounter ?? new EstimatedTokenCounter();
-        var strategy = this._strategy ?? new SlidingWindowStrategy();
-
-        return new ConversationContextConfiguration(budget, counter, strategy);
-    }
+    public ConversationContextConfiguration BuildConfiguration() => this.Build();
 }

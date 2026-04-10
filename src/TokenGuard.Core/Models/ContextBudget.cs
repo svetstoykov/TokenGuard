@@ -64,7 +64,7 @@ public readonly record struct ContextBudget(
     /// Creates a <see cref="ContextBudget"/> that uses the library's default threshold policy.
     /// </summary>
     /// <remarks>
-    /// This helper is used by <see cref="ConversationContextBuilder"/> and by callers that want a sensible budget for a
+    /// This helper is used by <see cref="ConversationContextConfigurationBuilder"/> and by callers that want a sensible budget for a
     /// known model window without choosing compaction thresholds explicitly.
     /// </remarks>
     /// <param name="maxTokens">The total token capacity of the target model context window.</param>

@@ -1,6 +1,7 @@
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using FluentAssertions;
+using TokenGuard.Core.Models;
 
 namespace TokenGuard.Tests.Core;
 
@@ -37,9 +38,9 @@ public sealed class ConversationContextFactoryTests
     public void CreateNamed_UsesRegisteredConfigurationBudget()
     {
         // Arrange
-        var config = new ConversationContextBuilder()
+        var config = new ConversationContextConfigurationBuilder()
             .WithMaxTokens(200_000)
-            .BuildConfiguration();
+            .Build();
 
         IConversationContextFactory factory = CreateFactory()
             .AddNamed("large", config);
@@ -56,9 +57,9 @@ public sealed class ConversationContextFactoryTests
     public void CreateNamed_ReturnsNewInstanceOnEachCall()
     {
         // Arrange
-        var config = new ConversationContextBuilder()
+        var config = new ConversationContextConfigurationBuilder()
             .WithMaxTokens(50_000)
-            .BuildConfiguration();
+            .Build();
 
         IConversationContextFactory factory = CreateFactory()
             .AddNamed("small", config);
@@ -89,9 +90,9 @@ public sealed class ConversationContextFactoryTests
     public void AddNamed_IsFluentAndReturnsSameFactory()
     {
         // Arrange
-        var config = new ConversationContextBuilder()
+        var config = new ConversationContextConfigurationBuilder()
             .WithMaxTokens(100_000)
-            .BuildConfiguration();
+            .Build();
 
         var factory = CreateFactory();
 
@@ -103,28 +104,28 @@ public sealed class ConversationContextFactoryTests
     }
 
     [Fact]
-    public void BuildConfiguration_WithoutMaxTokens_ThrowsInvalidOperationException()
+    public void Build_WithoutMaxTokens_ThrowsInvalidOperationException()
     {
         // Arrange
-        var builder = new ConversationContextBuilder();
+        var builder = new ConversationContextConfigurationBuilder();
 
         // Act
-        Action act = () => builder.BuildConfiguration();
+        Action act = () => builder.Build();
 
         // Assert
         act.Should().Throw<InvalidOperationException>();
     }
 
     [Fact]
-    public void BuildConfiguration_ReturnsSnapshotMatchingBuildDefaults()
+    public void Build_ReturnsSnapshotMatchingConfigurationDefaults()
     {
         // Arrange
         const int maxTokens = 75_000;
 
         // Act
-        var config = new ConversationContextBuilder()
+        var config = new ConversationContextConfigurationBuilder()
             .WithMaxTokens(maxTokens)
-            .BuildConfiguration();
+            .Build();
 
         // Assert
         config.Budget.MaxTokens.Should().Be(maxTokens);
@@ -136,9 +137,9 @@ public sealed class ConversationContextFactoryTests
 
     private sealed class TestConversationContextFactory : IConversationContextFactory
     {
-        private ConversationContextConfiguration _default = new ConversationContextBuilder()
+        private ConversationContextConfiguration _default = new ConversationContextConfigurationBuilder()
             .WithMaxTokens(100_000)
-            .BuildConfiguration();
+            .Build();
 
         private readonly Dictionary<string, ConversationContextConfiguration> _named = new(StringComparer.Ordinal);
 

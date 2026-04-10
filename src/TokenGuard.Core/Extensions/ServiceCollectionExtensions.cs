@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Models;
 
 namespace TokenGuard.Core.Extensions;
 
@@ -16,7 +17,7 @@ namespace TokenGuard.Core.Extensions;
 /// registration.
 /// </para>
 /// <para>
-/// Each registration callback receives a fresh <see cref="ConversationContextBuilder"/>. The builder
+/// Each registration callback receives a fresh <see cref="ConversationContextConfigurationBuilder"/>. The builder
 /// state is captured immediately as an immutable <see cref="ConversationContextConfiguration"/>, so
 /// later service-resolution paths do not depend on mutable startup objects.
 /// </para>
@@ -63,7 +64,7 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection to update.</param>
     /// <param name="configure">
-    /// A callback that configures a fresh <see cref="ConversationContextBuilder"/> for unnamed
+    /// A callback that configures a fresh <see cref="ConversationContextConfigurationBuilder"/> for unnamed
     /// <see cref="IConversationContextFactory.Create()"/> calls.
     /// </param>
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
@@ -78,7 +79,7 @@ public static class ServiceCollectionExtensions
     /// </exception>
     public static IServiceCollection AddConversationContext(
         this IServiceCollection services,
-        Action<ConversationContextBuilder> configure)
+        Action<ConversationContextConfigurationBuilder> configure)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
@@ -86,9 +87,9 @@ public static class ServiceCollectionExtensions
         services.AddConversationContext();
 
         var factory = services.GetConversationContextFactory();
-        var builder = new ConversationContextBuilder();
+        var builder = new ConversationContextConfigurationBuilder();
         configure(builder);
-        factory.SetDefault(builder.BuildConfiguration());
+        factory.SetDefault(builder.Build());
 
         return services;
     }
@@ -102,7 +103,7 @@ public static class ServiceCollectionExtensions
     /// string comparison when later resolved through <see cref="IConversationContextFactory.Create(string)"/>.
     /// </param>
     /// <param name="configure">
-    /// A callback that configures a fresh <see cref="ConversationContextBuilder"/> for the named
+    /// A callback that configures a fresh <see cref="ConversationContextConfigurationBuilder"/> for the named
     /// profile.
     /// </param>
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
@@ -118,7 +119,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddConversationContext(
         this IServiceCollection services,
         string name,
-        Action<ConversationContextBuilder> configure)
+        Action<ConversationContextConfigurationBuilder> configure)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(name);
@@ -127,9 +128,9 @@ public static class ServiceCollectionExtensions
         services.AddConversationContext();
 
         var factory = services.GetConversationContextFactory();
-        var builder = new ConversationContextBuilder();
+        var builder = new ConversationContextConfigurationBuilder();
         configure(builder);
-        factory.AddNamed(name, builder.BuildConfiguration());
+        factory.AddNamed(name, builder.Build());
 
         return services;
     }

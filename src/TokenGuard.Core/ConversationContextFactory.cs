@@ -1,4 +1,5 @@
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Models;
 
 namespace TokenGuard.Core;
 
@@ -13,15 +14,13 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// </summary>
     /// <remarks>
     /// The default configuration is identical to the one produced by
-    /// <c>new ConversationContextBuilder().WithMaxTokens(100_000).BuildConfiguration()</c>.
+    /// <c>new ConversationContextConfigurationBuilder().WithMaxTokens(100_000).Build()</c>.
     /// It can be overridden per call site by registering a named configuration with
     /// <see cref="AddNamed"/> and calling <see cref="Create(string)"/> instead.
     /// </remarks>
     internal ConversationContextFactory()
     {
-        _default = new ConversationContextBuilder()
-            .WithMaxTokens(100_000)
-            .BuildConfiguration();
+        _default = ConversationContextConfigurationBuilder.Default();
     }
 
     /// <summary>
@@ -58,7 +57,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// </param>
     /// <param name="config">
     /// The immutable configuration snapshot to store. Typically produced by
-    /// <see cref="ConversationContextBuilder.BuildConfiguration"/>.
+    /// <see cref="ConversationContextConfigurationBuilder.Build"/>.
     /// </param>
     /// <returns>This factory instance, enabling fluent chaining of multiple <see cref="AddNamed"/> calls.</returns>
     /// <exception cref="ArgumentNullException">

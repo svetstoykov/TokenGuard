@@ -1,7 +1,6 @@
 using TokenGuard.Core.Abstractions;
-using TokenGuard.Core.Models;
 
-namespace TokenGuard.Core;
+namespace TokenGuard.Core.Models;
 
 /// <summary>
 /// An immutable snapshot of the three parameters that together define the behaviour of a
@@ -11,7 +10,7 @@ namespace TokenGuard.Core;
 /// <para>
 /// <see cref="ConversationContextConfiguration"/> mirrors the constructor signature of
 /// <see cref="ConversationContext"/> exactly. It is produced by
-/// <see cref="ConversationContextBuilder.BuildConfiguration"/> and consumed by
+/// <see cref="ConversationContextConfigurationBuilder.Build"/> and consumed by
 /// the built-in factory behind <see cref="Abstractions.IConversationContextFactory"/> to stamp out
 /// fresh context instances on demand without re-running the builder defaults logic each time.
 /// </para>
