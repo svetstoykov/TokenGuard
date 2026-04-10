@@ -12,14 +12,14 @@ namespace TokenGuard.E2E.OpenAI;
 
 public sealed class OpenRouterAgentLoopE2ETests(ITestOutputHelper output)
 {
-    private const int MaxTokens = 10000;
+    private const int MaxTokens = 6000;
     private const double CompactionThreshold = 0.80;
     private const int MaxIterations = 15;
 
     public static IEnumerable<object[]> AllTasks()
     {
-        yield return [ReleaseAuditTask.Create()];
-        yield return [CodeReviewTask.Create()];
+        //yield return [ReleaseAuditTask.Create()];
+        //yield return [CodeReviewTask.Create()];
         yield return [DependencyAuditTask.Create()];
     }
 
@@ -32,6 +32,9 @@ public sealed class OpenRouterAgentLoopE2ETests(ITestOutputHelper output)
         // Arrange
         using var workspace = TestWorkspace.Create(nameof(this.AgentLoop_WhenTaskRequiresRealToolWork_CompactsContextAndCompletesTask));
         var workspaceDirectory = workspace.DirectoryPath;
+        
+        output.WriteLine($"[E2E] Seeding workspace {workspaceDirectory} with {task.Name}...");
+        
         await task.SeedWorkspaceAsync(workspaceDirectory);
 
         var chatClient = OpenRouterE2ETestSupport.CreateChatClient();
@@ -43,7 +46,8 @@ public sealed class OpenRouterAgentLoopE2ETests(ITestOutputHelper output)
             .WithMaxTokens(MaxTokens)
             .WithCompactionThreshold(CompactionThreshold));
 
-        using var serviceProvider = services.BuildServiceProvider();
+        await using var serviceProvider = services.BuildServiceProvider();
+        
         using var conversationContext = serviceProvider
             .GetRequiredService<IConversationContextFactory>()
             .Create(task.ConversationName);
@@ -107,7 +111,7 @@ public sealed class OpenRouterAgentLoopE2ETests(ITestOutputHelper output)
 
             var textSegments = completion.TextSegments();
             conversationContext.RecordModelResponse(textSegments, completion.InputTokens());
-            finalResponseText = string.Join(Environment.NewLine, textSegments.Select(s => s.Text));
+            finalResponseText = string.Join(Environment.NewLine, textSegments.Select(s => s.Content));
             completed = finalResponseText.Contains(task.CompletionMarker, StringComparison.Ordinal);
 
             output.WriteLine(

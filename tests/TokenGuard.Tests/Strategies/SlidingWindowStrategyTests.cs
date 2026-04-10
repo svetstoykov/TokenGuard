@@ -142,7 +142,7 @@ public sealed class SlidingWindowStrategyTests
         // Assert
         var masked = compacted[0];
         var text = Assert.IsType<TextContent>(Assert.Single(masked.Content));
-        Assert.Equal("[Tool result cleared — call_1, call_1]", text.Text);
+        Assert.Equal("[Tool result cleared — call_1, call_1]", text.Content);
     }
 
     [Fact]
@@ -196,9 +196,9 @@ public sealed class SlidingWindowStrategyTests
 
         // Assert
         Assert.Equal(3, compactedBlocks.Count);
-        Assert.Equal("prefix", Assert.IsType<TextContent>(compactedBlocks[0]).Text);
-        Assert.Equal("[Tool result cleared — call_1, call_1]", Assert.IsType<TextContent>(compactedBlocks[1]).Text);
-        Assert.Equal("suffix", Assert.IsType<TextContent>(compactedBlocks[2]).Text);
+        Assert.Equal("prefix", Assert.IsType<TextContent>(compactedBlocks[0]).Content);
+        Assert.Equal("[Tool result cleared — call_1, call_1]", Assert.IsType<TextContent>(compactedBlocks[1]).Content);
+        Assert.Equal("suffix", Assert.IsType<TextContent>(compactedBlocks[2]).Content);
     }
 
     [Fact]
@@ -253,7 +253,7 @@ public sealed class SlidingWindowStrategyTests
 
         // Assert
         var text = Assert.IsType<TextContent>(Assert.Single(compacted[1].Content));
-        Assert.Equal("[Tool result cleared — calculator, call_1]", text.Text);
+        Assert.Equal("[Tool result cleared — calculator, call_1]", text.Content);
     }
 
     [Fact]
@@ -275,7 +275,7 @@ public sealed class SlidingWindowStrategyTests
 
         // Assert
         var text = Assert.IsType<TextContent>(Assert.Single(compacted[0].Content));
-        Assert.Equal("[Tool result cleared — call_missing, call_missing]", text.Text);
+        Assert.Equal("[Tool result cleared — call_missing, call_missing]", text.Content);
     }
 
     [Fact]

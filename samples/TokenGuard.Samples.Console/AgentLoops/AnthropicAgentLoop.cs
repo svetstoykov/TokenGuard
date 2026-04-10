@@ -2,7 +2,6 @@ using Anthropic;
 using Anthropic.Models.Messages;
 using Microsoft.Extensions.Configuration;
 using TokenGuard.Core;
-using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
@@ -101,7 +100,7 @@ public sealed class AnthropicAgentLoop : IAgentLoop
                 foreach (var call in toolCalls)
                 {
                     var resultText = toolMap.TryGetValue(call.ToolName, out var tool)
-                        ? tool.Execute(call.ArgumentsJson)
+                        ? tool.Execute(call.Content)
                         : "Error: Unknown tool.";
 
                     conversationContext.RecordToolResult(call.ToolCallId, call.ToolName, resultText);
@@ -112,7 +111,7 @@ public sealed class AnthropicAgentLoop : IAgentLoop
 
             var finalResponseText = response.TextSegments();
 
-            taskCompleted = finalResponseText.Any(b => b.Text.Equals("TASK_COMPLETE", StringComparison.Ordinal));
+            taskCompleted = finalResponseText.Any(b => b.Content.Equals("TASK_COMPLETE", StringComparison.Ordinal));
 
             if (!taskCompleted)
             {

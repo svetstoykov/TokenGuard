@@ -81,7 +81,7 @@ public static class AnthropicExtensions
 
                     foreach (var toolUse in message.Content.OfType<ToolUseContent>())
                     {
-                        var input = JsonSerializer.Deserialize<IReadOnlyDictionary<string, JsonElement>>(toolUse.ArgumentsJson);
+                        var input = JsonSerializer.Deserialize<IReadOnlyDictionary<string, JsonElement>>(toolUse.Content);
 
                         assistantBlocks.Add(new ToolUseBlockParam
                         {
@@ -220,7 +220,7 @@ public static class AnthropicExtensions
     }
 
     private static string ExtractText(ContextMessage message) =>
-        message.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
+        message.Content.OfType<TextContent>().FirstOrDefault()?.Content ?? string.Empty;
 
     private static MessageCreateParamsSystem? BuildSystemPrompt(IReadOnlyList<ContextMessage> messages)
     {

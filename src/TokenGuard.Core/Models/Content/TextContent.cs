@@ -15,20 +15,15 @@ public sealed record TextContent : ContentSegment
     /// <remarks>
 /// The constructor enforces TokenGuard's invariant that content segments always carry meaningful payload data.
     /// </remarks>
-    /// <param name="Text">The non-empty text payload carried by the segment.</param>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="Text"/> is null or whitespace.</exception>
-    public TextContent(string Text)
+    /// <param name="Content">The non-empty text payload carried by the segment.</param>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="Content"/> is null or whitespace.</exception>
+    public TextContent(string Content) : base(Content)
     {
-        if (string.IsNullOrWhiteSpace(Text))
+        if (string.IsNullOrWhiteSpace(Content))
         {
-            throw new ArgumentException("Text cannot be null or whitespace.", nameof(Text));
+            throw new ArgumentException("Text cannot be null or whitespace.", nameof(Content));
         }
 
-        this.Text = Text;
+        this.Content = Content;
     }
-
-    /// <summary>
-    /// Gets the text payload carried by this segment.
-    /// </summary>
-    public string Text { get; init; }
 }

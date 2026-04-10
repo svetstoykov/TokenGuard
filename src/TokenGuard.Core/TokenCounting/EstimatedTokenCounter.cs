@@ -38,8 +38,8 @@ public sealed class EstimatedTokenCounter : ITokenCounter
         {
             totalChars += segment switch
             {
-                TextContent text => text.Text.Length,
-                ToolUseContent toolUse => toolUse.ToolName.Length + toolUse.ArgumentsJson.Length,
+                TextContent text => text.Content.Length,
+                ToolUseContent toolUse => toolUse.ToolName.Length + toolUse.Content.Length,
                 ToolResultContent toolResult => toolResult.ToolCallId.Length + toolResult.Content.Length,
                 _ => 0
             };

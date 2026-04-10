@@ -22,7 +22,7 @@ public sealed record ToolResultContent : ContentSegment
     /// <param name="Content">The raw tool output payload to record in conversation history.</param>
     /// <exception cref="ArgumentException">Thrown when <paramref name="ToolCallId"/> or <paramref name="ToolName"/> is null or whitespace.</exception>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="Content"/> is null.</exception>
-    public ToolResultContent(string ToolCallId, string ToolName, string Content)
+    public ToolResultContent(string ToolCallId, string ToolName, string Content) : base(Content)
     {
         if (string.IsNullOrWhiteSpace(ToolCallId))
         {
@@ -50,9 +50,4 @@ public sealed record ToolResultContent : ContentSegment
     /// Gets the name of the tool that produced this result.
     /// </summary>
     public string ToolName { get; init; }
-
-    /// <summary>
-    /// Gets the raw tool output payload recorded for this result.
-    /// </summary>
-    public string Content { get; init; }
 }

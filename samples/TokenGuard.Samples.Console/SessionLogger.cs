@@ -1,5 +1,4 @@
 using System.Text;
-using TokenGuard.Core;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
@@ -232,8 +231,8 @@ public sealed class SessionLogger : IDisposable
     {
         return segment switch
         {
-            TextContent text => text.Text,
-            ToolUseContent toolUse => $"tool-call {toolUse.ToolName} args={Shorten(toolUse.ArgumentsJson, 80)}",
+            TextContent text => text.Content,
+            ToolUseContent toolUse => $"tool-call {toolUse.ToolName} args={Shorten(toolUse.Content, 80)}",
             ToolResultContent toolResult => $"tool-result {toolResult.ToolName} chars={toolResult.Content.Length} preview={Shorten(toolResult.Content, 80)}",
             _ => segment.GetType().Name,
         };

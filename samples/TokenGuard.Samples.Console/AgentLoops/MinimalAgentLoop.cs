@@ -2,10 +2,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using OpenAI;
 using OpenAI.Chat;
-using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Extensions;
-using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Extensions.OpenAI;
@@ -139,7 +137,7 @@ public sealed class MinimalAgentLoop : IAgentLoop
 
             conversationContext.RecordModelResponse(finalResponseText, inputTokens);
 
-            taskCompleted = finalResponseText.Any(b => b.Text.Equals("TASK_COMPLETE", StringComparison.Ordinal));
+            taskCompleted = finalResponseText.Any(b => b.Content.Equals("TASK_COMPLETE", StringComparison.Ordinal));
 
             if (!taskCompleted)
             {

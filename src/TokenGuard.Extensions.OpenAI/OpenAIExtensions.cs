@@ -52,7 +52,7 @@ public static class OpenAIExtensions
                         assistant.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
                             toolUse.ToolCallId,
                             toolUse.ToolName,
-                            BinaryData.FromString(toolUse.ArgumentsJson)));
+                            BinaryData.FromString(toolUse.Content)));
                     }
 
                     result.Add(assistant);
@@ -147,5 +147,5 @@ public static class OpenAIExtensions
     }
 
     private static string ExtractText(ContextMessage contextMessage) =>
-        contextMessage.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
+        contextMessage.Content.OfType<TextContent>().FirstOrDefault()?.Content ?? string.Empty;
 }

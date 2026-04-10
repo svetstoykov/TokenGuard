@@ -44,7 +44,7 @@ public sealed class FoldingEngineIntegrationTests
 
         var compactedToolResult = compactedMessages.FirstOrDefault(m =>
             m.Role == MessageRole.Tool &&
-            m.Content.Any(c => c is TextContent tc && tc.Text.Contains("[Tool result cleared", StringComparison.OrdinalIgnoreCase)));
+            m.Content.Any(c => c is TextContent tc && tc.Content.Contains("[Tool result cleared", StringComparison.OrdinalIgnoreCase)));
 
         compactedToolResult.Should().NotBeNull(
             because: "old oversized tool output should be masked during compaction");

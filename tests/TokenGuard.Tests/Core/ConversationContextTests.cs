@@ -359,7 +359,7 @@ public sealed class ConversationContextTests
             if (this._counts.TryGetValue(contextMessage, out var cached))
                 return cached;
 
-            var firstText = contextMessage.Content.OfType<TokenGuard.Core.Models.Content.TextContent>().FirstOrDefault()?.Text;
+            var firstText = contextMessage.Content.OfType<TokenGuard.Core.Models.Content.TextContent>().FirstOrDefault()?.Content;
             if (firstText != null && this._countsByText.TryGetValue(firstText, out var byText))
                 return byText;
 

@@ -14,7 +14,7 @@ public sealed class ContentSegmentTests
         var content = new TextContent("hello");
 
         // Assert
-        Assert.Equal("hello", content.Text);
+        Assert.Equal("hello", content.Content);
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class ContentSegmentTests
         // Assert
         Assert.Equal("call_1", content.ToolCallId);
         Assert.Equal("read_file", content.ToolName);
-        Assert.Equal("{\"path\":\"a.txt\"}", content.ArgumentsJson);
+        Assert.Equal("{\"path\":\"a.txt\"}", content.Content);
     }
 
     [Theory]

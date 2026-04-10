@@ -7,4 +7,5 @@ namespace TokenGuard.Core.Models.Content;
 /// TokenGuard models message content as a segment sequence rather than a single string so adapters can preserve
 /// provider-native structures such as tool calls and tool results alongside plain text.
 /// </remarks>
-public abstract record ContentSegment;
+/// <param name="Content">The raw payload carried by this segment.</param>
+public abstract record ContentSegment(string Content);

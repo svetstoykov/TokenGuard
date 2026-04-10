@@ -78,7 +78,7 @@ public sealed class ContextMessageTests
 
         // Assert
         Assert.Single(message.Content);
-        Assert.Equal("first", Assert.IsType<TextContent>(message.Content[0]).Text);
+        Assert.Equal("first", Assert.IsType<TextContent>(message.Content[0]).Content);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class ContextMessageTests
         // Assert
         Assert.Equal(MessageRole.User, message.Role);
         Assert.Single(message.Content);
-        Assert.Equal("hello", Assert.IsType<TextContent>(message.Content[0]).Text);
+        Assert.Equal("hello", Assert.IsType<TextContent>(message.Content[0]).Content);
         Assert.Equal(CompactionState.Original, message.State);
         Assert.Null(message.TokenCount);
     }
