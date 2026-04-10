@@ -24,7 +24,7 @@ public sealed class FoldingEngineIntegrationTests
         engine.SetSystemPrompt("You are a helpful assistant.");
         engine.AddUserMessage("Please analyze the logs for the last 24 hours.");
         
-        var toolUse = new ToolUseContent("call_123", "analyze_Ïlogs", "{\"timespan\":\"24h\"}");
+        var toolUse = new ToolUseContent("call_123", "analyze_logs", "{\"timespan\":\"24h\"}");
         engine.RecordModelResponse([toolUse]);
         
         var massiveLog = new string('A', 4000);

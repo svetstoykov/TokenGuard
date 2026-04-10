@@ -27,4 +27,10 @@
     <ProjectReference Include="..\TokenGuard.TestCommon\TokenGuard.TestCommon.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update=".env.local">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

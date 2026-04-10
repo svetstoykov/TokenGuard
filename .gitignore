@@ -10,6 +10,9 @@
 *.userosscache
 *.sln.docstates
 *.env
+.env.local
+appsettings.Development.json
+local.*
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -48,6 +51,8 @@ bld/
 [Ll]ogs/
 
 *.DS_Store
+tests/TokenGuard.E2E/Scripts/*.local.sh
+tests/TokenGuard.E2E/.env.local
 
 # Build results on 'Bin' directories
 **/[Bb]in/*
