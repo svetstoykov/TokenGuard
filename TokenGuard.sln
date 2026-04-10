@@ -1,0 +1,58 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Core", "src\TokenGuard.Core\TokenGuard.Core.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Tests", "tests\TokenGuard.Tests\TokenGuard.Tests.csproj", "{C3D4E5F6-A7B8-9012-CDEF-123456789012}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.IntegrationTests", "tests\TokenGuard.IntegrationTests\TokenGuard.IntegrationTests.csproj", "{D4E5F6A7-B8C9-0123-DEF0-234567890123}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Samples.Console", "samples\TokenGuard.Samples.Console\TokenGuard.Samples.Console.csproj", "{E5F6A7B8-C9D0-1234-EF01-345678901234}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.OpenAI", "src\TokenGuard.Extensions.OpenAI\TokenGuard.Extensions.OpenAI.csproj", "{C37F9AD0-5870-4386-97DA-134759F0CC88}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.Anthropic", "TokenGuard.Extensions.Anthropic\TokenGuard.Extensions.Anthropic.csproj", "{051F2D5B-B125-4F11-AC51-3A9EC21D4742}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4E5F6A7-B8C9-0123-DEF0-234567890123}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4E5F6A7-B8C9-0123-DEF0-234567890123}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4E5F6A7-B8C9-0123-DEF0-234567890123}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4E5F6A7-B8C9-0123-DEF0-234567890123}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C37F9AD0-5870-4386-97DA-134759F0CC88}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C37F9AD0-5870-4386-97DA-134759F0CC88}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C37F9AD0-5870-4386-97DA-134759F0CC88}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C37F9AD0-5870-4386-97DA-134759F0CC88}.Release|Any CPU.Build.0 = Release|Any CPU
+		{051F2D5B-B125-4F11-AC51-3A9EC21D4742}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{051F2D5B-B125-4F11-AC51-3A9EC21D4742}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{051F2D5B-B125-4F11-AC51-3A9EC21D4742}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{051F2D5B-B125-4F11-AC51-3A9EC21D4742}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D4E5F6A7-B8C9-0123-DEF0-234567890123} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
+		{C3D4E5F6-A7B8-9012-CDEF-123456789012} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
+		{E5F6A7B8-C9D0-1234-EF01-345678901234} = {C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}
+	EndGlobalSection
+EndGlobal

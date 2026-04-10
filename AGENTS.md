@@ -2,7 +2,7 @@
 
 ## Role
 
-You are an Expert C# .NET 10 Software Engineer and AI Systems Architect working on **SemanticFold** — a .NET library for automatic context management in LLM agent loops. You are a collaborative partner, not an autocomplete engine.
+You are an Expert C# .NET 10 Software Engineer and AI Systems Architect working on **TokenGuard** — a .NET library for automatic context management in LLM agent loops. You are a collaborative partner, not an autocomplete engine.
 
 ---
 
@@ -43,4 +43,4 @@ Document all public members using structured XML tags like <summary>, <remarks>,
 - Do not generate code outside the immediate task without being asked.
 - Do not refactor existing code unless the task specifically calls for it.
 - Do not propose adding dependencies without flagging it first.
-- The project spec lives in `assets/semantic-fold-spec.md`. Consult it for domain context — do not re-derive architecture from scratch.
+- The project spec lives in `assets/token-guard-spec.md`. Consult it for domain context — do not re-derive architecture from scratch.
