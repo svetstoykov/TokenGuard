@@ -7,7 +7,7 @@ using TokenGuard.Core.TokenCounting;
 
 namespace TokenGuard.Tests.Core;
 
-public sealed class ConversationContextConfigurationBuilderTests
+public sealed class ConversationConfigBuilderTests
 {
     [Fact]
     public void Default_WithoutArguments_UsesDefaultMaxTokenBudget()
@@ -16,7 +16,7 @@ public sealed class ConversationContextConfigurationBuilderTests
         var expected = ContextBudget.For(100_000);
 
         // Act
-        var configuration = ConversationContextConfigurationBuilder.Default();
+        var configuration = ConversationConfigBuilder.Default();
 
         // Assert
         configuration.Budget.Should().Be(expected);
@@ -31,7 +31,7 @@ public sealed class ConversationContextConfigurationBuilderTests
         const int maxTokens = 200_000;
 
         // Act
-        var configuration = ConversationContextConfigurationBuilder.Default(maxTokens);
+        var configuration = ConversationConfigBuilder.Default(maxTokens);
 
         // Assert
         configuration.Budget.MaxTokens.Should().Be(maxTokens);
@@ -47,7 +47,7 @@ public sealed class ConversationContextConfigurationBuilderTests
         var expectedBudget = ContextBudget.For(maxTokens);
 
         // Act
-        var configuration = new ConversationContextConfigurationBuilder()
+        var configuration = new ConversationConfigBuilder()
             .WithMaxTokens(maxTokens)
             .Build();
 
@@ -61,7 +61,7 @@ public sealed class ConversationContextConfigurationBuilderTests
     public void BuildConfiguration_WhenOnlyMaxTokensProvided_MatchesBuildResult()
     {
         // Arrange
-        var builder = new ConversationContextConfigurationBuilder()
+        var builder = new ConversationConfigBuilder()
             .WithMaxTokens(75_000);
 
         // Act
@@ -82,7 +82,7 @@ public sealed class ConversationContextConfigurationBuilderTests
         var strategy = new StubCompactionStrategy();
 
         // Act
-        var configuration = new ConversationContextConfigurationBuilder()
+        var configuration = new ConversationConfigBuilder()
             .WithMaxTokens(8_192)
             .WithCompactionThreshold(0.65)
             .WithEmergencyThreshold(0.90)
@@ -104,7 +104,7 @@ public sealed class ConversationContextConfigurationBuilderTests
     public void Build_WithoutMaxTokens_ThrowsInvalidOperationException()
     {
         // Arrange
-        var builder = new ConversationContextConfigurationBuilder();
+        var builder = new ConversationConfigBuilder();
 
         // Act
         Action act = () => builder.Build();
@@ -118,7 +118,7 @@ public sealed class ConversationContextConfigurationBuilderTests
     public void BuildConfiguration_WithoutMaxTokens_ThrowsInvalidOperationException()
     {
         // Arrange
-        var builder = new ConversationContextConfigurationBuilder();
+        var builder = new ConversationConfigBuilder();
 
         // Act
         Action act = () => builder.BuildConfiguration();
@@ -132,7 +132,7 @@ public sealed class ConversationContextConfigurationBuilderTests
     public void WithStrategy_WhenStrategyIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        var builder = new ConversationContextConfigurationBuilder();
+        var builder = new ConversationConfigBuilder();
 
         // Act
         Action act = () => builder.WithStrategy(null!);
@@ -146,7 +146,7 @@ public sealed class ConversationContextConfigurationBuilderTests
     public void WithTokenCounter_WhenTokenCounterIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        var builder = new ConversationContextConfigurationBuilder();
+        var builder = new ConversationConfigBuilder();
 
         // Act
         Action act = () => builder.WithTokenCounter(null!);
@@ -160,7 +160,7 @@ public sealed class ConversationContextConfigurationBuilderTests
     public void FluentMethods_ReturnSameBuilderInstance()
     {
         // Arrange
-        var builder = new ConversationContextConfigurationBuilder();
+        var builder = new ConversationConfigBuilder();
         var counter = new StubTokenCounter();
         var strategy = new StubCompactionStrategy();
 

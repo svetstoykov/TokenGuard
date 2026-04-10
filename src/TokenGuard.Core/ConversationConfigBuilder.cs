@@ -10,7 +10,7 @@ namespace TokenGuard.Core;
 /// </summary>
 /// <remarks>
 ///     <para>
-///         Use <see cref="ConversationContextConfigurationBuilder"/> when a conversation-context configuration needs to be composed from
+///         Use <see cref="ConversationConfigBuilder"/> when a conversation-context configuration needs to be composed from
 ///         a token budget, a token counter, and a compaction strategy without constructing the underlying
 ///         <see cref="ContextBudget"/> manually.
 ///     </para>
@@ -20,7 +20,7 @@ namespace TokenGuard.Core;
 ///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count.
 ///     </para>
 /// </remarks>
-public sealed class ConversationContextConfigurationBuilder
+public sealed class ConversationConfigBuilder
 {
     private int? _maxTokens;
     private double? _compactionThreshold;
@@ -33,7 +33,7 @@ public sealed class ConversationContextConfigurationBuilder
     ///     Creates a <see cref="ConversationContextConfiguration"/> using the default builder configuration.
     /// </summary>
     /// <remarks>
-    ///     This method delegates to a new <see cref="ConversationContextConfigurationBuilder"/> instance and applies only
+    ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
     ///     the resulting configuration uses a maximum token budget of 100,000.
     /// </remarks>
@@ -42,7 +42,7 @@ public sealed class ConversationContextConfigurationBuilder
     /// </param>
     /// <returns>A configured <see cref="ConversationContextConfiguration"/> instance.</returns>
     public static ConversationContextConfiguration Default(int maxTokens = 100_000) =>
-        new ConversationContextConfigurationBuilder()
+        new ConversationConfigBuilder()
             .WithMaxTokens(maxTokens)
             .Build();
 
@@ -55,7 +55,7 @@ public sealed class ConversationContextConfigurationBuilder
     /// </remarks>
     /// <param name="maxTokens">The maximum number of tokens allowed in the context window.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextConfigurationBuilder WithMaxTokens(int maxTokens)
+    public ConversationConfigBuilder WithMaxTokens(int maxTokens)
     {
         this._maxTokens = maxTokens;
         return this;
@@ -69,7 +69,7 @@ public sealed class ConversationContextConfigurationBuilder
     /// </remarks>
     /// <param name="compactionThreshold">The compaction trigger threshold.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextConfigurationBuilder WithCompactionThreshold(double compactionThreshold)
+    public ConversationConfigBuilder WithCompactionThreshold(double compactionThreshold)
     {
         this._compactionThreshold = compactionThreshold;
         return this;
@@ -83,7 +83,7 @@ public sealed class ConversationContextConfigurationBuilder
     /// </remarks>
     /// <param name="emergencyThreshold">The emergency compaction trigger threshold.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextConfigurationBuilder WithEmergencyThreshold(double emergencyThreshold)
+    public ConversationConfigBuilder WithEmergencyThreshold(double emergencyThreshold)
     {
         this._emergencyThreshold = emergencyThreshold;
         return this;
@@ -97,7 +97,7 @@ public sealed class ConversationContextConfigurationBuilder
     /// </remarks>
     /// <param name="reservedTokens">The reserved token count.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextConfigurationBuilder WithReservedTokens(int reservedTokens)
+    public ConversationConfigBuilder WithReservedTokens(int reservedTokens)
     {
         this._reservedTokens = reservedTokens;
         return this;
@@ -111,7 +111,7 @@ public sealed class ConversationContextConfigurationBuilder
     /// </remarks>
     /// <param name="strategy">The compaction strategy.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextConfigurationBuilder WithStrategy(ICompactionStrategy strategy)
+    public ConversationConfigBuilder WithStrategy(ICompactionStrategy strategy)
     {
         this._strategy = strategy ?? throw new ArgumentNullException(nameof(strategy));
         return this;
@@ -125,7 +125,7 @@ public sealed class ConversationContextConfigurationBuilder
     /// </remarks>
     /// <param name="tokenCounter">The token counter.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationContextConfigurationBuilder WithTokenCounter(ITokenCounter tokenCounter)
+    public ConversationConfigBuilder WithTokenCounter(ITokenCounter tokenCounter)
     {
         this._tokenCounter = tokenCounter ?? throw new ArgumentNullException(nameof(tokenCounter));
         return this;

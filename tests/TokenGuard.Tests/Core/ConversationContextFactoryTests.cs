@@ -38,7 +38,7 @@ public sealed class ConversationContextFactoryTests
     public void CreateNamed_UsesRegisteredConfigurationBudget()
     {
         // Arrange
-        var config = new ConversationContextConfigurationBuilder()
+        var config = new ConversationConfigBuilder()
             .WithMaxTokens(200_000)
             .Build();
 
@@ -57,7 +57,7 @@ public sealed class ConversationContextFactoryTests
     public void CreateNamed_ReturnsNewInstanceOnEachCall()
     {
         // Arrange
-        var config = new ConversationContextConfigurationBuilder()
+        var config = new ConversationConfigBuilder()
             .WithMaxTokens(50_000)
             .Build();
 
@@ -90,7 +90,7 @@ public sealed class ConversationContextFactoryTests
     public void AddNamed_IsFluentAndReturnsSameFactory()
     {
         // Arrange
-        var config = new ConversationContextConfigurationBuilder()
+        var config = new ConversationConfigBuilder()
             .WithMaxTokens(100_000)
             .Build();
 
@@ -107,7 +107,7 @@ public sealed class ConversationContextFactoryTests
     public void Build_WithoutMaxTokens_ThrowsInvalidOperationException()
     {
         // Arrange
-        var builder = new ConversationContextConfigurationBuilder();
+        var builder = new ConversationConfigBuilder();
 
         // Act
         Action act = () => builder.Build();
@@ -123,7 +123,7 @@ public sealed class ConversationContextFactoryTests
         const int maxTokens = 75_000;
 
         // Act
-        var config = new ConversationContextConfigurationBuilder()
+        var config = new ConversationConfigBuilder()
             .WithMaxTokens(maxTokens)
             .Build();
 
@@ -137,7 +137,7 @@ public sealed class ConversationContextFactoryTests
 
     private sealed class TestConversationContextFactory : IConversationContextFactory
     {
-        private ConversationContextConfiguration _default = new ConversationContextConfigurationBuilder()
+        private ConversationContextConfiguration _default = new ConversationConfigBuilder()
             .WithMaxTokens(100_000)
             .Build();
 

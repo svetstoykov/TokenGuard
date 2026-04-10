@@ -9,7 +9,7 @@ namespace TokenGuard.Core.TokenCounting;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="EstimatedTokenCounter"/> is the default counter used by <see cref="ConversationContextConfigurationBuilder"/> when no
+/// <see cref="EstimatedTokenCounter"/> is the default counter used by <see cref="ConversationConfigBuilder"/> when no
 /// provider-specific implementation is supplied. It trades precision for zero dependencies and predictable performance.
 /// </para>
 /// <para>

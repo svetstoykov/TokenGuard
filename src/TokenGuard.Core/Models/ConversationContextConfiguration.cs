@@ -10,7 +10,7 @@ namespace TokenGuard.Core.Models;
 /// <para>
 /// <see cref="ConversationContextConfiguration"/> mirrors the constructor signature of
 /// <see cref="ConversationContext"/> exactly. It is produced by
-/// <see cref="ConversationContextConfigurationBuilder.Build"/> and consumed by
+/// <see cref="ConversationConfigBuilder.Build"/> and consumed by
 /// the built-in factory behind <see cref="Abstractions.IConversationContextFactory"/> to stamp out
 /// fresh context instances on demand without re-running the builder defaults logic each time.
 /// </para>

@@ -18,9 +18,9 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// It can be overridden per call site by registering a named configuration with
     /// <see cref="AddNamed"/> and calling <see cref="Create(string)"/> instead.
     /// </remarks>
-    internal ConversationContextFactory()
+    internal ConversationContextFactory(ConversationContextConfiguration config)
     {
-        _default = ConversationContextConfigurationBuilder.Default();
+        _default = config;
     }
 
     /// <summary>
@@ -57,7 +57,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// </param>
     /// <param name="config">
     /// The immutable configuration snapshot to store. Typically produced by
-    /// <see cref="ConversationContextConfigurationBuilder.Build"/>.
+    /// <see cref="ConversationConfigBuilder.Build"/>.
     /// </param>
     /// <returns>This factory instance, enabling fluent chaining of multiple <see cref="AddNamed"/> calls.</returns>
     /// <exception cref="ArgumentNullException">

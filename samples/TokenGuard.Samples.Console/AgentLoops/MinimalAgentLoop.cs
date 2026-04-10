@@ -1,12 +1,13 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using OpenAI;
 using OpenAI.Chat;
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Extensions;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
-using TokenGuard.Core.TokenCounting;
 using TokenGuard.Extensions.OpenAI;
 using TokenGuard.Samples.Console.Tools;
 
@@ -35,10 +36,17 @@ public sealed class MinimalAgentLoop : IAgentLoop
         var client = new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = endpoint });
         var chatClient = client.GetChatClient("qwen/qwen3.6-plus");
 
-        var budget = ContextBudget.For(maxTokens: 10000);
-        var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4));
-        var conversationContext = new ConversationContext(budget, counter, strategy);
+        var services = new ServiceCollection();
+        services.AddConversationContext("default", builder => builder
+            .WithMaxTokens(10000)
+            .WithCompactionThreshold(0.65)
+            .WithStrategy(new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4))));
+
+        using var serviceProvider = services.BuildServiceProvider();
+        
+        using var conversationContext = serviceProvider
+            .GetRequiredService<IConversationContextFactory>()
+            .Create();
 
         var tools = CreateTools();
         var chatTools = tools.Select(t => t.Name switch
