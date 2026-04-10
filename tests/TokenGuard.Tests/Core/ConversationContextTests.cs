@@ -202,6 +202,62 @@ public sealed class ConversationContextTests
         Assert.Equal(1, counter.GetCountCalls(compacted));
     }
 
+    [Fact]
+    public void Dispose_ClearsHistory()
+    {
+        // Arrange
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        engine.AddUserMessage("hello");
+        engine.Dispose();
+
+        // Assert
+        Assert.Throws<ObjectDisposedException>(() => engine.History);
+    }
+
+    [Fact]
+    public void Dispose_IsIdempotent()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        // Act & Assert — no exception on double dispose
+        engine.Dispose();
+        engine.Dispose();
+    }
+
+    [Theory]
+    [InlineData("SetSystemPrompt")]
+    [InlineData("AddUserMessage")]
+    [InlineData("RecordModelResponse")]
+    [InlineData("RecordToolResult")]
+    [InlineData("PrepareAsync")]
+    public async Task PublicMembers_AfterDispose_ThrowObjectDisposedException(string member)
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+        engine.Dispose();
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => member switch
+        {
+            "SetSystemPrompt"     => Sync(() => engine.SetSystemPrompt("x")),
+            "AddUserMessage"      => Sync(() => engine.AddUserMessage("x")),
+            "RecordModelResponse" => Sync(() => engine.RecordModelResponse([new TextContent("x")])),
+            "RecordToolResult"    => Sync(() => engine.RecordToolResult("id", "tool", "x")),
+            "PrepareAsync"        => engine.PrepareAsync(),
+            _                     => throw new ArgumentOutOfRangeException(nameof(member))
+        });
+    }
+
+    private static Task Sync(Action action)
+    {
+        action();
+        return Task.CompletedTask;
+    }
+
     private sealed class TrackingCompactionStrategy : ICompactionStrategy
     {
         private readonly IReadOnlyList<SemanticMessage>? _result;

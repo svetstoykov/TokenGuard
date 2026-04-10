@@ -35,7 +35,7 @@ namespace TokenGuard.Core;
 /// so future preparation stays better aligned with the provider's own counting behavior.
 /// </para>
 /// </remarks>
-public sealed class ConversationContext
+public sealed class ConversationContext : IDisposable
 {
     private readonly ContextBudget _budget;
     private readonly ITokenCounter _counter;
@@ -49,6 +49,8 @@ public sealed class ConversationContext
     // Additive correction applied to every raw estimate to account for systematic estimator drift.
     // Updated each time RecordModelResponse is called with a providerInputTokens value.
     private int _anchorCorrection;
+
+    private bool _disposed;
 
     /// <summary>
     /// Creates a conversation context with the budget, token counter, and compaction strategy
@@ -86,7 +88,14 @@ public sealed class ConversationContext
     /// same as the request payload returned by <see cref="PrepareAsync(CancellationToken)"/>, which may be compacted.
     /// </para>
     /// </remarks>
-    public IReadOnlyList<SemanticMessage> History => this._history;
+    public IReadOnlyList<SemanticMessage> History
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(this._disposed, this);
+            return this._history;
+        }
+    }
 
     /// <summary>
     /// Sets the system message for the conversation.
@@ -105,6 +114,7 @@ public sealed class ConversationContext
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
     public void SetSystemPrompt(string text)
     {
+        ObjectDisposedException.ThrowIf(this._disposed, this);
         if (string.IsNullOrWhiteSpace(text))
             throw new ArgumentException("System prompt text cannot be null or whitespace.", nameof(text));
 
@@ -130,6 +140,7 @@ public sealed class ConversationContext
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
     public void AddUserMessage(string text)
     {
+        ObjectDisposedException.ThrowIf(this._disposed, this);
         if (string.IsNullOrWhiteSpace(text))
             throw new ArgumentException("User message text cannot be null or whitespace.", nameof(text));
 
@@ -166,6 +177,7 @@ public sealed class ConversationContext
     /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> is empty.</exception>
     public void RecordModelResponse(IEnumerable<ContentSegment> content, int? providerInputTokens = null)
     {
+        ObjectDisposedException.ThrowIf(this._disposed, this);
         ArgumentNullException.ThrowIfNull(content);
 
         var segments = content.ToArray();
@@ -200,6 +212,7 @@ public sealed class ConversationContext
     /// </exception>
     public void RecordToolResult(string toolCallId, string toolName, string content)
     {
+        ObjectDisposedException.ThrowIf(this._disposed, this);
         if (string.IsNullOrWhiteSpace(toolCallId))
             throw new ArgumentException("Tool call id cannot be null or whitespace.", nameof(toolCallId));
 
@@ -244,6 +257,7 @@ public sealed class ConversationContext
     /// </remarks>
     public async Task<IReadOnlyList<SemanticMessage>> PrepareAsync(CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(this._disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
 
         var messages = (IReadOnlyList<SemanticMessage>)this._history;
@@ -274,6 +288,24 @@ public sealed class ConversationContext
         this._anchorCorrection = 0;
 
         return result;
+    }
+
+    /// <summary>
+    /// Releases the conversation history held by this context.
+    /// </summary>
+    /// <remarks>
+    /// After disposal, all public members throw <see cref="ObjectDisposedException"/>. A
+    /// <see cref="ConversationContext"/> should be scoped to a single conversation and disposed
+    /// when that conversation ends. Registering it as a singleton will cause the history to grow
+    /// for the lifetime of the process and will not be released until the process exits.
+    /// </remarks>
+    public void Dispose()
+    {
+        if (this._disposed)
+            return;
+
+        this._disposed = true;
+        this._history.Clear();
     }
 
     private int Sum(IReadOnlyList<SemanticMessage> messages) => messages.Sum(this.EnsureCounted);
