@@ -3,7 +3,7 @@ using TokenGuard.Core.Models;
 namespace TokenGuard.Core.Enums;
 
 /// <summary>
-/// Describes how a <see cref="SemanticMessage"/> has been transformed by compaction.
+/// Describes how a <see cref="ContextMessage"/> has been transformed by compaction.
 /// </summary>
 /// <remarks>
 /// TokenGuard preserves compaction provenance on each message so callers can inspect whether a prepared payload still

@@ -11,7 +11,7 @@ namespace TokenGuard.Extensions.OpenAI;
 /// <remarks>
 /// This class covers both directions of the adapter:
 /// <list type="bullet">
-///   <item>Outbound — <see cref="ForOpenAI"/> converts <see cref="SemanticMessage"/> instances to OpenAI chat messages before sending.</item>
+///   <item>Outbound — <see cref="ForOpenAI"/> converts <see cref="ContextMessage"/> instances to OpenAI chat messages before sending.</item>
 ///   <item>Inbound — <see cref="ResponseSegments"/>, <see cref="TextSegments"/>, and <see cref="ToolUseSegments"/> extract content
 ///   from a <see cref="ChatCompletion"/> to pass back into <c>ConversationContext.RecordModelResponse</c>.</item>
 /// </list>
@@ -26,7 +26,7 @@ public static class OpenAIExtensions
     /// <returns>A list of OpenAI <see cref="ChatMessage"/> instances ready to pass to <c>CompleteChatAsync</c>.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when a message has an unrecognized role.</exception>
-    public static IReadOnlyList<ChatMessage> ForOpenAI(this IReadOnlyList<SemanticMessage> messages)
+    public static IReadOnlyList<ChatMessage> ForOpenAI(this IReadOnlyList<ContextMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
 
@@ -146,6 +146,6 @@ public static class OpenAIExtensions
         return response.Usage?.InputTokenCount;
     }
 
-    private static string ExtractText(SemanticMessage semanticMessage) =>
-        semanticMessage.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
+    private static string ExtractText(ContextMessage contextMessage) =>
+        contextMessage.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
 }

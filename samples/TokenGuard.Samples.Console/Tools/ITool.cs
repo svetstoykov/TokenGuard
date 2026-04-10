@@ -1,7 +1,7 @@
 using System.Text.Json;
 using TokenGuard.Core.Models.Content;
 
-namespace TokenGuard.Core.Abstractions;
+namespace TokenGuard.Samples.Console.Tools;
 
 /// <summary>
 /// Defines a callable tool that an LLM can discover, invoke, and round-trip through conversation history.

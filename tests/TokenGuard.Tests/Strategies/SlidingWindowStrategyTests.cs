@@ -13,10 +13,10 @@ public sealed class SlidingWindowStrategyTests
     public async Task CompactAsync_WhenAllMessagesFitWithinWindowAndTokenCap_ReturnsOriginalListReference()
     {
         // Arrange
-        var messages = new List<SemanticMessage>
+        var messages = new List<ContextMessage>
         {
-            SemanticMessage.FromText(MessageRole.User, "one"),
-            SemanticMessage.FromText(MessageRole.Model, "two"),
+            ContextMessage.FromText(MessageRole.User, "one"),
+            ContextMessage.FromText(MessageRole.Model, "two"),
         };
 
         var tokenCounter = new TrackingTokenCounter();
@@ -36,11 +36,11 @@ public sealed class SlidingWindowStrategyTests
     public async Task CompactAsync_WhenTokenCapFiresBeforeWindowSize_BoundaryIsCorrectAndWalkStopsEarly()
     {
         // Arrange
-        var messages = new List<SemanticMessage>
+        var messages = new List<ContextMessage>
         {
-            SemanticMessage.FromText(MessageRole.User, "m0"),
-            SemanticMessage.FromText(MessageRole.User, "m1"),
-            SemanticMessage.FromText(MessageRole.User, "m2"),
+            ContextMessage.FromText(MessageRole.User, "m0"),
+            ContextMessage.FromText(MessageRole.User, "m1"),
+            ContextMessage.FromText(MessageRole.User, "m2"),
             CreateToolResultMessage("call_3", "tool-3", "payload-3"),
             CreateToolResultMessage("call_4", "tool-4", "payload-4"),
         };
@@ -65,7 +65,7 @@ public sealed class SlidingWindowStrategyTests
     public async Task CompactAsync_WhenCountFloorFiresBeforeTokenCap_ProtectsExactlyWindowSizeMessages()
     {
         // Arrange
-        var messages = new List<SemanticMessage>
+        var messages = new List<ContextMessage>
         {
             CreateToolResultMessage("call_0", "tool-0", "payload-0"),
             CreateToolResultMessage("call_1", "tool-1", "payload-1"),
@@ -94,16 +94,16 @@ public sealed class SlidingWindowStrategyTests
     public async Task CompactAsync_ProtectedMessages_AreNeverModifiedRegardlessOfContent()
     {
         // Arrange
-        var protectedToolResult = new SemanticMessage
+        var protectedToolResult = new ContextMessage
         {
             Role = MessageRole.User,
             Content = [new ToolResultContent("call_1", "calculator", "42")],
             State = CompactionState.Summarized,
         };
 
-        var protectedText = SemanticMessage.FromText(MessageRole.Model, "keep");
+        var protectedText = ContextMessage.FromText(MessageRole.Model, "keep");
         var exposed = CreateToolResultMessage("call_0", "search", "payload");
-        var messages = new List<SemanticMessage> { exposed, protectedToolResult, protectedText };
+        var messages = new List<ContextMessage> { exposed, protectedToolResult, protectedText };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(messages[2], 2);
@@ -124,10 +124,10 @@ public sealed class SlidingWindowStrategyTests
     public async Task CompactAsync_ToolResultBlocksInExposedSegment_AreReplacedWithTextPlaceholders()
     {
         // Arrange
-        var messages = new List<SemanticMessage>
+        var messages = new List<ContextMessage>
         {
             CreateToolResultMessage("call_1", "calculator", "sensitive-output"),
-            SemanticMessage.FromText(MessageRole.User, "recent"),
+            ContextMessage.FromText(MessageRole.User, "recent"),
         };
 
         var tokenCounter = new TrackingTokenCounter();
@@ -149,9 +149,9 @@ public sealed class SlidingWindowStrategyTests
     public async Task CompactAsync_NonToolResultMessagesInExposedSegment_ArePassedThroughUnchanged()
     {
         // Arrange
-        var passthrough = SemanticMessage.FromText(MessageRole.User, "plain text");
-        var protectedMessage = SemanticMessage.FromText(MessageRole.Model, "recent");
-        var messages = new List<SemanticMessage> { passthrough, protectedMessage };
+        var passthrough = ContextMessage.FromText(MessageRole.User, "plain text");
+        var protectedMessage = ContextMessage.FromText(MessageRole.Model, "recent");
+        var messages = new List<ContextMessage> { passthrough, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(protectedMessage, 6);
@@ -170,7 +170,7 @@ public sealed class SlidingWindowStrategyTests
     public async Task CompactAsync_MixedContentMessagesInExposedSegment_OnlyReplaceToolResultBlocks()
     {
         // Arrange
-        var mixed = new SemanticMessage
+        var mixed = new ContextMessage
         {
             Role = MessageRole.User,
             Content =
@@ -181,8 +181,8 @@ public sealed class SlidingWindowStrategyTests
             ],
         };
 
-        var protectedMessage = SemanticMessage.FromText(MessageRole.Model, "recent");
-        var messages = new List<SemanticMessage> { mixed, protectedMessage };
+        var protectedMessage = ContextMessage.FromText(MessageRole.Model, "recent");
+        var messages = new List<ContextMessage> { mixed, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(protectedMessage, 6);
@@ -206,8 +206,8 @@ public sealed class SlidingWindowStrategyTests
     {
         // Arrange
         var exposed = CreateToolResultMessage("call_1", "tool", "payload");
-        var protectedMessage = SemanticMessage.FromText(MessageRole.User, "recent") with { State = CompactionState.Summarized };
-        var messages = new List<SemanticMessage> { exposed, protectedMessage };
+        var protectedMessage = ContextMessage.FromText(MessageRole.User, "recent") with { State = CompactionState.Summarized };
+        var messages = new List<ContextMessage> { exposed, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(protectedMessage, 6);
@@ -227,20 +227,20 @@ public sealed class SlidingWindowStrategyTests
     public async Task CompactAsync_PlaceholderUsesResolvedToolName_WhenMatchingToolUseExistsInAnyMessage()
     {
         // Arrange
-        var toolUseMessage = new SemanticMessage
+        var toolUseMessage = new ContextMessage
         {
             Role = MessageRole.Model,
             Content = [new ToolUseContent("call_1", "calculator", "{}")],
         };
 
-        var toolResultMessage = new SemanticMessage
+        var toolResultMessage = new ContextMessage
         {
             Role = MessageRole.User,
             Content = [new ToolResultContent("call_1", "ignored-name", "42")],
         };
 
-        var protectedMessage = SemanticMessage.FromText(MessageRole.User, "recent");
-        var messages = new List<SemanticMessage> { toolUseMessage, toolResultMessage, protectedMessage };
+        var protectedMessage = ContextMessage.FromText(MessageRole.User, "recent");
+        var messages = new List<ContextMessage> { toolUseMessage, toolResultMessage, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(protectedMessage, 7);
@@ -261,8 +261,8 @@ public sealed class SlidingWindowStrategyTests
     {
         // Arrange
         var exposed = CreateToolResultMessage("call_missing", "result-tool", "payload");
-        var protectedMessage = SemanticMessage.FromText(MessageRole.Model, "recent");
-        var messages = new List<SemanticMessage> { exposed, protectedMessage };
+        var protectedMessage = ContextMessage.FromText(MessageRole.Model, "recent");
+        var messages = new List<ContextMessage> { exposed, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(protectedMessage, 6);
@@ -282,15 +282,15 @@ public sealed class SlidingWindowStrategyTests
     public async Task CompactAsync_DoesNotMutateInputListOrInputMessages()
     {
         // Arrange
-        var originalMessage = new SemanticMessage
+        var originalMessage = new ContextMessage
         {
             Role = MessageRole.User,
             Content = [new ToolResultContent("call_1", "tool", "payload")],
             State = CompactionState.Original,
         };
 
-        var protectedMessage = SemanticMessage.FromText(MessageRole.Model, "recent");
-        var messages = new List<SemanticMessage> { originalMessage, protectedMessage };
+        var protectedMessage = ContextMessage.FromText(MessageRole.Model, "recent");
+        var messages = new List<ContextMessage> { originalMessage, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(protectedMessage, 6);
@@ -375,9 +375,9 @@ public sealed class SlidingWindowStrategyTests
     /// <param name="toolName">The tool name stored on the result segment.</param>
     /// <param name="payload">The payload captured in the tool result.</param>
     /// <returns>A semantic message representing a tool result.</returns>
-    private static SemanticMessage CreateToolResultMessage(string toolCallId, string toolName, string payload)
+    private static ContextMessage CreateToolResultMessage(string toolCallId, string toolName, string payload)
     {
-        return new SemanticMessage
+        return new ContextMessage
         {
             Role = MessageRole.User,
             Content = [new ToolResultContent(toolCallId, toolName, payload)],
@@ -386,8 +386,8 @@ public sealed class SlidingWindowStrategyTests
 
     private sealed class TrackingTokenCounter : ITokenCounter
     {
-        private readonly Dictionary<SemanticMessage, int> _counts = new(ReferenceEqualityComparer.Instance);
-        private readonly HashSet<SemanticMessage> _counted = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<ContextMessage, int> _counts = new(ReferenceEqualityComparer.Instance);
+        private readonly HashSet<ContextMessage> _counted = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>
         /// Gets the number of count requests made through this test double.
@@ -397,34 +397,34 @@ public sealed class SlidingWindowStrategyTests
         /// <summary>
         /// Registers a token count for a specific message instance.
         /// </summary>
-        /// <param name="semanticMessage">The message whose token count should be returned.</param>
+        /// <param name="contextMessage">The message whose token count should be returned.</param>
         /// <param name="count">The token count to return.</param>
-        public void Set(SemanticMessage semanticMessage, int count)
+        public void Set(ContextMessage contextMessage, int count)
         {
-            this._counts[semanticMessage] = count;
+            this._counts[contextMessage] = count;
         }
 
         /// <summary>
         /// Determines whether the specified message has been counted.
         /// </summary>
-        /// <param name="semanticMessage">The message to check.</param>
+        /// <param name="contextMessage">The message to check.</param>
         /// <returns><see langword="true"/> when the message has been counted; otherwise, <see langword="false"/>.</returns>
-        public bool WasCounted(SemanticMessage semanticMessage)
+        public bool WasCounted(ContextMessage contextMessage)
         {
-            return this._counted.Contains(semanticMessage);
+            return this._counted.Contains(contextMessage);
         }
 
         /// <summary>
         /// Returns the configured token count for a single message and records the invocation.
         /// </summary>
-        /// <param name="semanticMessage">The message to count.</param>
+        /// <param name="contextMessage">The message to count.</param>
         /// <returns>The configured token count for the message.</returns>
-        public int Count(SemanticMessage semanticMessage)
+        public int Count(ContextMessage contextMessage)
         {
             this.CountCalls++;
-            this._counted.Add(semanticMessage);
+            this._counted.Add(contextMessage);
 
-            return this._counts.TryGetValue(semanticMessage, out var value)
+            return this._counts.TryGetValue(contextMessage, out var value)
                 ? value
                 : 1;
         }
@@ -434,7 +434,7 @@ public sealed class SlidingWindowStrategyTests
         /// </summary>
         /// <param name="messages">The messages to count.</param>
         /// <returns>The total token count across the sequence.</returns>
-        public int Count(IEnumerable<SemanticMessage> messages)
+        public int Count(IEnumerable<ContextMessage> messages)
         {
             ArgumentNullException.ThrowIfNull(messages);
 
@@ -448,7 +448,7 @@ public sealed class SlidingWindowStrategyTests
         }
     }
 
-    private sealed class ReferenceEqualityComparer : IEqualityComparer<SemanticMessage>
+    private sealed class ReferenceEqualityComparer : IEqualityComparer<ContextMessage>
     {
         /// <summary>
         /// Gets the shared comparer instance.
@@ -461,7 +461,7 @@ public sealed class SlidingWindowStrategyTests
         /// <param name="x">The first message reference.</param>
         /// <param name="y">The second message reference.</param>
         /// <returns><see langword="true"/> when both references point to the same instance; otherwise, <see langword="false"/>.</returns>
-        public bool Equals(SemanticMessage? x, SemanticMessage? y)
+        public bool Equals(ContextMessage? x, ContextMessage? y)
         {
             return ReferenceEquals(x, y);
         }
@@ -471,7 +471,7 @@ public sealed class SlidingWindowStrategyTests
         /// </summary>
         /// <param name="obj">The message reference to hash.</param>
         /// <returns>A hash code derived from the object identity.</returns>
-        public int GetHashCode(SemanticMessage obj)
+        public int GetHashCode(ContextMessage obj)
         {
             return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
         }

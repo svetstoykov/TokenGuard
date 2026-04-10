@@ -31,7 +31,7 @@ public sealed class ConversationContextTests
     public async Task PrepareAsync_WhenEstimateMeetsThreshold_UsesCompactionStrategyResult()
     {
         // Arrange
-        var compacted = SemanticMessage.FromText(MessageRole.Model, "compacted");
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
         var counter = new TrackingTokenCounter();
 
         counter.SetByText("original", 800);
@@ -55,7 +55,7 @@ public sealed class ConversationContextTests
     public async Task PrepareAsync_WhenSystemMessagesExist_KeepsThemAtTopAndAdjustsBudget()
     {
         // Arrange
-        var compacted = SemanticMessage.FromText(MessageRole.Model, "compacted");
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
         var counter = new TrackingTokenCounter();
 
         counter.SetByText("sys1", 100);
@@ -136,7 +136,7 @@ public sealed class ConversationContextTests
     {
         // Arrange
         var counter = new TrackingTokenCounter();
-        var strategy = new TrackingCompactionStrategy([SemanticMessage.FromText(MessageRole.Model, "compressed")]);
+        var strategy = new TrackingCompactionStrategy([ContextMessage.FromText(MessageRole.Model, "compressed")]);
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("hello");
@@ -182,7 +182,7 @@ public sealed class ConversationContextTests
     public async Task PrepareAsync_CachesTokenCountOnCompactedMessages_SoTheyAreNotRecounted()
     {
         // Arrange
-        var compacted = SemanticMessage.FromText(MessageRole.Model, "compacted");
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
         var counter = new TrackingTokenCounter();
 
         counter.SetByText("original", 800);
@@ -260,13 +260,13 @@ public sealed class ConversationContextTests
 
     private sealed class TrackingCompactionStrategy : ICompactionStrategy
     {
-        private readonly IReadOnlyList<SemanticMessage>? _result;
+        private readonly IReadOnlyList<ContextMessage>? _result;
 
         /// <summary>
         /// Initializes a compaction strategy test double that returns the supplied result.
         /// </summary>
         /// <param name="result">The message list to return from <see cref="CompactAsync"/>.</param>
-        public TrackingCompactionStrategy(IReadOnlyList<SemanticMessage>? result = null)
+        public TrackingCompactionStrategy(IReadOnlyList<ContextMessage>? result = null)
         {
             this._result = result;
         }
@@ -279,7 +279,7 @@ public sealed class ConversationContextTests
         /// <summary>
         /// Gets the last message sequence passed to <see cref="CompactAsync"/>.
         /// </summary>
-        public IReadOnlyList<SemanticMessage>? LastInput { get; private set; }
+        public IReadOnlyList<ContextMessage>? LastInput { get; private set; }
 
         /// <summary>
         /// Gets the last budget passed to <see cref="CompactAsync"/>.
@@ -294,7 +294,7 @@ public sealed class ConversationContextTests
         /// <param name="tokenCounter">The token counter associated with the request.</param>
         /// <param name="cancellationToken">A token used to cancel the operation.</param>
         /// <returns>A task containing either the configured result or the original input.</returns>
-        public Task<IReadOnlyList<SemanticMessage>> CompactAsync(IReadOnlyList<SemanticMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<ContextMessage>> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             this.CompactCalls++;
@@ -307,18 +307,18 @@ public sealed class ConversationContextTests
 
     private sealed class TrackingTokenCounter : ITokenCounter
     {
-        private readonly Dictionary<SemanticMessage, int> _counts = new(ReferenceEqualityComparer.Instance);
-        private readonly Dictionary<SemanticMessage, int> _calls = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<ContextMessage, int> _counts = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<ContextMessage, int> _calls = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<string, int> _countsByText = new();
 
         /// <summary>
         /// Registers a token count for a specific message instance.
         /// </summary>
-        /// <param name="semanticMessage">The message whose token count should be returned.</param>
+        /// <param name="contextMessage">The message whose token count should be returned.</param>
         /// <param name="count">The token count to return.</param>
-        public void Set(SemanticMessage semanticMessage, int count)
+        public void Set(ContextMessage contextMessage, int count)
         {
-            this._counts[semanticMessage] = count;
+            this._counts[contextMessage] = count;
         }
 
         /// <summary>
@@ -334,26 +334,26 @@ public sealed class ConversationContextTests
         /// <summary>
         /// Gets the number of times a specific message has been counted.
         /// </summary>
-        /// <param name="semanticMessage">The message whose count invocations should be returned.</param>
+        /// <param name="contextMessage">The message whose count invocations should be returned.</param>
         /// <returns>The number of count invocations recorded for the message.</returns>
-        public int GetCountCalls(SemanticMessage semanticMessage)
+        public int GetCountCalls(ContextMessage contextMessage)
         {
-            return this._calls.GetValueOrDefault(semanticMessage, 0);
+            return this._calls.GetValueOrDefault(contextMessage, 0);
         }
 
         /// <summary>
         /// Returns the configured token count for a single message and records the invocation.
         /// </summary>
-        /// <param name="semanticMessage">The message to count.</param>
+        /// <param name="contextMessage">The message to count.</param>
         /// <returns>The configured token count for the message.</returns>
-        public int Count(SemanticMessage semanticMessage)
+        public int Count(ContextMessage contextMessage)
         {
-            this._calls[semanticMessage] = this.GetCountCalls(semanticMessage) + 1;
+            this._calls[contextMessage] = this.GetCountCalls(contextMessage) + 1;
 
-            if (this._counts.TryGetValue(semanticMessage, out var cached))
+            if (this._counts.TryGetValue(contextMessage, out var cached))
                 return cached;
 
-            var firstText = semanticMessage.Content.OfType<TokenGuard.Core.Models.Content.TextContent>().FirstOrDefault()?.Text;
+            var firstText = contextMessage.Content.OfType<TokenGuard.Core.Models.Content.TextContent>().FirstOrDefault()?.Text;
             if (firstText != null && this._countsByText.TryGetValue(firstText, out var byText))
                 return byText;
 
@@ -365,7 +365,7 @@ public sealed class ConversationContextTests
         /// </summary>
         /// <param name="messages">The messages to count.</param>
         /// <returns>The total token count across the sequence.</returns>
-        public int Count(IEnumerable<SemanticMessage> messages)
+        public int Count(IEnumerable<ContextMessage> messages)
         {
             ArgumentNullException.ThrowIfNull(messages);
 
@@ -379,7 +379,7 @@ public sealed class ConversationContextTests
         }
     }
 
-    private sealed class ReferenceEqualityComparer : IEqualityComparer<SemanticMessage>
+    private sealed class ReferenceEqualityComparer : IEqualityComparer<ContextMessage>
     {
         /// <summary>
         /// Gets the shared comparer instance.
@@ -392,7 +392,7 @@ public sealed class ConversationContextTests
         /// <param name="x">The first message reference.</param>
         /// <param name="y">The second message reference.</param>
         /// <returns><see langword="true"/> when both references point to the same instance; otherwise, <see langword="false"/>.</returns>
-        public bool Equals(SemanticMessage? x, SemanticMessage? y)
+        public bool Equals(ContextMessage? x, ContextMessage? y)
         {
             return ReferenceEquals(x, y);
         }
@@ -402,7 +402,7 @@ public sealed class ConversationContextTests
         /// </summary>
         /// <param name="obj">The message reference to hash.</param>
         /// <returns>A hash code derived from the object identity.</returns>
-        public int GetHashCode(SemanticMessage obj)
+        public int GetHashCode(ContextMessage obj)
         {
             return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
         }

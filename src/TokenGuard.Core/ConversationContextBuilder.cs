@@ -148,9 +148,42 @@ public sealed class ConversationContextBuilder
     /// <exception cref="InvalidOperationException">Thrown when <see cref="WithMaxTokens(int)"/> was not called.</exception>
     public ConversationContext Build()
     {
+        var config = this.BuildConfiguration();
+        return new ConversationContext(config.Budget, config.Counter, config.Strategy);
+    }
+
+    /// <summary>
+    ///     Captures an immutable snapshot of the current builder state as a
+    ///     <see cref="ConversationContextConfiguration"/>.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         This method applies exactly the same defaulting logic as <see cref="Build"/>: any budget
+    ///         values not explicitly configured are merged with the defaults from
+    ///         <see cref="ContextBudget.For(int)"/>, and missing counter or strategy choices fall back to
+    ///         <see cref="TokenCounting.EstimatedTokenCounter"/> and <see cref="Strategies.SlidingWindowStrategy"/>,
+    ///         respectively.
+    ///     </para>
+    ///     <para>
+    ///         Use <see cref="BuildConfiguration"/> instead of <see cref="Build"/> when the resulting
+    ///         configuration will be handed to the built-in dependency-injection registration pipeline.
+    ///         The factory behind <see cref="Abstractions.IConversationContextFactory"/> stores the
+    ///         snapshot and constructs a new <see cref="ConversationContext"/> from it on every
+    ///         <c>Create</c> call.
+    ///     </para>
+    /// </remarks>
+    /// <returns>
+    ///     An immutable <see cref="ConversationContextConfiguration"/> reflecting the builder's current
+    ///     configuration with all defaults applied.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown when <see cref="WithMaxTokens(int)"/> has not been called.
+    /// </exception>
+    public ConversationContextConfiguration BuildConfiguration()
+    {
         if (!this._maxTokens.HasValue)
         {
-            throw new InvalidOperationException("ConversationContextBuilder requires WithMaxTokens(...) to be called before Build().");
+            throw new InvalidOperationException("ConversationContextBuilder requires WithMaxTokens(...) to be called before BuildConfiguration().");
         }
 
         var defaults = ContextBudget.For(this._maxTokens.Value);
@@ -163,6 +196,6 @@ public sealed class ConversationContextBuilder
         var counter = this._tokenCounter ?? new EstimatedTokenCounter();
         var strategy = this._strategy ?? new SlidingWindowStrategy();
 
-        return new ConversationContext(budget, counter, strategy);
+        return new ConversationContextConfiguration(budget, counter, strategy);
     }
 }

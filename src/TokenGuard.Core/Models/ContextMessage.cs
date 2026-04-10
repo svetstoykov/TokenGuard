@@ -8,7 +8,7 @@ namespace TokenGuard.Core.Models;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="SemanticMessage"/> is the canonical unit recorded by <see cref="ConversationContext"/> and consumed by
+/// <see cref="ContextMessage"/> is the canonical unit recorded by <see cref="ConversationContext"/> and consumed by
 /// compaction strategies, token counters, and provider adapters. Each instance pairs a <see cref="MessageRole"/> with
 /// one or more <see cref="ContentSegment"/> values so a single turn can carry plain text, tool-use instructions, or tool
 /// results.
@@ -18,7 +18,7 @@ namespace TokenGuard.Core.Models;
 /// optimization so repeated preparation and compaction passes do not need to recount unchanged messages.
 /// </para>
 /// </remarks>
-public sealed record SemanticMessage
+public sealed record ContextMessage
 {
     private readonly IReadOnlyList<ContentSegment> _content = [];
 
@@ -73,18 +73,18 @@ public sealed record SemanticMessage
     public int? TokenCount { get; internal set; }
 
     /// <summary>
-    /// Creates a <see cref="SemanticMessage"/> containing a single <see cref="TextContent"/> segment.
+    /// Creates a <see cref="ContextMessage"/> containing a single <see cref="TextContent"/> segment.
     /// </summary>
     /// <remarks>
     /// Use this helper for plain-text system, user, or model turns when no richer segment structure is needed.
     /// </remarks>
     /// <param name="role">The participant role that produced the message.</param>
     /// <param name="text">The text payload to wrap in a <see cref="TextContent"/> segment.</param>
-    /// <returns>A new <see cref="SemanticMessage"/> containing exactly one <see cref="TextContent"/> segment.</returns>
+    /// <returns>A new <see cref="ContextMessage"/> containing exactly one <see cref="TextContent"/> segment.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
-    public static SemanticMessage FromText(MessageRole role, string text)
+    public static ContextMessage FromText(MessageRole role, string text)
     {
-        return new SemanticMessage
+        return new ContextMessage
         {
             Role = role,
             Content = [new TextContent(text)],
@@ -92,7 +92,7 @@ public sealed record SemanticMessage
     }
 
     /// <summary>
-    /// Creates a <see cref="SemanticMessage"/> from a single existing <see cref="ContentSegment"/>.
+    /// Creates a <see cref="ContextMessage"/> from a single existing <see cref="ContentSegment"/>.
     /// </summary>
     /// <remarks>
     /// This overload is useful when a caller has already created a specific segment type, such as
@@ -100,13 +100,13 @@ public sealed record SemanticMessage
     /// </remarks>
     /// <param name="role">The participant role that produced the message.</param>
     /// <param name="segment">The content segment to store as the sole payload of the message.</param>
-    /// <returns>A new <see cref="SemanticMessage"/> containing exactly one content segment.</returns>
+    /// <returns>A new <see cref="ContextMessage"/> containing exactly one content segment.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="segment"/> is null.</exception>
-    public static SemanticMessage FromContent(MessageRole role, ContentSegment segment)
+    public static ContextMessage FromContent(MessageRole role, ContentSegment segment)
     {
         ArgumentNullException.ThrowIfNull(segment);
 
-        return new SemanticMessage
+        return new ContextMessage
         {
             Role = role,
             Content = [segment],
@@ -114,7 +114,7 @@ public sealed record SemanticMessage
     }
 
     /// <summary>
-    /// Creates a <see cref="SemanticMessage"/> from multiple existing <see cref="ContentSegment"/> values.
+    /// Creates a <see cref="ContextMessage"/> from multiple existing <see cref="ContentSegment"/> values.
     /// </summary>
     /// <remarks>
     /// Use this overload when a single turn must preserve multiple content segments in order, such as a mixed text and
@@ -122,13 +122,13 @@ public sealed record SemanticMessage
     /// </remarks>
     /// <param name="role">The participant role that produced the message.</param>
     /// <param name="blocks">The ordered content segments that make up the message payload.</param>
-    /// <returns>A new <see cref="SemanticMessage"/> containing the supplied content segments.</returns>
+    /// <returns>A new <see cref="ContextMessage"/> containing the supplied content segments.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="blocks"/> is null.</exception>
-    public static SemanticMessage FromContent(MessageRole role, ContentSegment[] blocks)
+    public static ContextMessage FromContent(MessageRole role, ContentSegment[] blocks)
     {
         ArgumentNullException.ThrowIfNull(blocks);
 
-        return new SemanticMessage
+        return new ContextMessage
         {
             Role = role,
             Content = blocks,

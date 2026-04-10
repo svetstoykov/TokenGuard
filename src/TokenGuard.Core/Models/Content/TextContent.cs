@@ -1,7 +1,7 @@
 namespace TokenGuard.Core.Models.Content;
 
 /// <summary>
-/// Represents a plain-text content segment inside a <see cref="SemanticMessage"/>.
+/// Represents a plain-text content segment inside a <see cref="ContextMessage"/>.
 /// </summary>
 /// <remarks>
 /// Use <see cref="TextContent"/> for conversational text that does not require additional structure. This is the most

@@ -7,7 +7,7 @@ namespace TokenGuard.Core.Models;
 /// <para>
 /// <see cref="ContextBudget"/> separates the model's total context window from the portion that can actually be used for
 /// recorded messages. <paramref name="reservedTokens"/> is subtracted first so callers can hold space for system
-/// overhead, response allowance, or provider-specific framing that is not represented as <see cref="SemanticMessage"/> values.
+/// overhead, response allowance, or provider-specific framing that is not represented as <see cref="ContextMessage"/> values.
 /// </para>
 /// <para>
 /// The threshold properties express policy as fractions of <see cref="AvailableTokens"/> rather than raw counts. This

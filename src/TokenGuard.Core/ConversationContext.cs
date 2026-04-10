@@ -1,5 +1,6 @@
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
+
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 
@@ -30,18 +31,18 @@ namespace TokenGuard.Core;
 /// </para>
 /// <para>
 /// Token counts are estimated through the configured <see cref="ITokenCounter"/> and cached on
-/// each recorded <see cref="SemanticMessage"/>. If the provider later reports an exact input token count,
+/// each recorded <see cref="ContextMessage"/>. If the provider later reports an exact input token count,
 /// that value can be supplied through <see cref="RecordModelResponse(IEnumerable{ContentSegment}, int?)"/>
 /// so future preparation stays better aligned with the provider's own counting behavior.
 /// </para>
 /// </remarks>
-public sealed class ConversationContext : IDisposable
+public sealed class ConversationContext : IConversationContext
 {
     private readonly ContextBudget _budget;
     private readonly ITokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
 
-    private readonly List<SemanticMessage> _history = [];
+    private readonly List<ContextMessage> _history = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
     private int _lastPreparedTotal;
@@ -88,7 +89,7 @@ public sealed class ConversationContext : IDisposable
     /// same as the request payload returned by <see cref="PrepareAsync(CancellationToken)"/>, which may be compacted.
     /// </para>
     /// </remarks>
-    public IReadOnlyList<SemanticMessage> History
+    public IReadOnlyList<ContextMessage> History
     {
         get
         {
@@ -118,7 +119,7 @@ public sealed class ConversationContext : IDisposable
         if (string.IsNullOrWhiteSpace(text))
             throw new ArgumentException("System prompt text cannot be null or whitespace.", nameof(text));
 
-        var message = SemanticMessage.FromText(MessageRole.System, text);
+        var message = ContextMessage.FromText(MessageRole.System, text);
 
         var existing = this._history.FindIndex(m => m.Role == MessageRole.System);
         if (existing >= 0)
@@ -144,7 +145,7 @@ public sealed class ConversationContext : IDisposable
         if (string.IsNullOrWhiteSpace(text))
             throw new ArgumentException("User message text cannot be null or whitespace.", nameof(text));
 
-        var message = SemanticMessage.FromText(MessageRole.User, text);
+        var message = ContextMessage.FromText(MessageRole.User, text);
         this._history.Add(message);
         this.EnsureCounted(message);
     }
@@ -184,7 +185,7 @@ public sealed class ConversationContext : IDisposable
         if (segments.Length == 0)
             throw new ArgumentException("Content must contain at least one segment.", nameof(content));
 
-        var message = new SemanticMessage { Role = MessageRole.Model, Content = segments };
+        var message = new ContextMessage { Role = MessageRole.Model, Content = segments };
         this._history.Add(message);
         this.EnsureCounted(message);
         this.ApplyAnchor(providerInputTokens);
@@ -221,7 +222,7 @@ public sealed class ConversationContext : IDisposable
 
         ArgumentNullException.ThrowIfNull(content);
 
-        var message = SemanticMessage.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
+        var message = ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
         this._history.Add(message);
         this.EnsureCounted(message);
     }
@@ -255,12 +256,12 @@ public sealed class ConversationContext : IDisposable
     /// representation of that history should be sent next.
     /// </para>
     /// </remarks>
-    public async Task<IReadOnlyList<SemanticMessage>> PrepareAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ContextMessage>> PrepareAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var messages = (IReadOnlyList<SemanticMessage>)this._history;
+        var messages = (IReadOnlyList<ContextMessage>)this._history;
         var total = this.Sum(messages) + this._anchorCorrection;
 
         if (total < this._budget.CompactionTriggerTokens)
@@ -308,15 +309,15 @@ public sealed class ConversationContext : IDisposable
         this._history.Clear();
     }
 
-    private int Sum(IReadOnlyList<SemanticMessage> messages) => messages.Sum(this.EnsureCounted);
+    private int Sum(IReadOnlyList<ContextMessage> messages) => messages.Sum(this.EnsureCounted);
 
-    private int EnsureCounted(SemanticMessage semanticMessage)
+    private int EnsureCounted(ContextMessage contextMessage)
     {
-        if (semanticMessage.TokenCount is { } count)
+        if (contextMessage.TokenCount is { } count)
             return count;
 
-        var computed = this._counter.Count(semanticMessage);
-        semanticMessage.TokenCount = computed;
+        var computed = this._counter.Count(contextMessage);
+        contextMessage.TokenCount = computed;
         return computed;
     }
 

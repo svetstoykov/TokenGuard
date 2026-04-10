@@ -3,7 +3,7 @@ using TokenGuard.Core.Models;
 namespace TokenGuard.Core.Enums;
 
 /// <summary>
-/// Identifies which participant produced a <see cref="SemanticMessage"/>.
+/// Identifies which participant produced a <see cref="ContextMessage"/>.
 /// </summary>
 /// <remarks>
 /// Roles drive how TokenGuard records and prepares history. For example, system messages are preserved at the front

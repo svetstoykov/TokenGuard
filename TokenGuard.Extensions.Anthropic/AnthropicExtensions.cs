@@ -12,7 +12,7 @@ namespace TokenGuard.Extensions.Anthropic;
 /// <remarks>
 /// This class covers both directions of the adapter:
 /// <list type="bullet">
-///   <item>Outbound — <see cref="ForAnthropic"/> converts prepared <see cref="SemanticMessage"/> instances into Anthropic <see cref="MessageCreateParams"/> values, including the separate system field required by Anthropic.</item>
+///   <item>Outbound — <see cref="ForAnthropic"/> converts prepared <see cref="ContextMessage"/> instances into Anthropic <see cref="MessageCreateParams"/> values, including the separate system field required by Anthropic.</item>
 ///   <item>Inbound — <see cref="ResponseSegments"/>, <see cref="TextSegments"/>, and <see cref="ToolUseSegments"/> extract model text and tool requests from an Anthropic <see cref="Anthropic.Models.Messages.Message"/> to pass back into <c>ConversationContext.RecordModelResponse</c>.</item>
 /// </list>
 /// </remarks>
@@ -30,7 +30,7 @@ public static class AnthropicExtensions
     /// <exception cref="ArgumentException">Thrown when <paramref name="model"/> is null or whitespace.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="maxTokens"/> is less than or equal to zero.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when a message has an unrecognized role.</exception>
-    public static MessageCreateParams ForAnthropic(this IReadOnlyList<SemanticMessage> messages, string model, long maxTokens)
+    public static MessageCreateParams ForAnthropic(this IReadOnlyList<ContextMessage> messages, string model, long maxTokens)
     {
         ArgumentNullException.ThrowIfNull(messages);
         if (string.IsNullOrWhiteSpace(model))
@@ -219,10 +219,10 @@ public static class AnthropicExtensions
         return (int?)response.Usage?.InputTokens;
     }
 
-    private static string ExtractText(SemanticMessage message) =>
+    private static string ExtractText(ContextMessage message) =>
         message.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? string.Empty;
 
-    private static MessageCreateParamsSystem? BuildSystemPrompt(IReadOnlyList<SemanticMessage> messages)
+    private static MessageCreateParamsSystem? BuildSystemPrompt(IReadOnlyList<ContextMessage> messages)
     {
         List<TextBlockParam> systemBlocks = [];
 

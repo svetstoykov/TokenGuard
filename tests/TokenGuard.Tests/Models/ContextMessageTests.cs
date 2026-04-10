@@ -4,14 +4,14 @@ using TokenGuard.Core.Models.Content;
 
 namespace TokenGuard.Tests.Models;
 
-public sealed class SemanticMessageTests
+public sealed class ContextMessageTests
 {
     [Fact]
     public void Message_RequiresRoleAndContent()
     {
         // Arrange
         var now = DateTimeOffset.UtcNow;
-        var message = new SemanticMessage
+        var message = new ContextMessage
         {
             Role = MessageRole.User,
             Content = [new TextContent("hello")],
@@ -35,7 +35,7 @@ public sealed class SemanticMessageTests
 
         // Act
         Action act = () =>
-            _ = new SemanticMessage
+            _ = new ContextMessage
             {
                 Role = MessageRole.User,
                 Content = null!,
@@ -52,7 +52,7 @@ public sealed class SemanticMessageTests
 
         // Act
         Action act = () =>
-            _ = new SemanticMessage
+            _ = new ContextMessage
             {
                 Role = MessageRole.User,
                 Content = [],
@@ -67,7 +67,7 @@ public sealed class SemanticMessageTests
     {
         // Arrange
         var source = new List<ContentSegment> { new TextContent("first") };
-        var message = new SemanticMessage
+        var message = new ContextMessage
         {
             Role = MessageRole.User,
             Content = source,
@@ -87,7 +87,7 @@ public sealed class SemanticMessageTests
         // Arrange
 
         // Act
-        var message = SemanticMessage.FromText(MessageRole.User, "hello");
+        var message = ContextMessage.FromText(MessageRole.User, "hello");
 
         // Assert
         Assert.Equal(MessageRole.User, message.Role);
@@ -103,9 +103,9 @@ public sealed class SemanticMessageTests
         // Arrange
 
         // Act
-        Action actOnNull = () => SemanticMessage.FromText(MessageRole.User, null!);
-        Action actOnEmpty = () => SemanticMessage.FromText(MessageRole.User, string.Empty);
-        Action actOnWhitespace = () => SemanticMessage.FromText(MessageRole.User, "   ");
+        Action actOnNull = () => ContextMessage.FromText(MessageRole.User, null!);
+        Action actOnEmpty = () => ContextMessage.FromText(MessageRole.User, string.Empty);
+        Action actOnWhitespace = () => ContextMessage.FromText(MessageRole.User, "   ");
 
         // Assert
         Assert.Throws<ArgumentException>(actOnNull);
@@ -120,7 +120,7 @@ public sealed class SemanticMessageTests
         var segment = new ToolUseContent("call_1", "read_file", "{}");
 
         // Act
-        var message = SemanticMessage.FromContent(MessageRole.Model, segment);
+        var message = ContextMessage.FromContent(MessageRole.Model, segment);
 
         // Assert
         Assert.Equal(MessageRole.Model, message.Role);
@@ -134,7 +134,7 @@ public sealed class SemanticMessageTests
     public void Message_WithModifiedState_PreservesOtherProperties()
     {
         // Arrange
-        var original = new SemanticMessage
+        var original = new ContextMessage
         {
             Role = MessageRole.Model,
             Content =
@@ -163,7 +163,7 @@ public sealed class SemanticMessageTests
         // Arrange
 
         // Act
-        var message = new SemanticMessage
+        var message = new ContextMessage
         {
             Role = MessageRole.Model,
             Content =

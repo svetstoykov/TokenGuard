@@ -15,11 +15,11 @@ public sealed class OpenAIExtensionsTests
     public void ForOpenAI_WhenMessagesContainEachSupportedRole_ConvertsMessagesInOrder()
     {
         // Arrange
-        IReadOnlyList<SemanticMessage> messages =
+        IReadOnlyList<ContextMessage> messages =
         [
-            SemanticMessage.FromText(MessageRole.System, "system prompt"),
-            SemanticMessage.FromText(MessageRole.User, "user input"),
-            new SemanticMessage
+            ContextMessage.FromText(MessageRole.System, "system prompt"),
+            ContextMessage.FromText(MessageRole.User, "user input"),
+            new ContextMessage
             {
                 Role = MessageRole.Model,
                 Content =
@@ -28,7 +28,7 @@ public sealed class OpenAIExtensionsTests
                     new ToolUseContent("call_1", "search", "{\"query\":\"token guard\"}"),
                 ],
             },
-            new SemanticMessage
+            new ContextMessage
             {
                 Role = MessageRole.Tool,
                 Content =
@@ -66,9 +66,9 @@ public sealed class OpenAIExtensionsTests
     public void ForOpenAI_WhenModelMessageContainsOnlyToolUse_UsesEmptyAssistantText()
     {
         // Arrange
-        IReadOnlyList<SemanticMessage> messages =
+        IReadOnlyList<ContextMessage> messages =
         [
-            new SemanticMessage
+            new ContextMessage
             {
                 Role = MessageRole.Model,
                 Content =
@@ -93,9 +93,9 @@ public sealed class OpenAIExtensionsTests
     public void ForOpenAI_WhenToolMessageHasNoToolResult_SkipsMessage()
     {
         // Arrange
-        IReadOnlyList<SemanticMessage> messages =
+        IReadOnlyList<ContextMessage> messages =
         [
-            new SemanticMessage
+            new ContextMessage
             {
                 Role = MessageRole.Tool,
                 Content =
@@ -116,7 +116,7 @@ public sealed class OpenAIExtensionsTests
     public void ForOpenAI_WhenMessagesIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        IReadOnlyList<SemanticMessage> messages = null!;
+        IReadOnlyList<ContextMessage> messages = null!;
 
         // Act
         Action act = () => messages.ForOpenAI();

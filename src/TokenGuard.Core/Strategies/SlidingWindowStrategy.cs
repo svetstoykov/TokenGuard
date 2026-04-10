@@ -46,7 +46,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <remarks>
     ///     Supply <paramref name="options"/> to tune how much of the newest history stays untouched and how older
     ///     tool results are represented after masking. The provided value is retained for all subsequent
-    ///     <see cref="CompactAsync(IReadOnlyList{SemanticMessage}, ContextBudget, ITokenCounter, CancellationToken)"/> calls.
+    ///     <see cref="CompactAsync(IReadOnlyList{ContextMessage}, ContextBudget, ITokenCounter, CancellationToken)"/> calls.
     /// </remarks>
     /// <param name="options">The sliding-window configuration that controls boundary selection and placeholder generation.</param>
     public SlidingWindowStrategy(SlidingWindowOptions options)
@@ -81,8 +81,8 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <exception cref="ArgumentNullException">
     ///     Thrown when <paramref name="messages"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
     /// </exception>
-    public Task<IReadOnlyList<SemanticMessage>> CompactAsync(
-        IReadOnlyList<SemanticMessage> messages,
+    public Task<IReadOnlyList<ContextMessage>> CompactAsync(
+        IReadOnlyList<ContextMessage> messages,
         ContextBudget budget,
         ITokenCounter tokenCounter,
         CancellationToken cancellationToken = default)
@@ -120,7 +120,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         }
 
         var toolNameLookup = BuildToolNameLookup(messages);
-        var result = new SemanticMessage[messages.Count];
+        var result = new ContextMessage[messages.Count];
 
         for (var i = 0; i < boundary; i++)
         {
@@ -132,10 +132,10 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             result[i] = messages[i];
         }
 
-        return Task.FromResult<IReadOnlyList<SemanticMessage>>(result);
+        return Task.FromResult<IReadOnlyList<ContextMessage>>(result);
     }
 
-    private static Dictionary<string, string> BuildToolNameLookup(IReadOnlyList<SemanticMessage> messages)
+    private static Dictionary<string, string> BuildToolNameLookup(IReadOnlyList<ContextMessage> messages)
     {
         var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -155,12 +155,12 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         return lookup;
     }
 
-    private static SemanticMessage MaskToolResultsIfNeeded(
-        SemanticMessage semanticMessage,
+    private static ContextMessage MaskToolResultsIfNeeded(
+        ContextMessage contextMessage,
         IReadOnlyDictionary<string, string> toolNameLookup,
         string placeholderFormat)
     {
-        var content = semanticMessage.Content;
+        var content = contextMessage.Content;
         var hasToolResult = false;
 
         for (var i = 0; i < content.Count; i++)
@@ -174,7 +174,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         if (!hasToolResult)
         {
-            return semanticMessage;
+            return contextMessage;
         }
 
         var replacedContent = new ContentSegment[content.Count];
@@ -194,7 +194,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             replacedContent[i] = content[i];
         }
 
-        return semanticMessage with
+        return contextMessage with
         {
             Content = replacedContent,
             State = CompactionState.Masked,

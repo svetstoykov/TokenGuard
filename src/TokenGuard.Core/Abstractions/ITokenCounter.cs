@@ -20,25 +20,25 @@ namespace TokenGuard.Core.Abstractions;
 public interface ITokenCounter
 {
     /// <summary>
-    /// Counts the tokens for a single <see cref="SemanticMessage"/>.
+    /// Counts the tokens for a single <see cref="ContextMessage"/>.
     /// </summary>
     /// <remarks>
     /// Implementations should apply the same counting rules used for multi-message totals so budget calculations remain
-    /// internally consistent. Callers rely on this method when caching per-message counts on <see cref="SemanticMessage.TokenCount"/>.
+    /// internally consistent. Callers rely on this method when caching per-message counts on <see cref="ContextMessage.TokenCount"/>.
     /// </remarks>
-    /// <param name="semanticMessage">The message whose token cost should be measured.</param>
-    /// <returns>The token count assigned to <paramref name="semanticMessage"/>.</returns>
-    int Count(SemanticMessage semanticMessage);
+    /// <param name="contextMessage">The message whose token cost should be measured.</param>
+    /// <returns>The token count assigned to <paramref name="contextMessage"/>.</returns>
+    int Count(ContextMessage contextMessage);
 
     /// <summary>
-    /// Counts the tokens for a sequence of <see cref="SemanticMessage"/> values.
+    /// Counts the tokens for a sequence of <see cref="ContextMessage"/> values.
     /// </summary>
     /// <remarks>
     /// This overload is used when TokenGuard needs the aggregate cost of a prepared or candidate history. Custom
     /// implementations should ensure the returned total matches the sum semantics callers would expect from repeated
-    /// <see cref="Count(SemanticMessage)"/> calls.
+    /// <see cref="Count(ContextMessage)"/> calls.
     /// </remarks>
     /// <param name="messages">The ordered messages whose combined token cost should be measured.</param>
     /// <returns>The total token count for <paramref name="messages"/>.</returns>
-    int Count(IEnumerable<SemanticMessage> messages);
+    int Count(IEnumerable<ContextMessage> messages);
 }

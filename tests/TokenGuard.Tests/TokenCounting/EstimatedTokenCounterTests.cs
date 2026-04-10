@@ -13,7 +13,7 @@ public class EstimatedTokenCounterTests
     public void EmptyMessageList_ReturnsZero()
     {
         // Arrange
-        var messages = Array.Empty<SemanticMessage>();
+        var messages = Array.Empty<ContextMessage>();
 
         // Act
         var result = this._counter.Count(messages);
@@ -26,7 +26,7 @@ public class EstimatedTokenCounterTests
     public void SingleTextMessage_ReturnsCeilingEstimatePlusOverhead()
     {
         // Arrange
-        var message = SemanticMessage.FromText(MessageRole.User, "Hello");
+        var message = ContextMessage.FromText(MessageRole.User, "Hello");
 
         // Act
         var result = this._counter.Count(message);
@@ -39,7 +39,7 @@ public class EstimatedTokenCounterTests
     public void MultiBlockMessage_AccumulatesCharacterCounts()
     {
         // Arrange
-        var message = new SemanticMessage
+        var message = new ContextMessage
         {
             Role = MessageRole.Model,
             Content = [
@@ -59,8 +59,8 @@ public class EstimatedTokenCounterTests
     public void CountEnumerable_EqualsSumOfIndividualCalls()
     {
         // Arrange
-        var msg1 = SemanticMessage.FromText(MessageRole.User, "One");
-        var msg2 = SemanticMessage.FromText(MessageRole.Model, "Two");
+        var msg1 = ContextMessage.FromText(MessageRole.User, "One");
+        var msg2 = ContextMessage.FromText(MessageRole.Model, "Two");
         var messages = new[] { msg1, msg2 };
 
         // Act
@@ -76,7 +76,7 @@ public class EstimatedTokenCounterTests
     public void MessageWithTokenCountSet_ReturnsCachedValue()
     {
         // Arrange
-        var message = new SemanticMessage
+        var message = new ContextMessage
         {
             Role = MessageRole.User,
             Content = [new TextContent("Some text")],
@@ -94,7 +94,7 @@ public class EstimatedTokenCounterTests
     public void ToolResultContent_CountsCorrectly()
     {
         // Arrange
-        var message = SemanticMessage.FromContent(MessageRole.User, new ToolResultContent("call_1", "calc", "42"));
+        var message = ContextMessage.FromContent(MessageRole.User, new ToolResultContent("call_1", "calc", "42"));
 
         // Act
         var result = this._counter.Count(message);
