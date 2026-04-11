@@ -321,7 +321,7 @@ public sealed class ConversationContext : IConversationContext
             throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.EmergencyTriggerTokens);
         }
 
-        var messages = (IReadOnlyList<ContextMessage>)this._history;
+        IReadOnlyList<ContextMessage> messages = this._history.AsReadOnly();
         var total = this.Sum(messages) + this._anchorCorrection;
 
         if (total < this._budget.CompactionTriggerTokens)

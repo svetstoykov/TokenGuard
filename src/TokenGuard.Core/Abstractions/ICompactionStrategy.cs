@@ -24,7 +24,11 @@ public interface ICompactionStrategy
     ///     allows implementations to call external services, including LLM-backed summarizers or reducers,
     ///     without forcing callers to block a thread.
     /// </remarks>
-    /// <param name="messages">The ordered source message list to compact.</param>
+    /// <param name="messages">
+    ///     The ordered source message list to compact. Callers must exclude pinned messages before invoking this
+    ///     method, so every entry in the supplied sequence is eligible for compaction or replacement by the
+    ///     implementation.
+    /// </param>
     /// <param name="budget">The context budget that defines the available-token limits for the compacted result.</param>
     /// <param name="tokenCounter">The token counter used to measure message cost during compaction.</param>
     /// <returns>

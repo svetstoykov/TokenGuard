@@ -159,13 +159,13 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
-    public async Task CompactAsync_WhenPinnedToolResultIsOutsideBoundary_DoesNotMaskPinnedMessage()
+    public async Task CompactAsync_WhenOlderToolResultIsOutsideBoundary_MasksExposedMessage()
     {
         // Arrange
-        var pinnedToolResult = CreateToolResultMessage("call_0", "tool-0", "payload-0") with { IsPinned = true };
+        var oldestToolResult = CreateToolResultMessage("call_0", "tool-0", "payload-0");
         var olderToolResult = CreateToolResultMessage("call_1", "tool-1", "payload-1");
         var newest = ContextMessage.FromText(MessageRole.User, "recent");
-        var messages = new List<ContextMessage> { pinnedToolResult, olderToolResult, newest };
+        var messages = new List<ContextMessage> { oldestToolResult, olderToolResult, newest };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(newest, 4);
@@ -177,21 +177,19 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        Assert.Same(pinnedToolResult, compacted.Messages[0]);
-        Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[0].Content));
+        Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
         Assert.Equal(CompactionState.Masked, compacted.Messages[1].State);
         Assert.True(compacted.WasApplied);
     }
 
     [Fact]
-    public async Task CompactAsync_WhenPinnedMessagesExist_TheyDoNotCountAgainstProtectedWindowBoundary()
+    public async Task CompactAsync_WhenBoundaryProtectsNewestWindow_OnlyPreBoundaryMessagesAreAffected()
     {
         // Arrange
         var olderToolResult = CreateToolResultMessage("call_0", "tool-0", "payload-0");
-        var pinnedMiddle = ContextMessage.FromText(MessageRole.System, "pin") with { IsPinned = true };
         var protectedOlder = ContextMessage.FromText(MessageRole.User, "older-keep");
         var newest = ContextMessage.FromText(MessageRole.Model, "newest-keep");
-        var messages = new List<ContextMessage> { olderToolResult, pinnedMiddle, protectedOlder, newest };
+        var messages = new List<ContextMessage> { olderToolResult, protectedOlder, newest };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(newest, 4);
@@ -205,9 +203,8 @@ public sealed class SlidingWindowStrategyTests
 
         // Assert
         Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
-        Assert.Same(pinnedMiddle, compacted.Messages[1]);
-        Assert.Same(protectedOlder, compacted.Messages[2]);
-        Assert.Same(newest, compacted.Messages[3]);
+        Assert.Same(protectedOlder, compacted.Messages[1]);
+        Assert.Same(newest, compacted.Messages[2]);
         Assert.Equal(1, compacted.MessagesAffected);
         Assert.True(compacted.WasApplied);
     }

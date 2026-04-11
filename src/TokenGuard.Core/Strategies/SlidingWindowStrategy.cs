@@ -16,13 +16,13 @@ namespace TokenGuard.Core.Strategies;
 ///         placeholders to reduce retained context size.
 ///     </para>
 ///     <para>
-///         The strategy walks backward from the newest unpinned message and protects messages until either
-///         <see cref="SlidingWindowOptions.WindowSize"/> is reached or the protected segment would exceed the
-///         token allowance derived from <see cref="ContextBudget.AvailableTokens"/> and
-///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/>. Pinned messages always pass through unchanged and
-///         do not count toward the boundary. Messages before that boundary keep their ordering and structure, but any
-///         <see cref="ToolResultContent"/> blocks are converted into text placeholders and the message state is marked as
-///         <see cref="CompactionState.Masked"/>.
+///         The strategy walks backward from the newest message in the compactable slice supplied by
+///         <see cref="ICompactionStrategy.CompactAsync(IReadOnlyList{ContextMessage}, ContextBudget, ITokenCounter, CancellationToken)"/>
+///         and protects messages until either <see cref="SlidingWindowOptions.WindowSize"/> is reached or the
+///         protected segment would exceed the token allowance derived from <see cref="ContextBudget.AvailableTokens"/>
+///         and <see cref="SlidingWindowOptions.ProtectedWindowFraction"/>. Messages before that boundary keep their
+///         ordering and structure, but any <see cref="ToolResultContent"/> blocks are converted into text placeholders
+///         and the message state is marked as <see cref="CompactionState.Masked"/>.
 ///     </para>
 /// </remarks>
 internal sealed class SlidingWindowStrategy : ICompactionStrategy
@@ -60,29 +60,37 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// </summary>
     /// <remarks>
     ///     <para>
-    ///         This method preserves the original message order and leaves the newest protected segment unchanged.
-    ///         The protected boundary is calculated from the end of <paramref name="messages"/> using both the
-    ///         configured window size and the token counts returned by <paramref name="tokenCounter"/>.
+    ///         This method preserves the original ordering of <paramref name="messages"/> while calculating a protected
+    ///         tail from the newest compactable message backward. The protected boundary is constrained both by
+    ///         <see cref="SlidingWindowOptions.WindowSize"/> and by the token allowance produced from
+    ///         <paramref name="budget"/> and <see cref="SlidingWindowOptions.ProtectedWindowFraction"/>.
     ///     </para>
     ///     <para>
-    ///         An empty <paramref name="messages"/> list is treated as a valid no-op input and is returned
-    ///         unchanged so callers can compose compaction without adding special-case guards.
+    ///         Callers are expected to exclude pinned messages before invoking this method. As a result, every entry in
+    ///         <paramref name="messages"/> is treated as an eligible compaction candidate, and token calculations assume
+    ///         <paramref name="budget"/> already reflects any pinned-message cost reserved by the caller.
     ///     </para>
-///     <para>
-///         Messages before the boundary are only modified when they contain <see cref="ToolResultContent"/> and are not
-///         pinned. In that case each tool result is replaced with a <see cref="TextContent"/> placeholder built from
-///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>, and the returned message clears
-///         <see cref="ContextMessage.TokenCount"/> so token estimation can be recomputed against the masked content.
-///     </para>
+    ///     <para>
+    ///         Messages before the protected boundary are only changed when they contain <see cref="ToolResultContent"/>.
+    ///         Each such block is replaced with a <see cref="TextContent"/> placeholder built from
+    ///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>, and the returned message clears
+    ///         <see cref="ContextMessage.TokenCount"/> so token estimation can be recomputed against the masked content.
+    ///     </para>
     /// </remarks>
-    /// <param name="messages">The ordered message history to compact.</param>
-    /// <param name="budget">The context budget that supplies the available-token limit for the protected window.</param>
+    /// <param name="messages">
+    ///     The ordered compactable message history to process. Pinned messages must already be excluded, so all entries
+    ///     are eligible for boundary evaluation and masking.
+    /// </param>
+    /// <param name="budget">
+    ///     The context budget that supplies the available-token limit for the protected window after any caller-owned
+    ///     pinned-message reservation has been applied.
+    /// </param>
     /// <param name="tokenCounter">The token counter used to measure candidate messages while determining the protected boundary.</param>
     /// <param name="cancellationToken">A token that can cancel the compaction operation before it completes.</param>
     /// <returns>
     ///     A task that resolves to a <see cref="CompactionResult"/> whose <see cref="CompactionResult.Messages"/>
-    ///     value preserves the original message sequence when the entire history fits inside the protected window,
-    ///     including when <paramref name="messages"/> is empty; otherwise, older tool results are replaced with
+    ///     value preserves the original message sequence when the entire compactable history fits inside the protected
+    ///     window, including when <paramref name="messages"/> is empty; otherwise, older tool results are replaced with
     ///     placeholders and the result reports the associated metrics.
     /// </returns>
     /// <exception cref="ArgumentNullException">
@@ -107,11 +115,6 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         for (var i = messages.Count - 1; i >= 0; i--)
         {
-            if (messages[i].IsPinned)
-            {
-                continue;
-            }
-
             if (protectedCount >= this._options.WindowSize)
             {
                 break;
@@ -145,9 +148,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         for (var i = 0; i < boundary; i++)
         {
-            result[i] = messages[i].IsPinned
-                ? messages[i]
-                : MaskToolResultsIfNeeded(messages[i], toolNameLookup, this._options.PlaceholderFormat);
+            result[i] = MaskToolResultsIfNeeded(messages[i], toolNameLookup, this._options.PlaceholderFormat);
 
             if (messages[i].State == CompactionState.Original && result[i].State == CompactionState.Masked)
             {

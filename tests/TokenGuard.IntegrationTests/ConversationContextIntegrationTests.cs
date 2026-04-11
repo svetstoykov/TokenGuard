@@ -111,8 +111,10 @@ public sealed class ConversationContextIntegrationTests
 
         // Act
         var prep1 = await engine.PrepareAsync();
-        prep1.Should().BeSameAs(engine.History,
-            because: "preparing an under-budget conversation should not create a compacted copy");
+        prep1.Should().Equal(engine.History,
+            because: "preparing an under-budget conversation should preserve the original message sequence without compaction");
+        prep1.Should().OnlyContain(message => message.State == CompactionState.Original,
+            because: "an under-budget conversation should not mask or otherwise compact any messages");
 
         engine.AddUserMessage("Can you delete them?");
         engine.RecordModelResponse(
