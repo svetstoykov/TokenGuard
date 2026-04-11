@@ -79,14 +79,15 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <param name="tokenCounter">The token counter used to measure candidate messages while determining the protected boundary.</param>
     /// <param name="cancellationToken">A token that can cancel the compaction operation before it completes.</param>
     /// <returns>
-    ///     A task that resolves to the original message sequence when the entire history fits inside the protected
-    ///     window, including when <paramref name="messages"/> is empty; otherwise, a sequence where older tool
-    ///     results are replaced with placeholders.
+    ///     A task that resolves to a <see cref="CompactionResult"/> whose <see cref="CompactionResult.Messages"/>
+    ///     value preserves the original message sequence when the entire history fits inside the protected window,
+    ///     including when <paramref name="messages"/> is empty; otherwise, older tool results are replaced with
+    ///     placeholders and the result reports the associated metrics.
     /// </returns>
     /// <exception cref="ArgumentNullException">
     ///     Thrown when <paramref name="messages"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
     /// </exception>
-    public Task<IReadOnlyList<ContextMessage>> CompactAsync(
+    public Task<CompactionResult> CompactAsync(
         IReadOnlyList<ContextMessage> messages,
         ContextBudget budget,
         ITokenCounter tokenCounter,
@@ -95,6 +96,8 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(tokenCounter);
         cancellationToken.ThrowIfCancellationRequested();
+
+        var tokensBefore = CountTokens(messages, tokenCounter);
 
         var maxProtectedTokens = (int)Math.Floor(budget.AvailableTokens * this._options.ProtectedWindowFraction);
         var protectedCount = 0;
@@ -121,15 +124,27 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         if (protectedCount == messages.Count)
         {
-            return Task.FromResult(messages);
+            return Task.FromResult(new CompactionResult(
+                messages,
+                tokensBefore,
+                tokensBefore,
+                0,
+                nameof(SlidingWindowStrategy),
+                false));
         }
 
         var toolNameLookup = BuildToolNameLookup(messages);
         var result = new ContextMessage[messages.Count];
+        var messagesAffected = 0;
 
         for (var i = 0; i < boundary; i++)
         {
             result[i] = MaskToolResultsIfNeeded(messages[i], toolNameLookup, this._options.PlaceholderFormat);
+
+            if (messages[i].State == CompactionState.Original && result[i].State == CompactionState.Masked)
+            {
+                messagesAffected++;
+            }
         }
 
         for (var i = boundary; i < messages.Count; i++)
@@ -137,7 +152,20 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             result[i] = messages[i];
         }
 
-        return Task.FromResult<IReadOnlyList<ContextMessage>>(result);
+        var tokensAfter = CountTokens(result, tokenCounter);
+
+        return Task.FromResult(new CompactionResult(
+            result,
+            tokensBefore,
+            tokensAfter,
+            messagesAffected,
+            nameof(SlidingWindowStrategy),
+            messagesAffected > 0));
+    }
+
+    private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)
+    {
+        return messages.Sum(message => message.TokenCount ?? tokenCounter.Count(message));
     }
 
     private static Dictionary<string, string> BuildToolNameLookup(IReadOnlyList<ContextMessage> messages)

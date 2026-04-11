@@ -1,3 +1,4 @@
+using TokenGuard.Core.Contexts;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 
@@ -11,7 +12,7 @@ namespace TokenGuard.Core.Abstractions;
 /// <para>
 /// <see cref="IConversationContext"/> is the primary abstraction callers use to advance a conversation
 /// without manually managing token limits, system prompts, tool results, or compaction behaviour.
-/// The concrete implementation is <see cref="TokenGuard.Core.ConversationContext"/>, and instances
+/// The concrete implementation is <see cref="ConversationContext"/>, and instances
 /// should be obtained from <see cref="IConversationContextFactory"/> rather than constructed directly
 /// when dependency injection is in use.
 /// </para>

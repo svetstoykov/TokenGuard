@@ -28,8 +28,8 @@ public interface ICompactionStrategy
     /// <param name="budget">The context budget that defines the available-token limits for the compacted result.</param>
     /// <param name="tokenCounter">The token counter used to measure message cost during compaction.</param>
     /// <returns>
-    ///     A task that resolves to a message sequence preserving ordering semantics and intended to satisfy
-    ///     <paramref name="budget"/>'s available-token constraints.
+    ///     A task that resolves to a <see cref="CompactionResult"/> containing the compacted messages together with
+    ///     metrics describing what the strategy changed and how many tokens the result consumes.
     /// </returns>
-    Task<IReadOnlyList<ContextMessage>> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default);
+    Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default);
 }

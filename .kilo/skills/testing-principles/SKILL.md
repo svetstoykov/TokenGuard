@@ -14,6 +14,8 @@ description: >
 
 # Testing Principles
 
+Canonical shared guidance also lives at `ai/skills/testing-principles.md`. Keep this Kilo skill aligned with that file so non-Kilo agents can follow the same behavior.
+
 A decision-making and code-generation guide for writing high-quality unit, integration,
 and E2E tests. These five principles apply across all frameworks and languages but
 examples are given in C#/.NET (xUnit + FluentAssertions) to reflect the primary usage

@@ -21,8 +21,13 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(100), tokenCounter);
 
         // Assert
-        Assert.Same(messages, compacted);
-        Assert.Empty(compacted);
+        Assert.Same(messages, compacted.Messages);
+        Assert.Empty(compacted.Messages);
+        Assert.Equal(0, compacted.TokensBefore);
+        Assert.Equal(0, compacted.TokensAfter);
+        Assert.Equal(0, compacted.MessagesAffected);
+        Assert.False(compacted.WasApplied);
+        Assert.Equal(nameof(SlidingWindowStrategy), compacted.StrategyName);
         Assert.Equal(0, tokenCounter.CountCalls);
     }
 
@@ -46,7 +51,11 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(100), tokenCounter);
 
         // Assert
-        Assert.Same(messages, compacted);
+        Assert.Same(messages, compacted.Messages);
+        Assert.Equal(4, compacted.TokensBefore);
+        Assert.Equal(4, compacted.TokensAfter);
+        Assert.Equal(0, compacted.MessagesAffected);
+        Assert.False(compacted.WasApplied);
     }
 
     [Fact]
@@ -72,10 +81,14 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        Assert.Equal(2, tokenCounter.CountCalls);
-        Assert.False(tokenCounter.WasCounted(messages[2]));
-        Assert.Same(messages[4], compacted[4]);
-        Assert.Equal(CompactionState.Masked, compacted[3].State);
+        Assert.Equal(12, tokenCounter.CountCalls);
+        Assert.True(tokenCounter.WasCounted(messages[2]));
+        Assert.Same(messages[4], compacted.Messages[4]);
+        Assert.Equal(CompactionState.Masked, compacted.Messages[3].State);
+        Assert.Equal(11, compacted.TokensBefore);
+        Assert.Equal(8, compacted.TokensAfter);
+        Assert.Equal(1, compacted.MessagesAffected);
+        Assert.True(compacted.WasApplied);
     }
 
     [Fact]
@@ -101,10 +114,14 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(100), tokenCounter);
 
         // Assert
-        Assert.Equal(2, tokenCounter.CountCalls);
-        Assert.Same(messages[3], compacted[3]);
-        Assert.Same(messages[4], compacted[4]);
-        Assert.Equal(CompactionState.Masked, compacted[2].State);
+        Assert.Equal(12, tokenCounter.CountCalls);
+        Assert.Same(messages[3], compacted.Messages[3]);
+        Assert.Same(messages[4], compacted.Messages[4]);
+        Assert.Equal(CompactionState.Masked, compacted.Messages[2].State);
+        Assert.Equal(5, compacted.TokensBefore);
+        Assert.Equal(5, compacted.TokensAfter);
+        Assert.Equal(3, compacted.MessagesAffected);
+        Assert.True(compacted.WasApplied);
     }
 
     [Fact]
@@ -132,9 +149,13 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(100), tokenCounter);
 
         // Assert
-        Assert.Same(protectedToolResult, compacted[1]);
-        Assert.Same(protectedText, compacted[2]);
-        Assert.Equal(CompactionState.Summarized, compacted[1].State);
+        Assert.Same(protectedToolResult, compacted.Messages[1]);
+        Assert.Same(protectedText, compacted.Messages[2]);
+        Assert.Equal(CompactionState.Summarized, compacted.Messages[1].State);
+        Assert.Equal(5, compacted.TokensBefore);
+        Assert.Equal(5, compacted.TokensAfter);
+        Assert.Equal(1, compacted.MessagesAffected);
+        Assert.True(compacted.WasApplied);
     }
 
     [Fact]
@@ -157,9 +178,13 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        var masked = compacted[0];
+        var masked = compacted.Messages[0];
         var text = Assert.IsType<TextContent>(Assert.Single(masked.Content));
         Assert.Equal("[Tool result cleared — call_1, call_1]", text.Content);
+        Assert.Equal(8, compacted.TokensBefore);
+        Assert.Equal(5, compacted.TokensAfter);
+        Assert.Equal(1, compacted.MessagesAffected);
+        Assert.True(compacted.WasApplied);
     }
 
     [Fact]
@@ -180,7 +205,11 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        Assert.Same(passthrough, compacted[0]);
+        Assert.Same(passthrough, compacted.Messages[0]);
+        Assert.Equal(12, compacted.TokensBefore);
+        Assert.Equal(12, compacted.TokensAfter);
+        Assert.Equal(0, compacted.MessagesAffected);
+        Assert.False(compacted.WasApplied);
     }
 
     [Fact]
@@ -209,13 +238,17 @@ public sealed class SlidingWindowStrategyTests
 
         // Act
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
-        var compactedBlocks = compacted[0].Content;
+        var compactedBlocks = compacted.Messages[0].Content;
 
         // Assert
         Assert.Equal(3, compactedBlocks.Count);
         Assert.Equal("prefix", Assert.IsType<TextContent>(compactedBlocks[0]).Content);
         Assert.Equal("[Tool result cleared — call_1, call_1]", Assert.IsType<TextContent>(compactedBlocks[1]).Content);
         Assert.Equal("suffix", Assert.IsType<TextContent>(compactedBlocks[2]).Content);
+        Assert.Equal(12, compacted.TokensBefore);
+        Assert.Equal(7, compacted.TokensAfter);
+        Assert.Equal(1, compacted.MessagesAffected);
+        Assert.True(compacted.WasApplied);
     }
 
     [Fact]
@@ -236,8 +269,12 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        Assert.Equal(CompactionState.Masked, compacted[0].State);
-        Assert.Equal(CompactionState.Summarized, compacted[1].State);
+        Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
+        Assert.Equal(CompactionState.Summarized, compacted.Messages[1].State);
+        Assert.Equal(12, compacted.TokensBefore);
+        Assert.Equal(7, compacted.TokensAfter);
+        Assert.Equal(1, compacted.MessagesAffected);
+        Assert.True(compacted.WasApplied);
     }
 
     [Fact]
@@ -269,8 +306,12 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        var text = Assert.IsType<TextContent>(Assert.Single(compacted[1].Content));
+        var text = Assert.IsType<TextContent>(Assert.Single(compacted.Messages[1].Content));
         Assert.Equal("[Tool result cleared — calculator, call_1]", text.Content);
+        Assert.Equal(15, compacted.TokensBefore);
+        Assert.Equal(9, compacted.TokensAfter);
+        Assert.Equal(1, compacted.MessagesAffected);
+        Assert.True(compacted.WasApplied);
     }
 
     [Fact]
@@ -291,8 +332,12 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        var text = Assert.IsType<TextContent>(Assert.Single(compacted[0].Content));
+        var text = Assert.IsType<TextContent>(Assert.Single(compacted.Messages[0].Content));
         Assert.Equal("[Tool result cleared — call_missing, call_missing]", text.Content);
+        Assert.Equal(12, compacted.TokensBefore);
+        Assert.Equal(7, compacted.TokensAfter);
+        Assert.Equal(1, compacted.MessagesAffected);
+        Assert.True(compacted.WasApplied);
     }
 
     [Fact]
@@ -323,7 +368,11 @@ public sealed class SlidingWindowStrategyTests
         Assert.Same(originalMessage, messages[0]);
         Assert.Equal(CompactionState.Original, originalMessage.State);
         Assert.IsType<ToolResultContent>(originalMessage.Content[0]);
-        Assert.NotSame(originalMessage, compacted[0]);
+        Assert.NotSame(originalMessage, compacted.Messages[0]);
+        Assert.Equal(12, compacted.TokensBefore);
+        Assert.Equal(7, compacted.TokensAfter);
+        Assert.Equal(1, compacted.MessagesAffected);
+        Assert.True(compacted.WasApplied);
     }
 
     [Fact]

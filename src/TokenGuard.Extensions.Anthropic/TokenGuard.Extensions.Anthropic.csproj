@@ -11,7 +11,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\src\TokenGuard.Core\TokenGuard.Core.csproj" />
+      <ProjectReference Include="..\TokenGuard.Core\TokenGuard.Core.csproj" />
     </ItemGroup>
 
 </Project>

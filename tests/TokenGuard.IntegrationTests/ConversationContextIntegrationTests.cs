@@ -1,5 +1,6 @@
 using FluentAssertions;
 using TokenGuard.Core;
+using TokenGuard.Core.Contexts;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
@@ -140,5 +141,125 @@ public sealed class ConversationContextIntegrationTests
 
         prep3[^1].Should().BeSameAs(engine.History[^1],
             because: "the latest user message should remain protected when it fits inside the window");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenMaskedHistoryStillExceedsEmergencyThreshold_DropsOldestMessagesAndPreservesNewestTail()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt(new string('S', 1200));
+        engine.AddUserMessage(new string('A', 1400));
+        engine.RecordModelResponse([new ToolUseContent("call_1", "read_logs", "{}")]);
+        engine.RecordToolResult("call_1", "read_logs", new string('B', 2500));
+        engine.AddUserMessage(new string('C', 1600));
+        engine.RecordModelResponse([new TextContent(new string('D', 1600))]);
+
+        var systemMessage = engine.History[0];
+        var latestUser = engine.History[^2];
+        var latestModel = engine.History[^1];
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        prepared.Should().NotBeSameAs(engine.History,
+            because: "an over-budget conversation should return a prepared projection");
+        prepared.Should().ContainInOrder(systemMessage, latestUser, latestModel);
+        prepared.Should().HaveCount(3,
+            because: "emergency truncation should remove all older non-system messages before the preserved tail");
+        prepared.Should().OnlyContain(message =>
+                ReferenceEquals(message, systemMessage) || ReferenceEquals(message, latestUser) || ReferenceEquals(message, latestModel),
+            because: "only the system prompt and newest user-model tail should survive the emergency floor");
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+            because: "the preserved floor can legitimately remain over budget when it cannot be reduced further");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenPreparedListAlreadyEqualsPreservedFloor_DoesNotDropAnything()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage(new string('U', 1800));
+        engine.RecordModelResponse([new TextContent(new string('M', 1800))]);
+
+        var latestUser = engine.History[0];
+        var latestModel = engine.History[1];
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        prepared.Should().HaveCount(2);
+        prepared.Should().ContainInOrder(latestUser, latestModel);
+        prepared.Should().BeEquivalentTo(engine.History,
+            options => options.WithStrictOrdering(),
+            "there is nothing older than the floor to truncate");
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+            because: "the preserved floor may still exceed the emergency threshold");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenOnlyNewestUserRemainsDroppable_DoesNotDropFinalUserMessage()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt(new string('S', 1200));
+        engine.AddUserMessage(new string('O', 1400));
+        engine.AddUserMessage(new string('N', 2200));
+
+        var systemMessage = engine.History[0];
+        var latestUser = engine.History[^1];
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        prepared.Should().HaveCount(2);
+        prepared.Should().ContainInOrder(systemMessage, latestUser);
+        prepared.Should().NotContain(engine.History[1],
+            because: "older non-system messages should be dropped before the preserved floor");
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+            because: "the last user message may still leave the conversation over the emergency threshold");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenPreparedHistoryHasNoDroppableMessagesBeforeFloor_ReturnsPreparedHistoryUnchanged()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 700, compactionThreshold: 0.60, emergencyThreshold: 0.75);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt(new string('S', 1800));
+        engine.SetSystemPrompt(new string('T', 1800));
+        engine.AddUserMessage(new string('U', 2200));
+
+        var latestUser = engine.History[^1];
+        var expectedPrepared = engine.History.ToArray();
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        prepared.Should().BeEquivalentTo(expectedPrepared,
+            options => options.WithStrictOrdering(),
+            "messages before the preserved floor are system messages only and are never eligible for emergency truncation");
+        prepared.Should().OnlyContain(message => message.Role == MessageRole.System || ReferenceEquals(message, latestUser));
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+            because: "the unchanged preserved floor plus system messages can remain over the emergency threshold");
     }
 }

@@ -1,4 +1,6 @@
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Configuration;
+using TokenGuard.Core.Contexts;
 
 namespace TokenGuard.Core.Models;
 
@@ -32,7 +34,12 @@ namespace TokenGuard.Core.Models;
 /// Produces a smaller message list when the current history no longer fits comfortably within
 /// the configured budget.
 /// </param>
+/// <param name="Observer">
+/// An optional observer that is notified after each compaction cycle that modifies the history.
+/// When <see langword="null"/>, no compaction notifications are emitted.
+/// </param>
 public sealed record ConversationContextConfiguration(
     ContextBudget Budget,
     ITokenCounter Counter,
-    ICompactionStrategy Strategy);
+    ICompactionStrategy Strategy,
+    ICompactionObserver? Observer = null);

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Core.TokenCounting;
@@ -196,9 +197,9 @@ public sealed class ConversationConfigBuilderTests
 
     private sealed class StubCompactionStrategy : ICompactionStrategy
     {
-        public Task<IReadOnlyList<ContextMessage>> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
+        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(messages);
+            return Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(StubCompactionStrategy), false));
         }
     }
 }

@@ -1,10 +1,9 @@
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
-
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 
-namespace TokenGuard.Core;
+namespace TokenGuard.Core.Contexts;
 
 /// <summary>
 /// Represents the state of one LLM conversation. It records the full message history and prepares
@@ -41,6 +40,7 @@ public sealed class ConversationContext : IConversationContext
     private readonly ContextBudget _budget;
     private readonly ITokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
+    private readonly ICompactionObserver? _observer;
 
     private readonly List<ContextMessage> _history = [];
 
@@ -69,11 +69,16 @@ public sealed class ConversationContext : IConversationContext
     /// Produces a smaller message list when the current history no longer fits comfortably within
     /// the configured budget.
     /// </param>
-    public ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy)
+    /// <param name="observer">
+    /// An optional observer notified after each compaction cycle that modifies the history.
+    /// When <see langword="null"/>, no compaction notifications are emitted.
+    /// </param>
+    public ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy, ICompactionObserver? observer = null)
     {
         this._budget = budget;
         this._counter = counter;
         this._strategy = strategy;
+        this._observer = observer;
     }
 
     /// <summary>
@@ -270,6 +275,10 @@ public sealed class ConversationContext : IConversationContext
             return messages;
         }
 
+        var trigger = total >= this._budget.EmergencyTriggerTokens
+            ? CompactionTrigger.Emergency
+            : CompactionTrigger.Normal;
+
         var systemMessages = messages.Where(m => m.Role == MessageRole.System).ToList();
         var compactableMessages = systemMessages.Count == 0 ? messages : messages.Where(m => m.Role != MessageRole.System).ToList();
         var systemTotal = this.Sum(systemMessages);
@@ -283,12 +292,35 @@ public sealed class ConversationContext : IConversationContext
 
         var compacted = await this._strategy.CompactAsync(compactableMessages, adjustedBudget, this._counter, cancellationToken);
 
-        var result = systemMessages.Count == 0 ? compacted : systemMessages.Concat(compacted).ToList();
+        var prepared = systemMessages.Count == 0 ? compacted.Messages : systemMessages.Concat(compacted.Messages).ToList();
 
-        this._lastPreparedTotal = this.Sum(result) + this._anchorCorrection;
+        var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
+        var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
+
+        var final = emergencyApplied ? truncated! : prepared;
+        var finalTokens = this.Sum(final);
+
+        if (emergencyApplied)
+        {
+            var droppedCount = prepared.Count - final.Count;
+            var mergedResult = new CompactionResult(
+                final,
+                compacted.TokensBefore,
+                finalTokens,
+                compacted.MessagesAffected + droppedCount,
+                compacted.StrategyName,
+                WasApplied: true);
+            this._observer?.OnCompaction(new CompactionEvent(mergedResult, DateTimeOffset.UtcNow, CompactionTrigger.Emergency, this._budget));
+        }
+        else if (compacted.WasApplied)
+        {
+            this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, trigger, this._budget));
+        }
+
+        this._lastPreparedTotal = finalTokens + this._anchorCorrection;
         this._anchorCorrection = 0;
 
-        return result;
+        return final;
     }
 
     /// <summary>
@@ -307,6 +339,134 @@ public sealed class ConversationContext : IConversationContext
 
         this._disposed = true;
         this._history.Clear();
+    }
+
+    /// <summary>
+    /// Applies an oldest-first emergency truncation pass to <paramref name="prepared"/> when the
+    /// current token total still exceeds <see cref="ContextBudget.EmergencyTriggerTokens"/> after
+    /// the primary compaction strategy has run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The method identifies eligible drop candidates by excluding <see cref="MessageRole.System"/>
+    /// messages, which are never removed. The newest non-system message is always preserved as an
+    /// irreducible floor so the returned list is never empty and the latest active turn remains
+    /// visible to the model.
+    /// </para>
+    /// <para>
+    /// Candidates are removed oldest first. The loop stops as soon as the running token total
+    /// reaches or falls below <see cref="ContextBudget.EmergencyTriggerTokens"/>, or when the
+    /// remaining list has reached its safety floor and no further eligible candidates remain. If
+    /// that preserved floor itself still exceeds the emergency threshold the method returns the
+    /// over-budget floor unchanged, because retaining the newest indispensable conversation tail is
+    /// more important than forcing a fit-to-budget outcome.
+    /// </para>
+    /// </remarks>
+    /// <param name="prepared">The assembled message list produced after the primary strategy pass.</param>
+    /// <param name="currentTotal">
+    /// The current token total of <paramref name="prepared"/>, including any active anchor correction.
+    /// </param>
+    /// <param name="truncated">
+    /// When this method returns <see langword="true"/>, contains a new list with the oldest eligible
+    /// messages removed. When this method returns <see langword="false"/>, this value is
+    /// <see langword="null"/> and <paramref name="prepared"/> should be used as-is.
+    /// </param>
+    /// <returns>
+    /// <see langword="true"/> when truncation was applied and <paramref name="truncated"/> contains
+    /// the reduced list; <see langword="false"/> when <paramref name="prepared"/> is already within
+    /// budget or no eligible candidates exist.
+    /// </returns>
+    private bool TryApplyEmergencyTruncation(IReadOnlyList<ContextMessage> prepared, int currentTotal, out IReadOnlyList<ContextMessage>? truncated)
+    {
+        if (currentTotal <= this._budget.EmergencyTriggerTokens)
+        {
+            truncated = null;
+            return false;
+        };
+
+        var preservedFloorStartIndex = this.FindPreservedFloorStartIndex(prepared);
+
+        // Nothing to drop when the prepared list already consists only of the preserved floor.
+        if (preservedFloorStartIndex <= 0)
+        {
+            truncated = null;
+            return false;
+        }
+
+        // Collect drop candidates: non-system messages that appear before the preserved floor,
+        // oldest first.
+        var candidates = new List<(int Index, int Tokens)>();
+        for (var i = 0; i < preservedFloorStartIndex; i++)
+        {
+            var msg = prepared[i];
+            if (msg.Role == MessageRole.System)
+                continue;
+
+            candidates.Add((i, msg.TokenCount ?? 0));
+        }
+
+        if (candidates.Count == 0)
+        {
+            truncated = null;
+            return false;
+        }
+
+        // Drop oldest-first until the budget is satisfied or candidates are exhausted.
+        var dropIndices = new HashSet<int>();
+        var total = currentTotal;
+        foreach (var (index, tokens) in candidates)
+        {
+            if (total <= this._budget.EmergencyTriggerTokens)
+                break;
+
+            dropIndices.Add(index);
+            total -= tokens;
+        }
+
+        if (dropIndices.Count == 0)
+        {
+            truncated = null;
+            return false;
+        }
+
+        truncated = prepared.Where((_, i) => !dropIndices.Contains(i)).ToList();
+        return true;
+    }
+
+    private int FindPreservedFloorStartIndex(IReadOnlyList<ContextMessage> prepared)
+    {
+        var newestNonSystemIndex = -1;
+        for (var i = prepared.Count - 1; i >= 0; i--)
+        {
+            if (prepared[i].Role != MessageRole.System)
+            {
+                // The preserved tail starts from the newest non-system message by default.
+                newestNonSystemIndex = i;
+                break;
+            }
+        }
+
+        if (newestNonSystemIndex < 0)
+            return prepared.Count;
+
+        var floorStartIndex = newestNonSystemIndex;
+        
+        // If last message was not a Model message, we should just return it.
+        if (prepared[newestNonSystemIndex].Role != MessageRole.Model) return floorStartIndex;
+        
+        // Otherwise the conversation ends with a model reply, preserve the triggering user turn too.
+        for (var i = newestNonSystemIndex - 1; i >= 0; i--)
+        {
+            if (prepared[i].Role == MessageRole.System)
+                continue;
+
+            if (prepared[i].Role == MessageRole.User)
+                floorStartIndex = i;
+
+            break;
+        }
+
+        return floorStartIndex;
     }
 
     private int Sum(IReadOnlyList<ContextMessage> messages) => messages.Sum(this.EnsureCounted);

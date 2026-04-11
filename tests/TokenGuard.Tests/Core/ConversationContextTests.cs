@@ -1,6 +1,7 @@
 using FluentAssertions;
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Contexts;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
@@ -38,7 +39,7 @@ public sealed class ConversationContextTests
         counter.SetByText("original", 800);
         counter.Set(compacted, 800);
 
-        var strategy = new TrackingCompactionStrategy([compacted]);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy", true));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
@@ -63,7 +64,7 @@ public sealed class ConversationContextTests
         counter.SetByText("user1", 900);
         counter.Set(compacted, 100);
 
-        var strategy = new TrackingCompactionStrategy([compacted]);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 100, 1, "TestStrategy", true));
         var budget = ContextBudget.For(1_000);
         var engine = new ConversationContext(budget, counter, strategy);
 
@@ -136,7 +137,7 @@ public sealed class ConversationContextTests
     {
         // Arrange
         var counter = new TrackingTokenCounter();
-        var strategy = new TrackingCompactionStrategy([ContextMessage.FromText(MessageRole.Model, "compressed")]);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([ContextMessage.FromText(MessageRole.Model, "compressed")], 800, 100, 1, "TestStrategy", true));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("hello");
@@ -248,7 +249,7 @@ public sealed class ConversationContextTests
         counter.SetByText("original", 800);
         counter.Set(compacted, 800);
 
-        var strategy = new TrackingCompactionStrategy([compacted]);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy", true));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
@@ -318,6 +319,265 @@ public sealed class ConversationContextTests
         await act.Should().ThrowAsync<ObjectDisposedException>();
     }
 
+    [Fact]
+    public async Task PrepareAsync_WhenCompactionApplied_InvokesObserverExactlyOnceWithCorrectMetrics()
+    {
+        // Arrange
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("original", 800);
+        counter.Set(compacted, 100);
+
+        var compactionResult = new CompactionResult([compacted], 800, 100, 3, "TestStrategy", true);
+        var strategy = new TrackingCompactionStrategy(compactionResult);
+        var observer = new TrackingCompactionObserver();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, observer);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        _ = await engine.PrepareAsync();
+
+        // Assert
+        observer.Events.Should().HaveCount(1);
+        var evt = observer.Events[0];
+        evt.Result.TokensBefore.Should().Be(800);
+        evt.Result.TokensAfter.Should().Be(100);
+        evt.Result.MessagesAffected.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationDropsMessages_ReportsCombinedMetricsWithEmergencyTrigger()
+    {
+        // Arrange
+        // Budget: compactionTrigger=500, emergencyTrigger=900
+        var budget = new ContextBudget(1000, 0.5, 0.9);
+
+        var olderMsg = ContextMessage.FromText(MessageRole.User, "older");
+        var newerMsg = ContextMessage.FromText(MessageRole.User, "newer");
+        var counter = new TrackingTokenCounter();
+
+        // Original history message that triggers compaction
+        counter.SetByText("original", 600);
+
+        // Strategy returns two messages whose combined total (1100) still exceeds emergencyTrigger (900)
+        counter.Set(olderMsg, 600);
+        counter.Set(newerMsg, 500);
+
+        var strategyResult = new CompactionResult([olderMsg, newerMsg], 600, 1100, 2, "TestStrategy", true);
+        var strategy = new TrackingCompactionStrategy(strategyResult);
+        var observer = new TrackingCompactionObserver();
+        var engine = new ConversationContext(budget, counter, strategy, observer);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert — emergency truncation drops olderMsg; only newerMsg remains
+        prepared.Should().ContainSingle().Which.Should().BeSameAs(newerMsg);
+
+        observer.Events.Should().HaveCount(1);
+        var evt = observer.Events[0];
+        evt.Trigger.Should().Be(CompactionTrigger.Emergency);
+        evt.Result.WasApplied.Should().BeTrue();
+        evt.Result.TokensBefore.Should().Be(600);
+        evt.Result.TokensAfter.Should().Be(500);
+        // MessagesAffected = 2 masked by strategy + 1 dropped by emergency
+        evt.Result.MessagesAffected.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenStrategyNotAppliedButEmergencyTruncationRuns_ObserverEventShowsWasAppliedTrue()
+    {
+        // Arrange
+        // Budget: compactionTrigger=500, emergencyTrigger=900
+        var budget = new ContextBudget(1000, 0.5, 0.9);
+
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("u1", 600);
+        counter.SetByText("u2", 500);
+
+        // Strategy returns input unchanged (WasApplied=false), but result still exceeds emergencyTrigger
+        var strategy = new TrackingCompactionStrategy();
+        var observer = new TrackingCompactionObserver();
+        var engine = new ConversationContext(budget, counter, strategy, observer);
+
+        engine.AddUserMessage("u1");
+        engine.AddUserMessage("u2");
+
+        // Act
+        _ = await engine.PrepareAsync();
+
+        // Assert — emergency truncation drops u1; observer is notified even though strategy did not apply
+        observer.Events.Should().HaveCount(1);
+        var evt = observer.Events[0];
+        evt.Trigger.Should().Be(CompactionTrigger.Emergency);
+        evt.Result.WasApplied.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationRuns_SystemMessagesAreNeverDropped()
+    {
+        // Arrange
+        // Budget: compactionTrigger=500, emergencyTrigger=900
+        var budget = new ContextBudget(1000, 0.5, 0.9);
+
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("sys", 800);
+        counter.SetByText("older", 300);
+        counter.SetByText("newer", 400);
+
+        // Strategy passes through unchanged (WasApplied=false); combined total 1500 > emergencyTrigger(900)
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt("sys");
+        engine.AddUserMessage("older");
+        engine.AddUserMessage("newer");
+
+        var sysMsg    = engine.History.First(m => m.Role == MessageRole.System);
+        var olderMsg  = engine.History.First(m => m.Role == MessageRole.User);
+        var newerMsg  = engine.History.Last(m => m.Role == MessageRole.User);
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert — system message is preserved; older user message is dropped; newer (floor) stays
+        prepared.Should().HaveCount(2);
+        prepared[0].Should().BeSameAs(sysMsg);
+        prepared[1].Should().BeSameAs(newerMsg);
+        prepared.Should().NotContain(olderMsg);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenStrategyResultAlreadyBelowEmergencyThreshold_DoesNotApplyEmergencyTruncation()
+    {
+        // Arrange
+        // Budget: compactionTrigger=500, emergencyTrigger=900
+        var budget = new ContextBudget(1000, 0.5, 0.9);
+
+        var compacted1 = ContextMessage.FromText(MessageRole.User, "c1");
+        var compacted2 = ContextMessage.FromText(MessageRole.User, "c2");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 600); // Triggers compaction
+        counter.Set(compacted1, 400);
+        counter.Set(compacted2, 300); // Combined 700 < emergencyTrigger(900)
+
+        var strategyResult = new CompactionResult([compacted1, compacted2], 600, 700, 1, "TestStrategy", true);
+        var strategy = new TrackingCompactionStrategy(strategyResult);
+        var observer = new TrackingCompactionObserver();
+        var engine = new ConversationContext(budget, counter, strategy, observer);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert — prepared list is exactly what the strategy returned, no messages removed
+        prepared.Should().HaveCount(2);
+        prepared[0].Should().BeSameAs(compacted1);
+        prepared[1].Should().BeSameAs(compacted2);
+        observer.Events.Should().HaveCount(1);
+        observer.Events[0].Trigger.Should().Be(CompactionTrigger.Normal);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenNewestUserFloorStillExceedsEmergencyThreshold_ReturnsNonEmptyOverBudgetFloor()
+    {
+        // Arrange
+        var budget = new ContextBudget(1000, 0.5, 0.9);
+
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("sys", 500);
+        counter.SetByText("older-1", 200);
+        counter.SetByText("older-2", 200);
+        counter.SetByText("latest-user", 600);
+
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt("sys");
+        engine.AddUserMessage("older-1");
+        engine.AddUserMessage("older-2");
+        engine.AddUserMessage("latest-user");
+
+        var systemMessage = engine.History[0];
+        var latestUser = engine.History[^1];
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        prepared.Should().HaveCount(2);
+        prepared.Should().ContainInOrder(systemMessage, latestUser);
+        prepared.Sum(message => message.TokenCount ?? 0).Should().Be(1100);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenNewestUserAndModelFloorStillExceedsEmergencyThreshold_PreservesNewestTailInOrder()
+    {
+        // Arrange
+        var budget = new ContextBudget(1000, 0.5, 0.9);
+
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("sys", 150);
+        counter.SetByText("trigger", 1000);
+
+        var newestModel = ContextMessage.FromText(MessageRole.Model, "newest-model");
+        var olderUser = ContextMessage.FromText(MessageRole.User, "older-user");
+        var newestUser = ContextMessage.FromText(MessageRole.User, "newest-user");
+
+        counter.Set(olderUser, 250);
+        counter.Set(newestUser, 500);
+        counter.Set(newestModel, 450);
+
+        var strategyResult = new CompactionResult(
+            [olderUser, newestUser, newestModel],
+            1350,
+            1200,
+            1,
+            "TestStrategy",
+            true);
+
+        var strategy = new TrackingCompactionStrategy(strategyResult);
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt("sys");
+        engine.AddUserMessage("trigger");
+
+        var systemMessage = engine.History[0];
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        prepared.Should().HaveCount(3);
+        prepared.Should().ContainInOrder(systemMessage, newestUser, newestModel);
+        prepared.Should().NotContain(olderUser);
+        prepared.Sum(message => message.TokenCount ?? 0).Should().Be(1100);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenCompactionNotRequired_DoesNotInvokeObserver()
+    {
+        // Arrange
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var observer = new TrackingCompactionObserver();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, observer);
+
+        engine.AddUserMessage("hello");
+        counter.Set(engine.History[0], 0);
+
+        // Act
+        _ = await engine.PrepareAsync();
+
+        // Assert
+        observer.Events.Should().BeEmpty();
+    }
+
     private static Task Sync(Action action)
     {
         action();
@@ -326,13 +586,13 @@ public sealed class ConversationContextTests
 
     private sealed class TrackingCompactionStrategy : ICompactionStrategy
     {
-        private readonly IReadOnlyList<ContextMessage>? _result;
+        private readonly CompactionResult? _result;
 
         /// <summary>
         /// Initializes a compaction strategy test double that returns the supplied result.
         /// </summary>
-        /// <param name="result">The message list to return from <see cref="CompactAsync"/>.</param>
-        public TrackingCompactionStrategy(IReadOnlyList<ContextMessage>? result = null)
+        /// <param name="result">The compaction result to return from <see cref="CompactAsync"/>.</param>
+        public TrackingCompactionStrategy(CompactionResult? result = null)
         {
             this._result = result;
         }
@@ -359,15 +619,15 @@ public sealed class ConversationContextTests
         /// <param name="budget">The budget available to the compaction operation.</param>
         /// <param name="tokenCounter">The token counter associated with the request.</param>
         /// <param name="cancellationToken">A token used to cancel the operation.</param>
-        /// <returns>A task containing either the configured result or the original input.</returns>
-        public Task<IReadOnlyList<ContextMessage>> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
+        /// <returns>A task containing either the configured result or a pass-through compaction result.</returns>
+        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             this.CompactCalls++;
             this.LastInput = messages;
             this.LastBudget = budget;
 
-            return Task.FromResult(this._result ?? messages);
+            return Task.FromResult(this._result ?? new CompactionResult(messages, 0, 0, 0, nameof(TrackingCompactionStrategy), false));
         }
     }
 
@@ -443,6 +703,13 @@ public sealed class ConversationContextTests
 
             return total;
         }
+    }
+
+    private sealed class TrackingCompactionObserver : ICompactionObserver
+    {
+        public List<CompactionEvent> Events { get; } = [];
+
+        public void OnCompaction(CompactionEvent compactionEvent) => this.Events.Add(compactionEvent);
     }
 
     private sealed class ReferenceEqualityComparer : IEqualityComparer<ContextMessage>

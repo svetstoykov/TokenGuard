@@ -1,9 +1,11 @@
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Contexts;
+using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Core.TokenCounting;
 
-namespace TokenGuard.Core;
+namespace TokenGuard.Core.Configuration;
 
 /// <summary>
 ///     Provides a fluent API for configuring <see cref="ConversationContextConfiguration"/> instances.
@@ -28,6 +30,7 @@ public sealed class ConversationConfigBuilder
     private int? _reservedTokens;
     private ICompactionStrategy? _strategy;
     private ITokenCounter? _tokenCounter;
+    private ICompactionObserver? _observer;
 
     /// <summary>
     ///     Creates a <see cref="ConversationContextConfiguration"/> using the default builder configuration.
@@ -137,6 +140,21 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
+    ///     Sets the observer that is notified after each compaction cycle that modifies the history.
+    /// </summary>
+    /// <remarks>
+    ///     The observer is optional. When not configured, no compaction notifications are emitted and
+    ///     <see cref="ConversationContextConfiguration.Observer"/> is <see langword="null"/>.
+    /// </remarks>
+    /// <param name="observer">The compaction observer.</param>
+    /// <returns>The current builder instance.</returns>
+    public ConversationConfigBuilder WithCompactionObserver(ICompactionObserver observer)
+    {
+        this._observer = observer ?? throw new ArgumentNullException(nameof(observer));
+        return this;
+    }
+
+    /// <summary>
     ///     Captures an immutable snapshot of the current builder state as a
     ///     <see cref="ConversationContextConfiguration"/>.
     /// </summary>
@@ -175,7 +193,7 @@ public sealed class ConversationConfigBuilder
         var counter = this._tokenCounter ?? new EstimatedTokenCounter();
         var strategy = this._strategy ?? new SlidingWindowStrategy();
 
-        return new ConversationContextConfiguration(budget, counter, strategy);
+        return new ConversationContextConfiguration(budget, counter, strategy, this._observer);
     }
 
     /// <summary>
