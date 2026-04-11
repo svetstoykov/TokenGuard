@@ -49,5 +49,7 @@ Document all public members using structured XML tags like <summary>, <remarks>,
 
 ## Skills
 
-- **Use `task-writer` when task authoring is needed.** Invoke this skill when the user asks to create a task, write a ticket, define work items, plan a feature, break down work, or formalize a change into a scoped implementation task.
-- **Use `testing-principles` when test guidance or test code is needed.** Invoke this skill when the user asks to write, review, improve, or structure tests of any kind, including unit tests, integration tests, and live-LLM e2e coverage.
+- Shared skill guidance lives in `ai/skills/`. Treat that directory as the cross-agent source of truth.
+- Kilo may also load mirrored skills from `.kilo/skills/`, but do not assume other agents discover that directory automatically.
+- **Use `task-writer` when task authoring is needed.** Follow `ai/skills/task-writing.md` when the user asks to create a task, write a ticket, define work items, plan a feature, break down work, or formalize a change into a scoped implementation task.
+- **Use `testing-principles` when test guidance or test code is needed.** Follow `ai/skills/testing-principles.md` when the user asks to write, review, improve, or structure tests of any kind, including unit tests, integration tests, and live-LLM e2e coverage.
