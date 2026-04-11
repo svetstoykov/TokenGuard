@@ -63,7 +63,7 @@ public sealed class ConversationContext : IConversationContext
     /// </param>
     /// <param name="counter">
     /// Counts tokens for individual messages. This should match the target provider as closely
-    /// as possible so compaction decisions are based on realistic estimates.
+    /// as possible, so compaction decisions are based on realistic estimates.
     /// </param>
     /// <param name="strategy">
     /// Produces a smaller message list when the current history no longer fits comfortably within
@@ -90,8 +90,8 @@ public sealed class ConversationContext : IConversationContext
     /// instance appear here immediately.
     /// </para>
     /// <para>
-    /// This property is useful for inspection, testing, logging, and debugging. It is not the
-    /// same as the request payload returned by <see cref="PrepareAsync(CancellationToken)"/>, which may be compacted.
+    /// This property is useful for inspection, testing, logging, and debugging. It is different from
+    ///  the request payload returned by <see cref="PrepareAsync(CancellationToken)"/>, which may be compacted.
     /// </para>
     /// </remarks>
     public IReadOnlyList<ContextMessage> History
@@ -350,14 +350,14 @@ public sealed class ConversationContext : IConversationContext
     /// <para>
     /// The method identifies eligible drop candidates by excluding <see cref="MessageRole.System"/>
     /// messages, which are never removed. The newest non-system message is always preserved as an
-    /// irreducible floor so the returned list is never empty and the latest active turn remains
+    /// irreducible floor, so the returned list is never empty, and the latest active turn remains
     /// visible to the model.
     /// </para>
     /// <para>
     /// Candidates are removed oldest first. The loop stops as soon as the running token total
     /// reaches or falls below <see cref="ContextBudget.EmergencyTriggerTokens"/>, or when the
     /// remaining list has reached its safety floor and no further eligible candidates remain. If
-    /// that preserved floor itself still exceeds the emergency threshold the method returns the
+    /// that preserved floor itself still exceeds the emergency threshold, the method returns the
     /// over-budget floor unchanged, because retaining the newest indispensable conversation tail is
     /// more important than forcing a fit-to-budget outcome.
     /// </para>
@@ -382,7 +382,7 @@ public sealed class ConversationContext : IConversationContext
         {
             truncated = null;
             return false;
-        };
+        }
 
         var preservedFloorStartIndex = this.FindPreservedFloorStartIndex(prepared);
 
