@@ -78,7 +78,7 @@ public sealed class BenchmarkRunner
         var parameters = new ExecutionParameters(
             Task: task,
             Configuration: configuration,
-            ChatClient: OpenRouterE2ETestSupport.CreateChatClient(),
+            ChatClient: OpenRouterE2ETestSupport.CreateChatClient(ModelName),
             ChatOptions: OpenRouterE2ETestSupport.CreateChatOptions(tools),
             ToolMap: tools.ToDictionary(static tool => tool.Name, static tool => tool, StringComparer.Ordinal),
             Turns: [],

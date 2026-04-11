@@ -15,13 +15,14 @@ public static class OpenRouterE2ETestSupport
     /// <summary>
     /// Creates a chat client bound to the shared OpenRouter test model.
     /// </summary>
-    public static ChatClient CreateChatClient()
+    /// <param name="modelName"></param>
+    public static ChatClient CreateChatClient(string? modelName = ModelName)
     {
         var client = new OpenAIClient(
             new System.ClientModel.ApiKeyCredential(TestEnvironment.RequireVariable("OPENROUTER_API_KEY")),
             new OpenAIClientOptions { Endpoint = OpenRouterEndpoint });
 
-        return client.GetChatClient(ModelName);
+        return client.GetChatClient(modelName);
     }
 
     /// <summary>

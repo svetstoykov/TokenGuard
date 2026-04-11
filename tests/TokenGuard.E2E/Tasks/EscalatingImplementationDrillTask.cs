@@ -26,18 +26,19 @@ internal static class EscalatingImplementationDrillTask
         userMessage:
             "Task: complete the escalating implementation drill in staged token ramps.\n" +
             "Step 1 - list all files, then read task-brief.txt and execution-plan.txt.\n" +
+            "  Also read output-manifest.txt before creating or editing any final artefact.\n" +
             "Step 2 - expand all transcript recipes using expand_transcript_stage into these files exactly:\n" +
             "  - generated/stage-01-transcript.md from recipes/stage-01.json\n" +
             "  - generated/stage-02-transcript.md from recipes/stage-02.json\n" +
             "  - generated/stage-03-transcript.md from recipes/stage-03.json\n" +
             "  - generated/stage-04-transcript.md from recipes/stage-04.json\n" +
             "Step 3 - read all generated transcripts plus all source, test, CI, and review input files.\n" +
-            "Step 4 - create 'implementation-plan.md' with sections: Stage 1, Stage 2, Stage 3, Stage 4, and Final Fix Strategy. Each stage section must reference the token target and the main failure themes found there.\n" +
-            "Step 5 - create 'review-reconciliation.md' listing contradictions between reviewer comments, current code, tests, and CI logs. Include at least eight numbered contradictions.\n" +
-            "Step 6 - create 'ci-triage.md' with sections for failing suites, probable root causes, confidence, and next verification actions.\n" +
-            "Step 7 - create 'fix-forward.patch.md' that proposes coordinated code changes across the seeded source files. Include headings for each file and concrete patch intent.\n" +
-            "Step 8 - create 'token-ramp-report.json' with stageTargets array, expandedTranscriptFiles array, contradictionCount, and recommendedExecutionOrder array.\n" +
-            "Step 9 - read back all created artefacts to verify they are populated and consistent.\n" +
+            "Step 4 - overwrite the existing root file 'implementation-plan.md' with sections: Stage 1, Stage 2, Stage 3, Stage 4, and Final Fix Strategy. Each stage section must reference the token target and the main failure themes found there.\n" +
+            "Step 5 - overwrite the existing root file 'review-reconciliation.md' listing contradictions between reviewer comments, current code, tests, and CI logs. Include at least eight numbered contradictions.\n" +
+            "Step 6 - overwrite the existing root file 'ci-triage.md' with sections for failing suites, probable root causes, confidence, and next verification actions.\n" +
+            "Step 7 - overwrite the existing root file 'fix-forward.patch.md' so it proposes coordinated code changes across the seeded source files. Include headings for each file and concrete patch intent.\n" +
+            "Step 8 - overwrite the existing root file 'token-ramp-report.json' with stageTargets array, expandedTranscriptFiles array, contradictionCount, and recommendedExecutionOrder array.\n" +
+            "Step 9 - read back these exact files to verify they are populated and consistent: implementation-plan.md, review-reconciliation.md, ci-triage.md, fix-forward.patch.md, token-ramp-report.json, generated/stage-01-transcript.md, generated/stage-02-transcript.md, generated/stage-03-transcript.md, generated/stage-04-transcript.md.\n" +
             "Do not claim completion until every generated transcript exists and all five final artefacts are written and verified.",
         completionMarker: CompletionMarker,
         seedWorkspaceAsync: SeedAsync,
@@ -75,6 +76,36 @@ internal static class EscalatingImplementationDrillTask
             "3. Cross-check source files, failing tests, CI logs, architecture notes, and reviewer comments.\n" +
             "4. Produce artefacts that preserve disagreement instead of collapsing it too early.\n" +
             "5. Recommend a coordinated execution order for fixes and verification.\n");
+
+        await File.WriteAllTextAsync(Path.Combine(dir, "output-manifest.txt"),
+            "Output Manifest\n" +
+            "===============\n\n" +
+            "Final artefact locations are exact and already scaffolded at workspace root.\n" +
+            "Do not create alternate copies in generated/, docs/, reviews/, or nested folders.\n\n" +
+            "Overwrite these existing root files with final content:\n" +
+            "- implementation-plan.md\n" +
+            "- review-reconciliation.md\n" +
+            "- ci-triage.md\n" +
+            "- fix-forward.patch.md\n" +
+            "- token-ramp-report.json\n\n" +
+            "Generated transcript locations are exact:\n" +
+            "- generated/stage-01-transcript.md\n" +
+            "- generated/stage-02-transcript.md\n" +
+            "- generated/stage-03-transcript.md\n" +
+            "- generated/stage-04-transcript.md\n\n" +
+            "Verification rule:\n" +
+            "Read back every final artefact after writing it. Completion is invalid unless each exact path above exists and is populated.\n");
+
+        await File.WriteAllTextAsync(Path.Combine(dir, "implementation-plan.md"),
+            "PLACEHOLDER: overwrite this root file with the final implementation plan.\n");
+        await File.WriteAllTextAsync(Path.Combine(dir, "review-reconciliation.md"),
+            "PLACEHOLDER: overwrite this root file with the final review reconciliation.\n");
+        await File.WriteAllTextAsync(Path.Combine(dir, "ci-triage.md"),
+            "PLACEHOLDER: overwrite this root file with the final CI triage analysis.\n");
+        await File.WriteAllTextAsync(Path.Combine(dir, "fix-forward.patch.md"),
+            "PLACEHOLDER: overwrite this root file with the final fix-forward patch intent.\n");
+        await File.WriteAllTextAsync(Path.Combine(dir, "token-ramp-report.json"),
+            "{\n  \"placeholder\": true\n}\n");
 
         await WriteRecipeAsync(dir, "stage-01.json", "01", "Initial Failure Surfacing", "Stabilize understanding of current defect and early reviewer disagreement.", "baseline drift", "2k", 18, 4,
             ["src/Coordinator.cs", "src/RetryPolicy.cs", "tests/CoordinatorTests.cs"],
