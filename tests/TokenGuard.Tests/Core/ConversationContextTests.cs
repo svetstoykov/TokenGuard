@@ -38,7 +38,7 @@ public sealed class ConversationContextTests
         counter.SetByText("original", 800);
         counter.Set(compacted, 800);
 
-        var strategy = new TrackingCompactionStrategy([compacted]);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy", true));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
@@ -63,7 +63,7 @@ public sealed class ConversationContextTests
         counter.SetByText("user1", 900);
         counter.Set(compacted, 100);
 
-        var strategy = new TrackingCompactionStrategy([compacted]);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 100, 1, "TestStrategy", true));
         var budget = ContextBudget.For(1_000);
         var engine = new ConversationContext(budget, counter, strategy);
 
@@ -136,7 +136,7 @@ public sealed class ConversationContextTests
     {
         // Arrange
         var counter = new TrackingTokenCounter();
-        var strategy = new TrackingCompactionStrategy([ContextMessage.FromText(MessageRole.Model, "compressed")]);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([ContextMessage.FromText(MessageRole.Model, "compressed")], 800, 100, 1, "TestStrategy", true));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("hello");
@@ -248,7 +248,7 @@ public sealed class ConversationContextTests
         counter.SetByText("original", 800);
         counter.Set(compacted, 800);
 
-        var strategy = new TrackingCompactionStrategy([compacted]);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy", true));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
@@ -326,13 +326,13 @@ public sealed class ConversationContextTests
 
     private sealed class TrackingCompactionStrategy : ICompactionStrategy
     {
-        private readonly IReadOnlyList<ContextMessage>? _result;
+        private readonly CompactionResult? _result;
 
         /// <summary>
         /// Initializes a compaction strategy test double that returns the supplied result.
         /// </summary>
-        /// <param name="result">The message list to return from <see cref="CompactAsync"/>.</param>
-        public TrackingCompactionStrategy(IReadOnlyList<ContextMessage>? result = null)
+        /// <param name="result">The compaction result to return from <see cref="CompactAsync"/>.</param>
+        public TrackingCompactionStrategy(CompactionResult? result = null)
         {
             this._result = result;
         }
@@ -359,15 +359,15 @@ public sealed class ConversationContextTests
         /// <param name="budget">The budget available to the compaction operation.</param>
         /// <param name="tokenCounter">The token counter associated with the request.</param>
         /// <param name="cancellationToken">A token used to cancel the operation.</param>
-        /// <returns>A task containing either the configured result or the original input.</returns>
-        public Task<IReadOnlyList<ContextMessage>> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
+        /// <returns>A task containing either the configured result or a pass-through compaction result.</returns>
+        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             this.CompactCalls++;
             this.LastInput = messages;
             this.LastBudget = budget;
 
-            return Task.FromResult(this._result ?? messages);
+            return Task.FromResult(this._result ?? new CompactionResult(messages, 0, 0, 0, nameof(TrackingCompactionStrategy), false));
         }
     }
 

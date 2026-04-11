@@ -283,7 +283,7 @@ public sealed class ConversationContext : IConversationContext
 
         var compacted = await this._strategy.CompactAsync(compactableMessages, adjustedBudget, this._counter, cancellationToken);
 
-        var result = systemMessages.Count == 0 ? compacted : systemMessages.Concat(compacted).ToList();
+        var result = systemMessages.Count == 0 ? compacted.Messages : systemMessages.Concat(compacted.Messages).ToList();
 
         this._lastPreparedTotal = this.Sum(result) + this._anchorCorrection;
         this._anchorCorrection = 0;
