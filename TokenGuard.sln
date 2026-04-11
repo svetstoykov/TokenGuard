@@ -21,7 +21,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.Anthr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.E2E", "tests\TokenGuard.E2E\TokenGuard.E2E.csproj", "{8154C55B-3AAD-45D9-B65F-07C9BC7E4968}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Tools", "tests\TokenGuard.Tools\TokenGuard.Tools.csproj", "{3515F264-7C35-462F-A510-2BB97E5E81EC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Tools", "samples\TokenGuard.Tools\TokenGuard.Tools.csproj", "{3515F264-7C35-462F-A510-2BB97E5E81EC}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Samples.Benchmark", "samples\TokenGuard.Samples.Benchmark\TokenGuard.Samples.Benchmark.csproj", "{3A3A95D8-6848-46E5-B852-EC6EEAC25F3F}"
 EndProject

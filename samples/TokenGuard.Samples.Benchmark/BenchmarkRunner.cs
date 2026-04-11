@@ -3,6 +3,8 @@ using OpenAI.Chat;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Extensions;
+using TokenGuard.Core.Options;
+using TokenGuard.Core.Strategies;
 using TokenGuard.E2E;
 using TokenGuard.E2E.OpenAI;
 using TokenGuard.E2E.Tasks;
@@ -275,6 +277,7 @@ public sealed class BenchmarkRunner
         var services = new ServiceCollection();
         services.AddConversationContext(task.ConversationName, builder => builder
             .WithMaxTokens(configuration.MaxTokens ?? 16_000)
+            .WithStrategy(new SlidingWindowStrategy(new SlidingWindowOptions(protectedWindowFraction: 0.2)))
             .WithCompactionThreshold(configuration.CompactionThreshold ?? 0.80));
 
         await using var serviceProvider = services.BuildServiceProvider();

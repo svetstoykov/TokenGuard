@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\tests\TokenGuard.Tools\TokenGuard.Tools.csproj" />
+    <ProjectReference Include="..\TokenGuard.Tools\TokenGuard.Tools.csproj" />
     <ProjectReference Include="..\..\src\TokenGuard.Extensions.Anthropic\TokenGuard.Extensions.Anthropic.csproj" />
     <ProjectReference Include="..\..\src\TokenGuard.Extensions.OpenAI\TokenGuard.Extensions.OpenAI.csproj" />
     <ProjectReference Include="..\..\src\TokenGuard.Core\TokenGuard.Core.csproj" />

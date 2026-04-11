@@ -33,6 +33,7 @@ public static class OpenRouterE2ETestSupport
         new ReadFileTool(workspaceDirectory),
         new CreateTextFileTool(workspaceDirectory),
         new EditTextFileTool(workspaceDirectory),
+        new ExpandTranscriptStageTool(workspaceDirectory),
     ];
 
     /// <summary>

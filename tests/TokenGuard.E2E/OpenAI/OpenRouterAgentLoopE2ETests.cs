@@ -22,9 +22,7 @@ public sealed class OpenRouterAgentLoopE2ETests(ITestOutputHelper output)
 
     public static IEnumerable<object[]> AllTasks()
     {
-        //yield return [ReleaseAuditTask.Create()];
-        //yield return [CodeReviewTask.Create()];
-        yield return [DependencyAuditTask.Create()];
+        yield return [EscalatingImplementationDrillTask.Create()];
     }
 
     /// <summary>
