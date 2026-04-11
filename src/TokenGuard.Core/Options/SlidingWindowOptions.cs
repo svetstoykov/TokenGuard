@@ -22,7 +22,7 @@ public readonly record struct SlidingWindowOptions
     /// participates in record equality. This keeps the record state aligned with the exposed validated properties rather
     /// than capturing duplicate hidden primary-constructor fields.
     /// </remarks>
-    /// <param name="windowSize">The maximum number of newest messages to preserve unchanged.</param>
+    /// <param name="windowSize">The minimum number of newest messages to preserve unchanged before the token cap can stop the backward walk.</param>
     /// <param name="protectedWindowFraction">The fraction of <see cref="ContextBudget.AvailableTokens"/> reserved for the protected newest-message window.</param>
     /// <param name="placeholderFormat">The composite format string used when replacing older tool results, where <c>{0}</c> is the tool name and <c>{1}</c> is the tool call identifier.</param>
     public SlidingWindowOptions(
@@ -41,7 +41,7 @@ public readonly record struct SlidingWindowOptions
     public static SlidingWindowOptions Default => new(SlidingWindowDefaults.WindowSize);
 
     /// <summary>
-    /// Gets the maximum number of newest messages to preserve unchanged.
+    /// Gets the minimum number of newest messages to preserve unchanged.
     /// </summary>
     public int WindowSize { get; }
 

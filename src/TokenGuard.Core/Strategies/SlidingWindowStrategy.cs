@@ -18,11 +18,12 @@ namespace TokenGuard.Core.Strategies;
 ///     <para>
 ///         The strategy walks backward from the newest message in the compactable slice supplied by
 ///         <see cref="ICompactionStrategy.CompactAsync(IReadOnlyList{ContextMessage}, ContextBudget, ITokenCounter, CancellationToken)"/>
-///         and protects messages until either <see cref="SlidingWindowOptions.WindowSize"/> is reached or the
-///         protected segment would exceed the token allowance derived from <see cref="ContextBudget.AvailableTokens"/>
-///         and <see cref="SlidingWindowOptions.ProtectedWindowFraction"/>. Messages before that boundary keep their
-///         ordering and structure, but any <see cref="ToolResultContent"/> blocks are converted into text placeholders
-///         and the message state is marked as <see cref="CompactionState.Masked"/>.
+///         and always protects at least <see cref="SlidingWindowOptions.WindowSize"/> messages when that many are
+///         available. After that floor is satisfied, the protected segment continues growing while the token allowance
+///         derived from <see cref="ContextBudget.AvailableTokens"/> and
+///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> still permits more messages. Messages before that
+///         boundary keep their ordering and structure, but any <see cref="ToolResultContent"/> blocks are converted into
+///         text placeholders and the message state is marked as <see cref="CompactionState.Masked"/>.
 ///     </para>
 /// </remarks>
 internal sealed class SlidingWindowStrategy : ICompactionStrategy
@@ -60,11 +61,12 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// </summary>
     /// <remarks>
     ///     <para>
-    ///         This method preserves the original ordering of <paramref name="messages"/> while calculating a protected
-    ///         tail from the newest compactable message backward. The protected boundary is constrained both by
-    ///         <see cref="SlidingWindowOptions.WindowSize"/> and by the token allowance produced from
-    ///         <paramref name="budget"/> and <see cref="SlidingWindowOptions.ProtectedWindowFraction"/>.
-    ///     </para>
+///         This method preserves the original ordering of <paramref name="messages"/> while calculating a protected
+///         tail from the newest compactable message backward. The protected boundary always includes at least
+///         <see cref="SlidingWindowOptions.WindowSize"/> newest messages when available, and then expands further while
+///         the token allowance produced from <paramref name="budget"/> and
+///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> is not exceeded.
+///     </para>
     ///     <para>
     ///         Callers are expected to exclude pinned messages before invoking this method. As a result, every entry in
     ///         <paramref name="messages"/> is treated as an eligible compaction candidate, and token calculations assume
@@ -115,13 +117,9 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         for (var i = messages.Count - 1; i >= 0; i--)
         {
-            if (protectedCount >= this._options.WindowSize)
-            {
-                break;
-            }
-
             var candidateTokens = messages[i].TokenCount ?? tokenCounter.Count(messages[i]);
-            if (protectedTokens + candidateTokens > maxProtectedTokens)
+
+            if (protectedCount >= this._options.WindowSize && protectedTokens + candidateTokens > maxProtectedTokens)
             {
                 break;
             }
