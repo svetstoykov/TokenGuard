@@ -2,10 +2,16 @@ using FluentAssertions;
 
 namespace TokenGuard.E2E.Tasks;
 
+/// <summary>
+/// Defines a release-audit scenario that makes the model assemble notes, manifest data, and changelog updates.
+/// </summary>
 internal static class ReleaseAuditTask
 {
     private const string CompletionMarker = "RELEASE_AUDIT_COMPLETE";
 
+    /// <summary>
+    /// Creates the release-audit task definition consumed by the shared E2E loop.
+    /// </summary>
     public static AgentLoopTaskDefinition Create() => new(
         name: "ReleaseAudit",
         conversationName: "e2e-release-audit",
@@ -36,6 +42,9 @@ internal static class ReleaseAuditTask
         seedWorkspaceAsync: SeedAsync,
         assertOutcomeAsync: AssertAsync);
 
+    /// <summary>
+    /// Seeds release inputs and historical artefacts for the audit workflow.
+    /// </summary>
     private static async Task SeedAsync(string dir)
     {
         await File.WriteAllTextAsync(Path.Combine(dir, "version.txt"),
@@ -71,6 +80,9 @@ internal static class ReleaseAuditTask
                 $"- Policy note {i}: verify all artefacts before marking the release complete.")));
     }
 
+    /// <summary>
+    /// Verifies that the release artefacts were generated and existing history was preserved.
+    /// </summary>
     private static async Task AssertAsync(string dir, string? finalText)
     {
         var releaseNotes = await File.ReadAllTextAsync(Path.Combine(dir, "release-notes.md"));

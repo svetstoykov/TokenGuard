@@ -2,10 +2,16 @@ using FluentAssertions;
 
 namespace TokenGuard.E2E.Tasks;
 
+/// <summary>
+/// Defines a dependency-audit scenario with mixed vulnerability and licence outcomes.
+/// </summary>
 internal static class DependencyAuditTask
 {
     private const string CompletionMarker = "DEPENDENCY_AUDIT_COMPLETE";
 
+    /// <summary>
+    /// Creates the dependency-audit task definition consumed by the shared E2E loop.
+    /// </summary>
     public static AgentLoopTaskDefinition Create() => new(
         name: "DependencyAudit",
         conversationName: "e2e-dependency-audit",
@@ -33,6 +39,9 @@ internal static class DependencyAuditTask
         seedWorkspaceAsync: SeedAsync,
         assertOutcomeAsync: AssertAsync);
 
+    /// <summary>
+    /// Seeds dependency, advisory, and policy files that require cross-file reasoning and output generation.
+    /// </summary>
     private static async Task SeedAsync(string dir)
     {
         await File.WriteAllTextAsync(Path.Combine(dir, "current-deps.txt"),
@@ -113,6 +122,9 @@ internal static class DependencyAuditTask
                 $"  {i + 4}. Upgrade guideline {i}: refer to the internal upgrade runbook for package category {i}.")));
     }
 
+    /// <summary>
+    /// Verifies that the generated audit artefacts reflect both vulnerable and compliant dependencies.
+    /// </summary>
     private static async Task AssertAsync(string dir, string? finalText)
     {
         var report = await File.ReadAllTextAsync(Path.Combine(dir, "audit-report.md"));

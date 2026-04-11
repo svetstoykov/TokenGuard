@@ -2,10 +2,16 @@ using FluentAssertions;
 
 namespace TokenGuard.E2E.Tasks;
 
+/// <summary>
+/// Defines a seeded code-review scenario that forces the model to inspect multiple flawed source files.
+/// </summary>
 internal static class CodeReviewTask
 {
     private const string CompletionMarker = "CODE_REVIEW_COMPLETE";
 
+    /// <summary>
+    /// Creates the code-review task definition consumed by the shared E2E loop.
+    /// </summary>
     public static AgentLoopTaskDefinition Create() => new(
         name: "CodeReview",
         conversationName: "e2e-code-review",
@@ -30,6 +36,9 @@ internal static class CodeReviewTask
         seedWorkspaceAsync: SeedAsync,
         assertOutcomeAsync: AssertAsync);
 
+    /// <summary>
+    /// Seeds a workspace with review rules, flawed modules, and enough context volume to trigger tool use.
+    /// </summary>
     private static async Task SeedAsync(string dir)
     {
         await File.WriteAllTextAsync(Path.Combine(dir, "review-config.txt"),
@@ -111,6 +120,9 @@ internal static class CodeReviewTask
             "\n}\n");
     }
 
+    /// <summary>
+    /// Verifies that the review artefacts and source-file review markers were produced.
+    /// </summary>
     private static async Task AssertAsync(string dir, string? finalText)
     {
         var report = await File.ReadAllTextAsync(Path.Combine(dir, "review-report.md"));

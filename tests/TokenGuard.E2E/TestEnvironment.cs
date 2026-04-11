@@ -2,8 +2,15 @@ using System.Text;
 
 namespace TokenGuard.E2E;
 
+/// <summary>
+/// Resolves test-only environment variables from process state or the local E2E dotenv file.
+/// </summary>
 internal static class TestEnvironment
 {
+    /// <summary>
+    /// Returns required environment variable value, falling back to `tests/TokenGuard.E2E/.env.local`.
+    /// </summary>
+    /// <param name="variableName">Name of the environment variable required by the current test.</param>
     public static string RequireVariable(string variableName)
     {
         var value = Environment.GetEnvironmentVariable(variableName);
@@ -23,6 +30,10 @@ internal static class TestEnvironment
         return value;
     }
 
+    /// <summary>
+    /// Reads a variable from the local dotenv file when the process environment does not provide it.
+    /// </summary>
+    /// <param name="variableName">Name of the variable to search for.</param>
     private static string? TryLoadVariableFromDotEnvLocal(string variableName)
     {
         var envFilePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".env.local"));
