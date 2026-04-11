@@ -32,7 +32,7 @@ Keep clarifying questions minimal and specific. Fill obvious gaps with reasonabl
 
 ### 3. Consult the Spec (When Needed)
 
-The project specification is available at `assets/token-guard-spec.md`. Do not read it on every task. Consult it when:
+The project specification is available at `.specs/token-guard-spec.md`. Do not read it on every task. Consult it when:
 
 - The task involves architectural decisions or touches core abstractions such as the message model, strategy interfaces, or token counting
 - You are unsure whether a feature is in scope or conflicts with stated design principles

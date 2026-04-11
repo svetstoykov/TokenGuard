@@ -53,6 +53,7 @@ bld/
 *.DS_Store
 tests/TokenGuard.E2E/Scripts/*.local.sh
 tests/TokenGuard.E2E/.env.local
+.specs/
 
 # Build results on 'Bin' directories
 **/[Bb]in/*

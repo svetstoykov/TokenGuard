@@ -1,15 +1,15 @@
-# TokenGuard
+# TokenGuard 🛡️
 
-**Keep agent loops sharp under pressure.** TokenGuard is a .NET library for automatic context management in LLM agent loops, with **provider-agnostic message modeling**, **drop-in DI setup**, **pinned-message durability**, **sliding-window masking**, and **emergency truncation safety rails** so long-running, tool-heavy conversations stay alive without hand-rolled context pruning.
+TokenGuard stops your LLM agent from blowing up its context window.
 
-- Drop-in for existing agent loops
-- Provider-agnostic conversation model
-- Two-tiered compaction: masking first, truncation only in emergency
-- Pinned messages that survive compaction unchanged
-- DI-friendly factory-based setup for application code
-- OpenAI and Anthropic adapter helpers
+It watches token growth, masks old tool output when chat gets too large, and falls back to emergency truncation before your loop crashes.
 
-Domain background and longer-term architecture live in `assets/token-guard-spec.md`.
+- Keeps long-running agent loops inside token budget
+- Hides stale tool output instead of making you hand-roll truncation
+- Supports pinned messages that must always stay in context
+- Works with OpenAI and Anthropic adapters
+
+Domain background and longer-term architecture live in `.specs/token-guard-spec.md`.
 
 ## Quick Start ⚡
 

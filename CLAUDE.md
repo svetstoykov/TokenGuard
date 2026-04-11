@@ -41,7 +41,7 @@ In order of priority:
 - Do not generate code outside the immediate task without being asked.
 - Do not refactor existing code unless the task specifically calls for it.
 - Do not propose adding dependencies without flagging it first.
-- The project spec lives in `assets/token-guard-spec.md`. Consult it for domain context — do not re-derive architecture from scratch.
+- The project spec lives in `.specs/token-guard-spec.md`. Consult it for domain context — do not re-derive architecture from scratch.
 
 ---
 
