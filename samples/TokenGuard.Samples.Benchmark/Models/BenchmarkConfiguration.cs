@@ -23,7 +23,7 @@ public sealed record BenchmarkConfiguration(
         Mode: BenchmarkMode.Raw,
         MaxTokens: null,
         CompactionThreshold: null,
-        MaxIterations: 20);
+        MaxIterations: 50);
 
     /// <summary>
     /// Gets built-in TokenGuard sliding-window configuration used for A/B comparison.
@@ -31,7 +31,7 @@ public sealed record BenchmarkConfiguration(
     public static BenchmarkConfiguration SlidingWindow { get; } = new(
         Name: "SlidingWindow",
         Mode: BenchmarkMode.SlidingWindow,
-        MaxTokens: 16_000,
+        MaxTokens: 15_000,
         CompactionThreshold: 0.80,
-        MaxIterations: 20);
+        MaxIterations: 50);
 }

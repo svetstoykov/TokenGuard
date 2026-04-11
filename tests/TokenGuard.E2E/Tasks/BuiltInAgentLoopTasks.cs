@@ -31,6 +31,11 @@ public static class BuiltInAgentLoopTasks
     public static AgentLoopTaskDefinition ReleaseAudit => ReleaseAuditTask.Create();
 
     /// <summary>
+    /// Gets the API contract audit benchmark task definition.
+    /// </summary>
+    public static AgentLoopTaskDefinition ApiContractAudit => ApiContractAuditTask.Create();
+
+    /// <summary>
     /// Gets all built-in benchmark task definitions.
     /// </summary>
     /// <returns>
@@ -41,5 +46,6 @@ public static class BuiltInAgentLoopTasks
         DependencyAuditTask.Create(),
         CodeReviewTask.Create(),
         ReleaseAuditTask.Create(),
+        ApiContractAuditTask.Create(),
     ];
 }

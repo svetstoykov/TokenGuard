@@ -31,7 +31,7 @@ public sealed class BenchmarkRunner
     /// <summary>
     /// Gets model identifier used by benchmark runner.
     /// </summary>
-    public const string ModelName = "qwen/qwen3.6-plus";
+    public const string ModelName = "openai/gpt-5.4-nano";
 
     /// <summary>
     /// Executes selected task under each supplied configuration and returns report model.
@@ -60,6 +60,7 @@ public sealed class BenchmarkRunner
             task.Name,
             ModelName,
             DateTimeOffset.UtcNow,
+            configurations.ToArray(),
             runs,
             BuildComparison(runs));
     }
