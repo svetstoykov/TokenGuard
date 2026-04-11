@@ -40,6 +40,7 @@ public sealed class ConversationContext : IConversationContext
     private readonly ContextBudget _budget;
     private readonly ITokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
+    private readonly ICompactionObserver? _observer;
 
     private readonly List<ContextMessage> _history = [];
 
@@ -68,11 +69,16 @@ public sealed class ConversationContext : IConversationContext
     /// Produces a smaller message list when the current history no longer fits comfortably within
     /// the configured budget.
     /// </param>
-    public ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy)
+    /// <param name="observer">
+    /// An optional observer notified after each compaction cycle that modifies the history.
+    /// When <see langword="null"/>, no compaction notifications are emitted.
+    /// </param>
+    public ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy, ICompactionObserver? observer = null)
     {
         this._budget = budget;
         this._counter = counter;
         this._strategy = strategy;
+        this._observer = observer;
     }
 
     /// <summary>
@@ -269,6 +275,10 @@ public sealed class ConversationContext : IConversationContext
             return messages;
         }
 
+        var trigger = total >= this._budget.EmergencyTriggerTokens
+            ? CompactionTrigger.Emergency
+            : CompactionTrigger.Normal;
+
         var systemMessages = messages.Where(m => m.Role == MessageRole.System).ToList();
         var compactableMessages = systemMessages.Count == 0 ? messages : messages.Where(m => m.Role != MessageRole.System).ToList();
         var systemTotal = this.Sum(systemMessages);
@@ -281,6 +291,11 @@ public sealed class ConversationContext : IConversationContext
         );
 
         var compacted = await this._strategy.CompactAsync(compactableMessages, adjustedBudget, this._counter, cancellationToken);
+
+        if (compacted.WasApplied)
+        {
+            this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, trigger, this._budget));
+        }
 
         var result = systemMessages.Count == 0 ? compacted.Messages : systemMessages.Concat(compacted.Messages).ToList();
 

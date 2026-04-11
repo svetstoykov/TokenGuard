@@ -85,7 +85,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// produced by this factory.
     /// </remarks>
     public IConversationContext Create() =>
-        new ConversationContext(this._default.Budget, this._default.Counter, this._default.Strategy);
+        new ConversationContext(this._default.Budget, this._default.Counter, this._default.Strategy, this._default.Observer);
 
     /// <summary>
     /// Creates a new <see cref="ConversationContext"/> using a previously registered named configuration.
@@ -111,6 +111,6 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
         if (!this._named.TryGetValue(name, out var config))
             throw new InvalidOperationException($"No configuration registered for context name '{name}'.");
 
-        return new ConversationContext(config.Budget, config.Counter, config.Strategy);
+        return new ConversationContext(config.Budget, config.Counter, config.Strategy, config.Observer);
     }
 }

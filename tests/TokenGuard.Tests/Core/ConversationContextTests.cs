@@ -319,6 +319,52 @@ public sealed class ConversationContextTests
         await act.Should().ThrowAsync<ObjectDisposedException>();
     }
 
+    [Fact]
+    public async Task PrepareAsync_WhenCompactionApplied_InvokesObserverExactlyOnceWithCorrectMetrics()
+    {
+        // Arrange
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("original", 800);
+        counter.Set(compacted, 100);
+
+        var compactionResult = new CompactionResult([compacted], 800, 100, 3, "TestStrategy", true);
+        var strategy = new TrackingCompactionStrategy(compactionResult);
+        var observer = new TrackingCompactionObserver();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, observer);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        _ = await engine.PrepareAsync();
+
+        // Assert
+        observer.Events.Should().HaveCount(1);
+        var evt = observer.Events[0];
+        evt.Result.TokensBefore.Should().Be(800);
+        evt.Result.TokensAfter.Should().Be(100);
+        evt.Result.MessagesAffected.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenCompactionNotRequired_DoesNotInvokeObserver()
+    {
+        // Arrange
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var observer = new TrackingCompactionObserver();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, observer);
+
+        engine.AddUserMessage("hello");
+        counter.Set(engine.History[0], 0);
+
+        // Act
+        _ = await engine.PrepareAsync();
+
+        // Assert
+        observer.Events.Should().BeEmpty();
+    }
+
     private static Task Sync(Action action)
     {
         action();
@@ -444,6 +490,13 @@ public sealed class ConversationContextTests
 
             return total;
         }
+    }
+
+    private sealed class TrackingCompactionObserver : ICompactionObserver
+    {
+        public List<CompactionEvent> Events { get; } = [];
+
+        public void OnCompaction(CompactionEvent compactionEvent) => this.Events.Add(compactionEvent);
     }
 
     private sealed class ReferenceEqualityComparer : IEqualityComparer<ContextMessage>
