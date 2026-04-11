@@ -10,7 +10,6 @@ using TokenGuard.E2E.OpenAI;
 using TokenGuard.E2E.Tasks;
 using TokenGuard.Extensions.OpenAI;
 using TokenGuard.Samples.Benchmark.Models;
-using TokenGuard.Tools.Tools;
 
 namespace TokenGuard.Samples.Benchmark;
 
@@ -75,11 +74,16 @@ public sealed class BenchmarkRunner
         using var workspace = TestWorkspace.Create($"benchmark-{task.Name}-{configuration.Name}");
         await task.SeedWorkspaceAsync(workspace.DirectoryPath);
 
-        var chatClient = OpenRouterE2ETestSupport.CreateChatClient();
         var tools = OpenRouterE2ETestSupport.CreateTools(workspace.DirectoryPath);
-        var chatOptions = OpenRouterE2ETestSupport.CreateChatOptions(tools);
-        var toolMap = tools.ToDictionary(static tool => tool.Name, static tool => tool, StringComparer.Ordinal);
-        var turns = new List<TurnTelemetry>();
+        var parameters = new ExecutionParameters(
+            Task: task,
+            Configuration: configuration,
+            ChatClient: OpenRouterE2ETestSupport.CreateChatClient(),
+            ChatOptions: OpenRouterE2ETestSupport.CreateChatOptions(tools),
+            ToolMap: tools.ToDictionary(static tool => tool.Name, static tool => tool, StringComparer.Ordinal),
+            Turns: [],
+            WorkspaceDirectory: workspace.DirectoryPath);
+
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var totalInputTokens = 0;
         var totalOutputTokens = 0;
@@ -88,69 +92,27 @@ public sealed class BenchmarkRunner
         string? finalResponseText = null;
         string? failureReason = null;
 
-        System.Console.WriteLine($"[{configuration.Name}] task={task.Name} model={ModelName}");
+        Action<TurnTelemetry> onTurnCompleted = telemetry =>
+        {
+            totalInputTokens += telemetry.InputTokens ?? 0;
+            totalOutputTokens += telemetry.OutputTokens ?? 0;
+            if (telemetry.Compacted) compactionEvents++;
+        };
+        Action<string> onCompleted = responseText => { completed = true; finalResponseText = responseText; };
+        Action<string> onFailure = reason => failureReason = reason;
+
+        Console.WriteLine($"[{configuration.Name}] task={task.Name} model={ModelName}");
 
         try
         {
-            switch (configuration.Mode)
+            var execute = configuration.Mode switch
             {
-                case BenchmarkMode.Raw:
-                    await ExecuteRawAsync(
-                        task,
-                        configuration,
-                        chatClient,
-                        chatOptions,
-                        toolMap,
-                        turns,
-                        workspace.DirectoryPath,
-                        onTurnCompleted: telemetry =>
-                        {
-                            totalInputTokens += telemetry.InputTokens ?? 0;
-                            totalOutputTokens += telemetry.OutputTokens ?? 0;
-                            if (telemetry.Compacted)
-                            {
-                                compactionEvents++;
-                            }
-                        },
-                        onCompleted: responseText =>
-                        {
-                            completed = true;
-                            finalResponseText = responseText;
-                        },
-                        onFailure: reason => failureReason = reason,
-                        cancellationToken: cancellationToken);
-                    break;
+                BenchmarkMode.Raw => ExecuteRawAsync(parameters, onTurnCompleted, onCompleted, onFailure, cancellationToken),
+                BenchmarkMode.SlidingWindow => ExecuteManagedAsync(parameters, onTurnCompleted, onCompleted, onFailure, cancellationToken),
+                _ => throw new ArgumentOutOfRangeException(nameof(configuration.Mode), configuration.Mode, "Unsupported benchmark mode."),
+            };
 
-                case BenchmarkMode.SlidingWindow:
-                    await ExecuteManagedAsync(
-                        task,
-                        configuration,
-                        chatClient,
-                        chatOptions,
-                        toolMap,
-                        turns,
-                        workspace.DirectoryPath,
-                        onTurnCompleted: telemetry =>
-                        {
-                            totalInputTokens += telemetry.InputTokens ?? 0;
-                            totalOutputTokens += telemetry.OutputTokens ?? 0;
-                            if (telemetry.Compacted)
-                            {
-                                compactionEvents++;
-                            }
-                        },
-                        onCompleted: responseText =>
-                        {
-                            completed = true;
-                            finalResponseText = responseText;
-                        },
-                        onFailure: reason => failureReason = reason,
-                        cancellationToken: cancellationToken);
-                    break;
-
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(configuration.Mode), configuration.Mode, "Unsupported benchmark mode.");
-            }
+            await execute;
 
             if (completed)
             {
@@ -161,13 +123,13 @@ public sealed class BenchmarkRunner
         {
             failureReason = ex.Message;
             completed = false;
-            System.Console.WriteLine($"[{configuration.Name}] context window exceeded; continuing benchmark");
+            Console.WriteLine($"[{configuration.Name}] context window exceeded; continuing benchmark");
         }
         catch (Exception ex)
         {
             failureReason = ex.Message;
             completed = false;
-            System.Console.WriteLine($"[{configuration.Name}] failed: {ex.Message}");
+            Console.WriteLine($"[{configuration.Name}] failed: {ex.Message}");
         }
 
         stopwatch.Stop();
@@ -175,23 +137,17 @@ public sealed class BenchmarkRunner
         return new RunResult(
             configuration.Name,
             completed,
-            turns.Count,
+            parameters.Turns.Count,
             totalInputTokens,
             totalOutputTokens,
             compactionEvents,
             stopwatch.ElapsedMilliseconds,
-            turns,
+            parameters.Turns,
             failureReason);
     }
 
     private static async Task ExecuteRawAsync(
-        AgentLoopTaskDefinition task,
-        BenchmarkConfiguration configuration,
-        ChatClient chatClient,
-        ChatCompletionOptions chatOptions,
-        IReadOnlyDictionary<string, ITool> toolMap,
-        List<TurnTelemetry> turns,
-        string workspaceDirectory,
+        ExecutionParameters executionParameters,
         Action<TurnTelemetry> onTurnCompleted,
         Action<string> onCompleted,
         Action<string> onFailure,
@@ -199,19 +155,19 @@ public sealed class BenchmarkRunner
     {
         List<ChatMessage> messages =
         [
-            new SystemChatMessage(task.SystemPrompt),
-            new UserChatMessage(task.UserMessage),
+            new SystemChatMessage(executionParameters.Task.SystemPrompt),
+            new UserChatMessage(executionParameters.Task.UserMessage),
         ];
 
-        for (var turn = 1; turn <= configuration.MaxIterations; turn++)
+        for (var turn = 1; turn <= executionParameters.Configuration.MaxIterations; turn++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var turnStopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var completion = (await chatClient.CompleteChatAsync(messages, chatOptions, cancellationToken)).Value;
+            var completion = (await executionParameters.ChatClient.CompleteChatAsync(messages, executionParameters.ChatOptions, cancellationToken)).Value;
             var inputTokens = completion.InputTokens();
             var outputTokens = completion.Usage?.OutputTokenCount;
-            var cumulativeInputTokens = (turns.LastOrDefault()?.CumulativeInputTokens ?? 0) + (inputTokens ?? 0);
+            var cumulativeInputTokens = (executionParameters.Turns.LastOrDefault()?.CumulativeInputTokens ?? 0) + (inputTokens ?? 0);
 
             turnStopwatch.Stop();
 
@@ -225,10 +181,10 @@ public sealed class BenchmarkRunner
                 turnStopwatch.ElapsedMilliseconds,
                 completion.FinishReason.ToString());
 
-            turns.Add(telemetry);
+            executionParameters.Turns.Add(telemetry);
             onTurnCompleted(telemetry);
 
-            System.Console.WriteLine($"[{configuration.Name}] turn={turn} finish={completion.FinishReason} input={inputTokens} output={outputTokens}");
+            Console.WriteLine($"[{executionParameters.Configuration.Name}] turn={turn} finish={completion.FinishReason} input={inputTokens} output={outputTokens}");
 
             AppendModelMessage(messages, completion);
 
@@ -236,7 +192,7 @@ public sealed class BenchmarkRunner
             {
                 foreach (var call in completion.ToolCalls)
                 {
-                    var resultText = toolMap.TryGetValue(call.FunctionName, out var tool)
+                    var resultText = executionParameters.ToolMap.TryGetValue(call.FunctionName, out var tool)
                         ? tool.Execute(call.FunctionArguments.ToString())
                         : "Error: Unknown tool.";
 
@@ -247,7 +203,7 @@ public sealed class BenchmarkRunner
             }
 
             var finalResponseText = string.Join(Environment.NewLine, completion.TextSegments().Select(static segment => segment.Content));
-            if (finalResponseText.Contains(task.CompletionMarker, StringComparison.Ordinal))
+            if (finalResponseText.Contains(executionParameters.Task.CompletionMarker, StringComparison.Ordinal))
             {
                 onCompleted(finalResponseText);
                 return;
@@ -255,40 +211,34 @@ public sealed class BenchmarkRunner
 
             messages.Add(new UserChatMessage(
                 "The task is not complete yet. Continue using tools until all required output files are correctly written. " +
-                $"Only the final completion message may contain {task.CompletionMarker}."));
+                $"Only the final completion message may contain {executionParameters.Task.CompletionMarker}."));
         }
 
-        onFailure($"Maximum iteration budget reached for {configuration.Name} in workspace {workspaceDirectory}.");
+        onFailure($"Maximum iteration budget reached for {executionParameters.Configuration.Name} in workspace {executionParameters.WorkspaceDirectory}.");
     }
 
     private static async Task ExecuteManagedAsync(
-        AgentLoopTaskDefinition task,
-        BenchmarkConfiguration configuration,
-        ChatClient chatClient,
-        ChatCompletionOptions chatOptions,
-        IReadOnlyDictionary<string, ITool> toolMap,
-        List<TurnTelemetry> turns,
-        string workspaceDirectory,
+        ExecutionParameters p,
         Action<TurnTelemetry> onTurnCompleted,
         Action<string> onCompleted,
         Action<string> onFailure,
         CancellationToken cancellationToken)
     {
         var services = new ServiceCollection();
-        services.AddConversationContext(task.ConversationName, builder => builder
-            .WithMaxTokens(configuration.MaxTokens ?? 16_000)
+        services.AddConversationContext(p.Task.ConversationName, builder => builder
+            .WithMaxTokens(p.Configuration.MaxTokens ?? 16_000)
             .WithStrategy(new SlidingWindowStrategy(new SlidingWindowOptions(protectedWindowFraction: 0.2)))
-            .WithCompactionThreshold(configuration.CompactionThreshold ?? 0.80));
+            .WithCompactionThreshold(p.Configuration.CompactionThreshold ?? 0.80));
 
         await using var serviceProvider = services.BuildServiceProvider();
         using var conversationContext = serviceProvider
             .GetRequiredService<IConversationContextFactory>()
-            .Create(task.ConversationName);
+            .Create(p.Task.ConversationName);
 
-        conversationContext.SetSystemPrompt(task.SystemPrompt);
-        conversationContext.AddUserMessage(task.UserMessage);
+        conversationContext.SetSystemPrompt(p.Task.SystemPrompt);
+        conversationContext.AddUserMessage(p.Task.UserMessage);
 
-        for (var turn = 1; turn <= configuration.MaxIterations; turn++)
+        for (var turn = 1; turn <= p.Configuration.MaxIterations; turn++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -297,12 +247,12 @@ public sealed class BenchmarkRunner
             var compacted = maskedCount > 0;
 
             var turnStopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var completion = (await chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(), chatOptions, cancellationToken)).Value;
+            var completion = (await p.ChatClient.CompleteChatAsync(preparedMessages.ForOpenAI(), p.ChatOptions, cancellationToken)).Value;
             turnStopwatch.Stop();
 
             var inputTokens = completion.InputTokens();
             var outputTokens = completion.Usage?.OutputTokenCount;
-            var cumulativeInputTokens = (turns.LastOrDefault()?.CumulativeInputTokens ?? 0) + (inputTokens ?? 0);
+            var cumulativeInputTokens = (p.Turns.LastOrDefault()?.CumulativeInputTokens ?? 0) + (inputTokens ?? 0);
 
             var telemetry = new TurnTelemetry(
                 turn,
@@ -314,10 +264,10 @@ public sealed class BenchmarkRunner
                 turnStopwatch.ElapsedMilliseconds,
                 completion.FinishReason.ToString());
 
-            turns.Add(telemetry);
+            p.Turns.Add(telemetry);
             onTurnCompleted(telemetry);
 
-            System.Console.WriteLine($"[{configuration.Name}] turn={turn} finish={completion.FinishReason} input={inputTokens} output={outputTokens} compacted={compacted} masked={maskedCount}");
+            Console.WriteLine($"[{p.Configuration.Name}] turn={turn} finish={completion.FinishReason} input={inputTokens} output={outputTokens} compacted={compacted} masked={maskedCount}");
 
             if (completion.FinishReason == ChatFinishReason.ToolCalls)
             {
@@ -325,7 +275,7 @@ public sealed class BenchmarkRunner
 
                 foreach (var call in completion.ToolCalls)
                 {
-                    var resultText = toolMap.TryGetValue(call.FunctionName, out var tool)
+                    var resultText = p.ToolMap.TryGetValue(call.FunctionName, out var tool)
                         ? tool.Execute(call.FunctionArguments.ToString())
                         : "Error: Unknown tool.";
 
@@ -339,7 +289,7 @@ public sealed class BenchmarkRunner
             conversationContext.RecordModelResponse(textSegments, inputTokens);
             var finalResponseText = string.Join(Environment.NewLine, textSegments.Select(static segment => segment.Content));
 
-            if (finalResponseText.Contains(task.CompletionMarker, StringComparison.Ordinal))
+            if (finalResponseText.Contains(p.Task.CompletionMarker, StringComparison.Ordinal))
             {
                 onCompleted(finalResponseText);
                 return;
@@ -347,10 +297,10 @@ public sealed class BenchmarkRunner
 
             conversationContext.AddUserMessage(
                 "The task is not complete yet. Continue using tools until all required output files are correctly written. " +
-                $"Only the final completion message may contain {task.CompletionMarker}.");
+                $"Only the final completion message may contain {p.Task.CompletionMarker}.");
         }
 
-        onFailure($"Maximum iteration budget reached for {configuration.Name} in workspace {workspaceDirectory}.");
+        onFailure($"Maximum iteration budget reached for {p.Configuration.Name} in workspace {p.WorkspaceDirectory}.");
     }
 
     private static void AppendModelMessage(List<ChatMessage> messages, ChatCompletion completion)

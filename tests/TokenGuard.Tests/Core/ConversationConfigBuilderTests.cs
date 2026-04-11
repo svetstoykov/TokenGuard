@@ -1,5 +1,4 @@
 using FluentAssertions;
-using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Models;

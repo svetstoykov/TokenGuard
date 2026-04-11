@@ -13,7 +13,7 @@ namespace TokenGuard.Extensions.Anthropic;
 /// This class covers both directions of the adapter:
 /// <list type="bullet">
 ///   <item>Outbound — <see cref="ForAnthropic"/> converts prepared <see cref="ContextMessage"/> instances into Anthropic-compatible <see cref="MessageParam"/> values plus the separate system payload required by Anthropic. Request construction remains at the call site.</item>
-///   <item>Inbound — <see cref="ResponseSegments"/>, <see cref="TextSegments"/>, and <see cref="ToolUseSegments"/> extract model text and tool requests from an Anthropic <see cref="Anthropic.Models.Messages.Message"/> to pass back into <c>ConversationContext.RecordModelResponse</c>.</item>
+///   <item>Inbound — <see cref="ResponseSegments"/>, <see cref="TextSegments"/>, and <see cref="ToolUseSegments"/> extract model text and tool requests from an Anthropic <see cref="Message"/> to pass back into <c>ConversationContext.RecordModelResponse</c>.</item>
 /// </list>
 /// </remarks>
 public static class AnthropicExtensions

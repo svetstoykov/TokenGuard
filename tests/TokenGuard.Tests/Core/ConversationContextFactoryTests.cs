@@ -1,4 +1,3 @@
-using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using FluentAssertions;
 using TokenGuard.Core.Configuration;

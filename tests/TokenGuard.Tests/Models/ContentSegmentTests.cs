@@ -1,4 +1,3 @@
-using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 
 namespace TokenGuard.Tests.Models;
