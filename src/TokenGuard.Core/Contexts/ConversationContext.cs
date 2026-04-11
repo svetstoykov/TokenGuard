@@ -1,5 +1,6 @@
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
+using TokenGuard.Core.Exceptions;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 
@@ -24,9 +25,9 @@ namespace TokenGuard.Core.Contexts;
 /// to produce a smaller request payload while preserving the overall conversation flow.
 /// </para>
 /// <para>
-/// System messages are treated specially. The context stores at most one system message, keeps it
-/// at the front of the history, and preserves it across compaction so the model continues to see
-/// the active instructions for the conversation.
+/// Messages may be pinned so they survive compaction and emergency truncation unchanged at their original recorded
+/// position. System prompts use this behavior by default so active instructions remain durable without requiring a
+/// separate role-based preservation path.
 /// </para>
 /// <para>
 /// Token counts are estimated through the configured <see cref="ITokenCounter"/> and cached on
@@ -50,6 +51,8 @@ public sealed class ConversationContext : IConversationContext
     // Additive correction applied to every raw estimate to account for systematic estimator drift.
     // Updated each time RecordModelResponse is called with a providerInputTokens value.
     private int _anchorCorrection;
+
+    private int _pinnedTokenTotal;
 
     private bool _disposed;
 
@@ -113,8 +116,8 @@ public sealed class ConversationContext : IConversationContext
     /// exists, this method replaces it in place instead of appending a second one.
     /// </para>
     /// <para>
-    /// The system message is kept at the start of the history and is preserved separately during
-    /// compaction so it remains part of prepared requests.
+    /// The system message is kept at the start of the history and is recorded as pinned so later preparation never masks,
+    /// summarizes, or drops it.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
@@ -124,15 +127,66 @@ public sealed class ConversationContext : IConversationContext
         if (string.IsNullOrWhiteSpace(text))
             throw new ArgumentException("System prompt text cannot be null or whitespace.", nameof(text));
 
-        var message = ContextMessage.FromText(MessageRole.System, text);
+        var message = ContextMessage.FromText(MessageRole.System, text) with { IsPinned = true };
 
         var existing = this._history.FindIndex(m => m.Role == MessageRole.System);
         if (existing >= 0)
-            this._history[existing] = message;
-        else
-            this._history.Insert(0, message);
+        {
+            this.ReplaceMessage(existing, message);
+            return;
+        }
 
-        this.EnsureCounted(message);
+        this.AddMessage(message, 0);
+    }
+
+    /// <summary>
+    /// Appends a pinned message to the conversation history.
+    /// </summary>
+    /// <param name="role">The participant role that produced the message.</param>
+    /// <param name="text">The plain-text payload to record.</param>
+    /// <remarks>
+    /// Pinned messages remain at their recorded position and are excluded from compaction and emergency truncation.
+    /// Use this API for durable constraints or instructions that should survive regardless of where they appear.
+    /// </remarks>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    public void AddPinnedMessage(MessageRole role, string text)
+    {
+        ObjectDisposedException.ThrowIf(this._disposed, this);
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("Pinned message text cannot be null or whitespace.", nameof(text));
+
+        var message = ContextMessage.FromText(role, text) with { IsPinned = true };
+        this.AddMessage(message);
+    }
+
+    /// <summary>
+    /// Appends a pinned multi-segment message to the conversation history.
+    /// </summary>
+    /// <param name="role">The participant role that produced the message.</param>
+    /// <param name="content">The ordered content segments that make up the pinned message payload.</param>
+    /// <remarks>
+    /// This overload preserves multi-segment message structure while still ensuring the recorded message is never masked
+    /// or dropped during later preparation.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> contains no segments.</exception>
+    public void AddPinnedMessage(MessageRole role, IEnumerable<ContentSegment> content)
+    {
+        ObjectDisposedException.ThrowIf(this._disposed, this);
+        ArgumentNullException.ThrowIfNull(content);
+
+        var segments = content.ToArray();
+        if (segments.Length == 0)
+            throw new ArgumentException("Pinned message content must contain at least one segment.", nameof(content));
+
+        var message = new ContextMessage
+        {
+            Role = role,
+            Content = segments,
+            IsPinned = true,
+        };
+
+        this.AddMessage(message);
     }
 
     /// <summary>
@@ -151,8 +205,7 @@ public sealed class ConversationContext : IConversationContext
             throw new ArgumentException("User message text cannot be null or whitespace.", nameof(text));
 
         var message = ContextMessage.FromText(MessageRole.User, text);
-        this._history.Add(message);
-        this.EnsureCounted(message);
+        this.AddMessage(message);
     }
 
     /// <summary>
@@ -191,8 +244,7 @@ public sealed class ConversationContext : IConversationContext
             throw new ArgumentException("Content must contain at least one segment.", nameof(content));
 
         var message = new ContextMessage { Role = MessageRole.Model, Content = segments };
-        this._history.Add(message);
-        this.EnsureCounted(message);
+        this.AddMessage(message);
         this.ApplyAnchor(providerInputTokens);
     }
     
@@ -228,8 +280,7 @@ public sealed class ConversationContext : IConversationContext
         ArgumentNullException.ThrowIfNull(content);
 
         var message = ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
-        this._history.Add(message);
-        this.EnsureCounted(message);
+        this.AddMessage(message);
     }
 
     /// <summary>
@@ -251,10 +302,9 @@ public sealed class ConversationContext : IConversationContext
     /// is awaited to produce a smaller list.
     /// </para>
     /// <para>
-    /// System messages are handled specially. They are separated from the rest of the history,
-    /// excluded from the compactable set, and then reattached to the front of the final result.
-    /// Their token cost is added to the reserved budget passed into the compaction strategy so the
-    /// strategy does not accidentally consume space that the system message already needs.
+    /// Pinned messages are handled specially. They are excluded from the compactable set, their token cost is added to
+    /// the reserved budget passed into the compaction strategy, and they are reassembled into the final result at their
+    /// original positions after compaction finishes.
     /// </para>
     /// <para>
     /// Calling this method does not modify <see cref="History"/>. It only determines what subset or
@@ -265,6 +315,11 @@ public sealed class ConversationContext : IConversationContext
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (this._pinnedTokenTotal > this._budget.EmergencyTriggerTokens)
+        {
+            throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.EmergencyTriggerTokens);
+        }
 
         var messages = (IReadOnlyList<ContextMessage>)this._history;
         var total = this.Sum(messages) + this._anchorCorrection;
@@ -279,20 +334,36 @@ public sealed class ConversationContext : IConversationContext
             ? CompactionTrigger.Emergency
             : CompactionTrigger.Normal;
 
-        var systemMessages = messages.Where(m => m.Role == MessageRole.System).ToList();
-        var compactableMessages = systemMessages.Count == 0 ? messages : messages.Where(m => m.Role != MessageRole.System).ToList();
-        var systemTotal = this.Sum(systemMessages);
+        var pinnedSlots = new List<(int Index, ContextMessage Message)>();
+        List<ContextMessage>? compactableMessages = null;
+
+        for (var i = 0; i < messages.Count; i++)
+        {
+            var message = messages[i];
+            if (message.IsPinned)
+            {
+                pinnedSlots.Add((i, message));
+                continue;
+            }
+
+            compactableMessages ??= [];
+            compactableMessages.Add(message);
+        }
+
+        IReadOnlyList<ContextMessage> compactable = compactableMessages ?? [];
 
         var adjustedBudget = new ContextBudget(
             this._budget.MaxTokens,
             this._budget.CompactionThreshold,
             this._budget.EmergencyThreshold,
-            this._budget.ReservedTokens + systemTotal
+            this._budget.ReservedTokens + this._pinnedTokenTotal
         );
 
-        var compacted = await this._strategy.CompactAsync(compactableMessages, adjustedBudget, this._counter, cancellationToken);
+        var compacted = await this._strategy.CompactAsync(compactable, adjustedBudget, this._counter, cancellationToken);
 
-        var prepared = systemMessages.Count == 0 ? compacted.Messages : systemMessages.Concat(compacted.Messages).ToList();
+        var prepared = pinnedSlots.Count == 0
+            ? compacted.Messages
+            : this.ReassemblePreparedMessages(messages.Count, pinnedSlots, compacted.Messages);
 
         var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
         var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
@@ -348,10 +419,9 @@ public sealed class ConversationContext : IConversationContext
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The method identifies eligible drop candidates by excluding <see cref="MessageRole.System"/>
-    /// messages, which are never removed. The newest non-system message is always preserved as an
-    /// irreducible floor, so the returned list is never empty, and the latest active turn remains
-    /// visible to the model.
+    /// The method identifies eligible drop candidates by excluding pinned messages, which are never removed. The newest
+    /// unpinned message is always preserved as an irreducible floor, so the returned list is never empty, and the latest
+    /// active turn remains visible to the model.
     /// </para>
     /// <para>
     /// Candidates are removed oldest first. The loop stops as soon as the running token total
@@ -393,13 +463,13 @@ public sealed class ConversationContext : IConversationContext
             return false;
         }
 
-        // Collect drop candidates: non-system messages that appear before the preserved floor,
+        // Collect drop candidates: unpinned messages that appear before the preserved floor,
         // oldest first.
         var candidates = new List<(int Index, int Tokens)>();
         for (var i = 0; i < preservedFloorStartIndex; i++)
         {
             var msg = prepared[i];
-            if (msg.Role == MessageRole.System)
+            if (msg.IsPinned)
                 continue;
 
             candidates.Add((i, msg.TokenCount ?? 0));
@@ -435,29 +505,29 @@ public sealed class ConversationContext : IConversationContext
 
     private int FindPreservedFloorStartIndex(IReadOnlyList<ContextMessage> prepared)
     {
-        var newestNonSystemIndex = -1;
+        var newestUnpinnedIndex = -1;
         for (var i = prepared.Count - 1; i >= 0; i--)
         {
-            if (prepared[i].Role != MessageRole.System)
+            if (!prepared[i].IsPinned)
             {
-                // The preserved tail starts from the newest non-system message by default.
-                newestNonSystemIndex = i;
+                // The preserved tail starts from the newest unpinned message by default.
+                newestUnpinnedIndex = i;
                 break;
             }
         }
 
-        if (newestNonSystemIndex < 0)
+        if (newestUnpinnedIndex < 0)
             return prepared.Count;
 
-        var floorStartIndex = newestNonSystemIndex;
+        var floorStartIndex = newestUnpinnedIndex;
         
         // If last message was not a Model message, we should just return it.
-        if (prepared[newestNonSystemIndex].Role != MessageRole.Model) return floorStartIndex;
+        if (prepared[newestUnpinnedIndex].Role != MessageRole.Model) return floorStartIndex;
         
         // Otherwise the conversation ends with a model reply, preserve the triggering user turn too.
-        for (var i = newestNonSystemIndex - 1; i >= 0; i--)
+        for (var i = newestUnpinnedIndex - 1; i >= 0; i--)
         {
-            if (prepared[i].Role == MessageRole.System)
+            if (prepared[i].IsPinned)
                 continue;
 
             if (prepared[i].Role == MessageRole.User)
@@ -470,6 +540,67 @@ public sealed class ConversationContext : IConversationContext
     }
 
     private int Sum(IReadOnlyList<ContextMessage> messages) => messages.Sum(this.EnsureCounted);
+
+    private void AddMessage(ContextMessage message, int? index = null)
+    {
+        if (index.HasValue)
+        {
+            this._history.Insert(index.Value, message);
+        }
+        else
+        {
+            this._history.Add(message);
+        }
+
+        var tokenCount = this.EnsureCounted(message);
+
+        if (message.IsPinned)
+        {
+            this._pinnedTokenTotal += tokenCount;
+        }
+    }
+
+    private void ReplaceMessage(int index, ContextMessage message)
+    {
+        var existing = this._history[index];
+        if (existing.IsPinned)
+        {
+            this._pinnedTokenTotal -= this.EnsureCounted(existing);
+        }
+
+        this._history[index] = message;
+
+        var tokenCount = this.EnsureCounted(message);
+        if (message.IsPinned)
+        {
+            this._pinnedTokenTotal += tokenCount;
+        }
+    }
+
+    private List<ContextMessage> ReassemblePreparedMessages(
+        int totalCount,
+        IReadOnlyList<(int Index, ContextMessage Message)> pinnedSlots,
+        IReadOnlyList<ContextMessage> compactedMessages)
+    {
+        var prepared = new List<ContextMessage>(totalCount);
+        var pinnedIndex = 0;
+        var compactedIndex = 0;
+
+        for (var i = 0; i < totalCount; i++)
+        {
+            if (pinnedIndex < pinnedSlots.Count && pinnedSlots[pinnedIndex].Index == i)
+            {
+                prepared.Add(pinnedSlots[pinnedIndex].Message);
+                pinnedIndex++;
+                continue;
+            }
+
+            prepared.Add(compactedMessages[compactedIndex]);
+            compactedIndex++;
+        }
+
+        return prepared;
+    }
 
     private int EnsureCounted(ContextMessage contextMessage)
     {

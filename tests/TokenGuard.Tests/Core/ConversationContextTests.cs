@@ -3,6 +3,7 @@ using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Contexts;
 using TokenGuard.Core.Enums;
+using TokenGuard.Core.Exceptions;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 
@@ -10,6 +11,35 @@ namespace TokenGuard.Tests.Core;
 
 public sealed class ConversationContextTests
 {
+    [Fact]
+    public void ContextMessage_WithPinnedFlag_RetainsValueAndDefaultsToFalse()
+    {
+        // Arrange
+        var pinned = ContextMessage.FromText(MessageRole.User, "pinned") with { IsPinned = true };
+        var unpinned = ContextMessage.FromText(MessageRole.User, "unpinned");
+
+        // Act
+
+        // Assert
+        pinned.IsPinned.Should().BeTrue();
+        unpinned.IsPinned.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ContextMessage_WithExpression_PreservesPinnedFlagUnlessOverridden()
+    {
+        // Arrange
+        var original = ContextMessage.FromText(MessageRole.User, "pinned") with { IsPinned = true };
+
+        // Act
+        var preserved = original with { State = CompactionState.Masked };
+        var overridden = original with { IsPinned = false };
+
+        // Assert
+        preserved.IsPinned.Should().BeTrue();
+        overridden.IsPinned.Should().BeFalse();
+    }
+
     [Fact]
     public async Task PrepareAsync_WhenEstimateIsBelowThreshold_ReturnsOriginalListAndSkipsCompaction()
     {
@@ -111,6 +141,260 @@ public sealed class ConversationContextTests
         prepared.Should().HaveCount(2);
         prepared[0].Should().BeSameAs(sys1);
         strategy.CompactCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public void AddPinnedMessage_WithText_AppendsPinnedMessageToHistory()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        // Act
+        engine.AddPinnedMessage(MessageRole.User, "durable");
+
+        // Assert
+        engine.History.Should().ContainSingle();
+        engine.History[0].Role.Should().Be(MessageRole.User);
+        engine.History[0].IsPinned.Should().BeTrue();
+        AssertText(engine.History[0], "durable");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void AddPinnedMessage_WithInvalidText_ThrowsArgumentException(string? text)
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        // Act
+        Action act = () => engine.AddPinnedMessage(MessageRole.User, text!);
+
+        // Assert
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void AddPinnedMessage_WithNullContent_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        // Act
+        Action act = () => engine.AddPinnedMessage(MessageRole.User, (IEnumerable<ContentSegment>)null!);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void AddPinnedMessage_WithEmptyContent_ThrowsArgumentException()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        // Act
+        Action act = () => engine.AddPinnedMessage(MessageRole.User, Array.Empty<ContentSegment>());
+
+        // Assert
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void SetSystemPrompt_ProducesPinnedMessage()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        // Act
+        engine.SetSystemPrompt("system");
+
+        // Assert
+        engine.History.Should().ContainSingle();
+        engine.History[0].Role.Should().Be(MessageRole.System);
+        engine.History[0].IsPinned.Should().BeTrue();
+        AssertText(engine.History[0], "system");
+    }
+
+    [Fact]
+    public async Task SetSystemPrompt_WhenReplacingExistingPrompt_ReservedTokensUseNewPinnedTotalOnly()
+    {
+        // Arrange
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("sys-old", 120);
+        counter.SetByText("sys-new", 40);
+        counter.SetByText("user", 800);
+
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
+        counter.Set(compacted, 100);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 100, 1, "TestStrategy", true));
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        engine.SetSystemPrompt("sys-old");
+        engine.SetSystemPrompt("sys-new");
+        engine.AddUserMessage("user");
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        strategy.CompactCalls.Should().Be(1);
+        strategy.LastBudget.ReservedTokens.Should().Be(40);
+        strategy.LastBudget.AvailableTokens.Should().Be(960);
+        prepared[0].IsPinned.Should().BeTrue();
+        AssertText(prepared[0], "sys-new");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenPinnedMessagesExist_PartitionsForStrategyAndAdjustsReservedBudget()
+    {
+        // Arrange
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("p0", 100);
+        counter.SetByText("u1", 250);
+        counter.SetByText("u2", 250);
+        counter.SetByText("p3", 150);
+        counter.SetByText("u4", 250);
+
+        var compactedU1 = ContextMessage.FromText(MessageRole.User, "c1");
+        var compactedU2 = ContextMessage.FromText(MessageRole.User, "c2");
+        var compactedU4 = ContextMessage.FromText(MessageRole.User, "c4");
+        counter.Set(compactedU1, 200);
+        counter.Set(compactedU2, 200);
+        counter.Set(compactedU4, 200);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult(
+            [compactedU1, compactedU2, compactedU4],
+            750,
+            600,
+            2,
+            "TestStrategy",
+            true));
+
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+        engine.AddPinnedMessage(MessageRole.System, "p0");
+        engine.AddUserMessage("u1");
+        engine.AddUserMessage("u2");
+        engine.AddPinnedMessage(MessageRole.User, "p3");
+        engine.AddUserMessage("u4");
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        strategy.LastInput.Should().HaveCount(3);
+        strategy.LastInput.Should().OnlyContain(message => !message.IsPinned);
+        strategy.LastInput.Select(GetText).Should().Equal("u1", "u2", "u4");
+        strategy.LastBudget.ReservedTokens.Should().Be(250);
+        strategy.LastBudget.AvailableTokens.Should().Be(750);
+        prepared.Select(GetText).Should().Equal("p0", "c1", "c2", "p3", "c4");
+        prepared[0].IsPinned.Should().BeTrue();
+        prepared[3].IsPinned.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenPinnedMessagesExceedEmergencyThreshold_ThrowsDiagnosticException()
+    {
+        // Arrange
+        var budget = new ContextBudget(1_000, 0.5, 0.9);
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("pin-a", 500);
+        counter.SetByText("pin-b", 450);
+        var engine = new ConversationContext(budget, counter, new TrackingCompactionStrategy());
+
+        engine.AddPinnedMessage(MessageRole.System, "pin-a");
+        engine.AddPinnedMessage(MessageRole.User, "pin-b");
+
+        // Act
+        Func<Task> act = () => engine.PrepareAsync();
+
+        // Assert
+        var ex = await act.Should().ThrowAsync<PinnedTokenBudgetExceededException>();
+        ex.Which.PinnedTokenTotal.Should().Be(950);
+        ex.Which.EmergencyTriggerTokens.Should().Be(900);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenPinnedTokensExceedCompactionButNotEmergencyThreshold_RunsStrategyNormally()
+    {
+        // Arrange
+        var budget = new ContextBudget(1_000, 0.5, 0.9);
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("pin", 700);
+        counter.SetByText("u1", 150);
+        counter.SetByText("u2", 50);
+
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddPinnedMessage(MessageRole.System, "pin");
+        engine.AddUserMessage("u1");
+        engine.AddUserMessage("u2");
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        strategy.CompactCalls.Should().Be(1);
+        strategy.LastBudget.ReservedTokens.Should().Be(700);
+        strategy.LastBudget.AvailableTokens.Should().Be(300);
+        prepared.Select(GetText).Should().Equal("pin", "u1", "u2");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationRuns_PinnedMessagesAreNeverDropped()
+    {
+        // Arrange
+        var budget = new ContextBudget(1_000, 0.5, 0.9);
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("pin-oldest", 200);
+        counter.SetByText("u1", 300);
+        counter.SetByText("u2", 300);
+        counter.SetByText("pin-middle", 150);
+        counter.SetByText("latest", 200);
+
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddPinnedMessage(MessageRole.System, "pin-oldest");
+        engine.AddUserMessage("u1");
+        engine.AddUserMessage("u2");
+        engine.AddPinnedMessage(MessageRole.User, "pin-middle");
+        engine.AddUserMessage("latest");
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        prepared.Select(GetText).Should().Equal("pin-oldest", "u2", "pin-middle", "latest");
+        prepared.Should().OnlyContain(message => message.IsPinned || GetText(message) == "u2" || GetText(message) == "latest");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenOldestMessageIsPinnedAndOverBudget_PreservesOldestPinnedMessage()
+    {
+        // Arrange
+        var budget = new ContextBudget(1_000, 0.5, 0.9);
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("pin-oldest", 300);
+        counter.SetByText("older", 300);
+        counter.SetByText("latest", 400);
+
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddPinnedMessage(MessageRole.System, "pin-oldest");
+        engine.AddUserMessage("older");
+        engine.AddUserMessage("latest");
+
+        // Act
+        var prepared = await engine.PrepareAsync();
+
+        // Assert
+        prepared.Select(GetText).Should().Equal("pin-oldest", "latest");
+        prepared[0].IsPinned.Should().BeTrue();
     }
 
     [Fact]
@@ -294,6 +578,7 @@ public sealed class ConversationContextTests
 
     [Theory]
     [InlineData("SetSystemPrompt")]
+    [InlineData("AddPinnedMessage")]
     [InlineData("AddUserMessage")]
     [InlineData("RecordModelResponse")]
     [InlineData("RecordToolResult")]
@@ -308,6 +593,7 @@ public sealed class ConversationContextTests
         Func<Task> act = () => member switch
         {
             "SetSystemPrompt"     => Sync(() => engine.SetSystemPrompt("x")),
+            "AddPinnedMessage"    => Sync(() => engine.AddPinnedMessage(MessageRole.User, "x")),
             "AddUserMessage"      => Sync(() => engine.AddUserMessage("x")),
             "RecordModelResponse" => Sync(() => engine.RecordModelResponse([new TextContent("x")])),
             "RecordToolResult"    => Sync(() => engine.RecordToolResult("id", "tool", "x")),
@@ -530,8 +816,8 @@ public sealed class ConversationContextTests
         var newestUser = ContextMessage.FromText(MessageRole.User, "newest-user");
 
         counter.Set(olderUser, 250);
-        counter.Set(newestUser, 500);
-        counter.Set(newestModel, 450);
+        counter.Set(newestUser, 700);
+        counter.Set(newestModel, 550);
 
         var strategyResult = new CompactionResult(
             [olderUser, newestUser, newestModel],
@@ -553,10 +839,11 @@ public sealed class ConversationContextTests
         var prepared = await engine.PrepareAsync();
 
         // Assert
-        prepared.Should().HaveCount(3);
-        prepared.Should().ContainInOrder(systemMessage, newestUser, newestModel);
-        prepared.Should().NotContain(olderUser);
-        prepared.Sum(message => message.TokenCount ?? 0).Should().Be(1100);
+        prepared.Should().HaveCount(2);
+        prepared.Should().ContainInOrder(systemMessage, olderUser);
+        prepared.Should().NotContain(newestUser);
+        prepared.Should().NotContain(newestModel);
+        prepared.Sum(message => message.TokenCount ?? 0).Should().Be(400);
     }
 
     [Fact]
@@ -582,6 +869,16 @@ public sealed class ConversationContextTests
     {
         action();
         return Task.CompletedTask;
+    }
+
+    private static string GetText(ContextMessage message)
+    {
+        return Assert.IsType<TextContent>(Assert.Single(message.Content)).Content;
+    }
+
+    private static void AssertText(ContextMessage message, string expected)
+    {
+        GetText(message).Should().Be(expected);
     }
 
     private sealed class TrackingCompactionStrategy : ICompactionStrategy

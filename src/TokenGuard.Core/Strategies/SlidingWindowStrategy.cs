@@ -16,12 +16,13 @@ namespace TokenGuard.Core.Strategies;
 ///         placeholders to reduce retained context size.
 ///     </para>
 ///     <para>
-///         The strategy walks backward from the newest message and protects messages until either
+///         The strategy walks backward from the newest unpinned message and protects messages until either
 ///         <see cref="SlidingWindowOptions.WindowSize"/> is reached or the protected segment would exceed the
 ///         token allowance derived from <see cref="ContextBudget.AvailableTokens"/> and
-///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/>. Messages before that boundary keep their
-///         ordering and structure, but any <see cref="ToolResultContent"/> blocks are converted into text
-///         placeholders and the message state is marked as <see cref="CompactionState.Masked"/>.
+///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/>. Pinned messages always pass through unchanged and
+///         do not count toward the boundary. Messages before that boundary keep their ordering and structure, but any
+///         <see cref="ToolResultContent"/> blocks are converted into text placeholders and the message state is marked as
+///         <see cref="CompactionState.Masked"/>.
 ///     </para>
 /// </remarks>
 internal sealed class SlidingWindowStrategy : ICompactionStrategy
@@ -67,12 +68,12 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///         An empty <paramref name="messages"/> list is treated as a valid no-op input and is returned
     ///         unchanged so callers can compose compaction without adding special-case guards.
     ///     </para>
-    ///     <para>
-    ///         Messages before the boundary are only modified when they contain <see cref="ToolResultContent"/>.
-    ///         In that case each tool result is replaced with a <see cref="TextContent"/> placeholder built from
-    ///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>, and the returned message clears
-    ///         <see cref="ContextMessage.TokenCount"/> so token estimation can be recomputed against the masked content.
-    ///     </para>
+///     <para>
+///         Messages before the boundary are only modified when they contain <see cref="ToolResultContent"/> and are not
+///         pinned. In that case each tool result is replaced with a <see cref="TextContent"/> placeholder built from
+///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>, and the returned message clears
+///         <see cref="ContextMessage.TokenCount"/> so token estimation can be recomputed against the masked content.
+///     </para>
     /// </remarks>
     /// <param name="messages">The ordered message history to compact.</param>
     /// <param name="budget">The context budget that supplies the available-token limit for the protected window.</param>
@@ -106,6 +107,11 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         for (var i = messages.Count - 1; i >= 0; i--)
         {
+            if (messages[i].IsPinned)
+            {
+                continue;
+            }
+
             if (protectedCount >= this._options.WindowSize)
             {
                 break;
@@ -139,7 +145,9 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         for (var i = 0; i < boundary; i++)
         {
-            result[i] = MaskToolResultsIfNeeded(messages[i], toolNameLookup, this._options.PlaceholderFormat);
+            result[i] = messages[i].IsPinned
+                ? messages[i]
+                : MaskToolResultsIfNeeded(messages[i], toolNameLookup, this._options.PlaceholderFormat);
 
             if (messages[i].State == CompactionState.Original && result[i].State == CompactionState.Masked)
             {

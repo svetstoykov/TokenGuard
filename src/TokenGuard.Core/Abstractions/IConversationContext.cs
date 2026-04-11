@@ -1,4 +1,5 @@
 using TokenGuard.Core.Contexts;
+using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 
@@ -61,6 +62,31 @@ public interface IConversationContext : IDisposable
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
     void SetSystemPrompt(string text);
+
+    /// <summary>
+    /// Appends a pinned message to the conversation history.
+    /// </summary>
+    /// <param name="role">The participant role that produced the message.</param>
+    /// <param name="text">The plain-text payload to record.</param>
+    /// <remarks>
+    /// Pinned messages remain at their recorded position and are excluded from compaction and emergency truncation.
+    /// Use this for durable instructions, constraints, or definitions that must always survive in the prepared payload.
+    /// </remarks>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    void AddPinnedMessage(MessageRole role, string text);
+
+    /// <summary>
+    /// Appends a pinned multi-segment message to the conversation history.
+    /// </summary>
+    /// <param name="role">The participant role that produced the message.</param>
+    /// <param name="content">The ordered content segments that make up the pinned message payload.</param>
+    /// <remarks>
+    /// This overload preserves richer content layouts such as mixed text and tool-use segments while still ensuring the
+    /// recorded message cannot be masked or dropped by later preparation steps.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> contains no segments.</exception>
+    void AddPinnedMessage(MessageRole role, IEnumerable<ContentSegment> content);
 
     /// <summary>
     /// Appends a user message to the conversation history.
@@ -143,8 +169,8 @@ public interface IConversationContext : IDisposable
     /// <para>
     /// If the estimated token total is below the compaction trigger, the current history is returned
     /// directly. If the trigger is reached, the configured compaction strategy is awaited to produce
-    /// a smaller list. System messages are separated from the compactable set and reattached to the
-    /// front of the final result regardless of compaction outcome.
+    /// a smaller list. Pinned messages are separated from the compactable set and reassembled into the
+    /// final result at their original positions regardless of compaction outcome.
     /// </para>
     /// <para>
     /// Calling this method does not modify <see cref="History"/>. It only determines what subset or

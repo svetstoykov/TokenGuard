@@ -18,6 +18,11 @@ namespace TokenGuard.Core.Models;
 /// The record is immutable to external callers. Services may populate <see cref="TokenCount"/> internally as an
 /// optimization so repeated preparation and compaction passes do not need to recount unchanged messages.
 /// </para>
+/// <para>
+/// <see cref="IsPinned"/> marks messages that must survive compaction and emergency truncation unchanged. This keeps
+/// durable instructions, prompts, or constraints embedded in their original conversation position instead of relying on
+/// special handling for a particular role.
+/// </para>
 /// </remarks>
 public sealed record ContextMessage
 {
@@ -57,6 +62,15 @@ public sealed record ContextMessage
     /// Gets the compaction provenance for this message.
     /// </summary>
     public CompactionState State { get; init; } = CompactionState.Original;
+
+    /// <summary>
+    /// Gets a value indicating whether this message must be preserved unchanged through compaction and emergency truncation.
+    /// </summary>
+    /// <remarks>
+    /// Pinning is a behavioral constraint, not a compaction outcome. Pinned messages remain part of the history at their
+    /// recorded position and are excluded from any strategy work that could mask, summarize, or drop them.
+    /// </remarks>
+    public bool IsPinned { get; init; }
 
     /// <summary>
     /// Gets the UTC timestamp captured when the message instance was created.
