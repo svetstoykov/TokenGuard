@@ -1,4 +1,4 @@
-namespace TokenGuard.Core;
+namespace TokenGuard.Core.Defaults;
 
 /// <summary>
 /// Defines the library's default sliding-window compaction profile.

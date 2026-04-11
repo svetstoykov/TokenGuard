@@ -1,9 +1,11 @@
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Contexts;
+using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Core.TokenCounting;
 
-namespace TokenGuard.Core;
+namespace TokenGuard.Core.Configuration;
 
 /// <summary>
 ///     Provides a fluent API for configuring <see cref="ConversationContextConfiguration"/> instances.

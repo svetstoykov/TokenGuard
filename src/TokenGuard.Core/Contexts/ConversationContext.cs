@@ -1,10 +1,9 @@
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
-
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 
-namespace TokenGuard.Core;
+namespace TokenGuard.Core.Contexts;
 
 /// <summary>
 /// Represents the state of one LLM conversation. It records the full message history and prepares

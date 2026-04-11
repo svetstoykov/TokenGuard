@@ -1,7 +1,8 @@
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Models;
 
-namespace TokenGuard.Core;
+namespace TokenGuard.Core.Contexts;
 
 internal sealed class ConversationContextFactory : IConversationContextFactory
 {
@@ -21,7 +22,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// </remarks>
     internal ConversationContextFactory(ConversationContextConfiguration config)
     {
-        _default = config;
+        this._default = config;
     }
 
     /// <summary>
@@ -45,7 +46,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     internal ConversationContextFactory SetDefault(ConversationContextConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        _default = config;
+        this._default = config;
         return this;
     }
 
@@ -68,7 +69,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(config);
-        _named[name] = config;
+        this._named[name] = config;
         return this;
     }
 
@@ -84,7 +85,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// produced by this factory.
     /// </remarks>
     public IConversationContext Create() =>
-        new ConversationContext(_default.Budget, _default.Counter, _default.Strategy);
+        new ConversationContext(this._default.Budget, this._default.Counter, this._default.Strategy);
 
     /// <summary>
     /// Creates a new <see cref="ConversationContext"/> using a previously registered named configuration.
@@ -107,7 +108,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// </exception>
     public IConversationContext Create(string name)
     {
-        if (!_named.TryGetValue(name, out var config))
+        if (!this._named.TryGetValue(name, out var config))
             throw new InvalidOperationException($"No configuration registered for context name '{name}'.");
 
         return new ConversationContext(config.Budget, config.Counter, config.Strategy);

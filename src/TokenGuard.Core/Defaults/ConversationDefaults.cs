@@ -1,6 +1,7 @@
+using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Models;
 
-namespace TokenGuard.Core;
+namespace TokenGuard.Core.Defaults;
 
 /// <summary>
 /// Defines the library's default conversation-context profile.
