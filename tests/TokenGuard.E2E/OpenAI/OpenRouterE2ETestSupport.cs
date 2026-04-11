@@ -7,7 +7,7 @@ namespace TokenGuard.E2E.OpenAI;
 /// <summary>
 /// Builds live OpenRouter test dependencies used by the E2E agent-loop suite.
 /// </summary>
-internal static class OpenRouterE2ETestSupport
+public static class OpenRouterE2ETestSupport
 {
     private const string ModelName = "qwen/qwen3.6-plus";
     private static readonly Uri OpenRouterEndpoint = new("https://openrouter.ai/api/v1");

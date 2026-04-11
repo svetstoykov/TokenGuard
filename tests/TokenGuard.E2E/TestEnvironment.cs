@@ -5,7 +5,7 @@ namespace TokenGuard.E2E;
 /// <summary>
 /// Resolves test-only environment variables from process state or the local E2E dotenv file.
 /// </summary>
-internal static class TestEnvironment
+public static class TestEnvironment
 {
     /// <summary>
     /// Returns required environment variable value, falling back to `tests/TokenGuard.E2E/.env.local`.

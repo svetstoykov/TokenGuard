@@ -3,7 +3,7 @@ namespace TokenGuard.E2E;
 /// <summary>
 /// Represents a temporary workspace directory used by a single E2E run.
 /// </summary>
-internal sealed record TestWorkspace(string DirectoryPath) : IDisposable
+public sealed record TestWorkspace(string DirectoryPath) : IDisposable
 {
     /// <summary>
     /// Creates an empty temporary workspace under the system temp directory.
