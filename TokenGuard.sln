@@ -17,7 +17,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{C24B
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.OpenAI", "src\TokenGuard.Extensions.OpenAI\TokenGuard.Extensions.OpenAI.csproj", "{C37F9AD0-5870-4386-97DA-134759F0CC88}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.Anthropic", "TokenGuard.Extensions.Anthropic\TokenGuard.Extensions.Anthropic.csproj", "{051F2D5B-B125-4F11-AC51-3A9EC21D4742}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.Anthropic", "src\TokenGuard.Extensions.Anthropic\TokenGuard.Extensions.Anthropic.csproj", "{051F2D5B-B125-4F11-AC51-3A9EC21D4742}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.E2E", "tests\TokenGuard.E2E\TokenGuard.E2E.csproj", "{8154C55B-3AAD-45D9-B65F-07C9BC7E4968}"
 EndProject
