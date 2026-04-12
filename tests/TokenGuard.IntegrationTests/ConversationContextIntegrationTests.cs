@@ -90,7 +90,7 @@ public sealed class ConversationContextIntegrationTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenConversationNeedsMultipleCompactionPasses_MasksOnlyTheLargeUnprotectedToolResults()
+    public async Task PrepareAsync_WhenConversationNeedsMultipleCompactionPasses_PreservesGuaranteedProtectedTailAndMasksOnlyOlderToolResults()
     {
         // Arrange
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.80);
@@ -126,8 +126,8 @@ public sealed class ConversationContextIntegrationTests
             because: "preparing an over-budget conversation should return a compacted projection");
 
         var maskedCount = prep2.Count(m => m.State == CompactionState.Masked);
-        maskedCount.Should().Be(2,
-            because: "both oversized tool results fall outside the protected window and should be masked");
+        maskedCount.Should().Be(1,
+            because: "the guaranteed protected tail should keep the recent oversized tool result intact while masking older tool output outside the window");
 
         engine.AddUserMessage("Thanks, what's next?");
 
@@ -136,8 +136,8 @@ public sealed class ConversationContextIntegrationTests
             because: "the conversation should still require compaction after the third user turn");
 
         var finalMaskedCount = prep3.Count(m => m.State == CompactionState.Masked);
-        finalMaskedCount.Should().Be(2,
-            because: "adding a small follow-up should not unmask previously compacted tool results");
+        finalMaskedCount.Should().Be(1,
+            because: "adding a small follow-up should not unmask previously compacted older tool results or force the protected recent tail to be masked");
 
         prep3[^1].Should().BeSameAs(engine.History[^1],
             because: "the latest user message should remain protected when it fits inside the window");

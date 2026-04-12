@@ -10,6 +10,7 @@ using TokenGuard.E2E.OpenAI;
 using TokenGuard.E2E.Tasks;
 using TokenGuard.Extensions.OpenAI;
 using TokenGuard.Samples.Benchmark.Models;
+using TokenGuard.Samples.Benchmark.Reporting;
 
 namespace TokenGuard.Samples.Benchmark;
 
@@ -33,6 +34,8 @@ public sealed class BenchmarkRunner
     /// Gets model identifier used by benchmark runner.
     /// </summary>
     public const string ModelName = "openai/gpt-5.4-nano";
+
+    private readonly JsonReportWriter reportWriter = new();
 
     /// <summary>
     /// Executes selected task under each supplied configuration and returns report model.
@@ -71,7 +74,7 @@ public sealed class BenchmarkRunner
         BenchmarkConfiguration configuration,
         CancellationToken cancellationToken)
     {
-        using var workspace = TestWorkspace.Create($"benchmark-{task.Name}-{configuration.Name}");
+        using var workspace = TestWorkspace.CreateInBaseDirectory($"{task.Name}-{configuration.Name}");
         await task.SeedWorkspaceAsync(workspace.DirectoryPath);
 
         var tools = OpenRouterE2ETestSupport.CreateTools(workspace.DirectoryPath);
@@ -89,6 +92,7 @@ public sealed class BenchmarkRunner
         var totalOutputTokens = 0;
         var compactionEvents = 0;
         var completed = false;
+        var runId = $"{task.Name}-{configuration.Name}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmssfff}";
         string? finalResponseText = null;
         string? failureReason = null;
 
@@ -121,15 +125,35 @@ public sealed class BenchmarkRunner
         }
         catch (Exception ex) when (configuration.Mode == BenchmarkMode.Raw && IsContextLengthError(ex))
         {
-            failureReason = ex.Message;
             completed = false;
-            Console.WriteLine($"[{configuration.Name}] context window exceeded; continuing benchmark");
+            failureReason = await PersistFailureAsync(
+                task,
+                configuration,
+                parameters,
+                totalInputTokens,
+                totalOutputTokens,
+                compactionEvents,
+                runId,
+                ex,
+                cancellationToken);
+
+            Console.WriteLine($"[{configuration.Name}] context window exceeded; {failureReason}");
         }
         catch (Exception ex)
         {
-            failureReason = ex.Message;
             completed = false;
-            Console.WriteLine($"[{configuration.Name}] failed: {ex.Message}");
+            failureReason = await PersistFailureAsync(
+                task,
+                configuration,
+                parameters,
+                totalInputTokens,
+                totalOutputTokens,
+                compactionEvents,
+                runId,
+                ex,
+                cancellationToken);
+
+            Console.WriteLine($"[{configuration.Name}] failed: {failureReason}");
         }
 
         stopwatch.Stop();
@@ -336,12 +360,40 @@ public sealed class BenchmarkRunner
             raw.Completed && managed.Completed);
     }
 
+    private Task<string> PersistFailureAsync(
+        AgentLoopTaskDefinition task,
+        BenchmarkConfiguration configuration,
+        ExecutionParameters parameters,
+        int totalInputTokens,
+        int totalOutputTokens,
+        int compactionEvents,
+        string runId,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return this.reportWriter.WriteFailureAsync(
+            task.Name,
+            configuration,
+            ModelName,
+            parameters.WorkspaceDirectory,
+            runId,
+            parameters.Turns.Count,
+            totalInputTokens,
+            totalOutputTokens,
+            compactionEvents,
+            parameters.Turns.LastOrDefault(),
+            exception);
+    }
+
     private static bool IsContextLengthError(Exception exception)
     {
         return exception.Message.Contains("context", StringComparison.OrdinalIgnoreCase)
                && (exception.Message.Contains("length", StringComparison.OrdinalIgnoreCase)
-                   || exception.Message.Contains("window", StringComparison.OrdinalIgnoreCase)
-                   || exception.Message.Contains("maximum", StringComparison.OrdinalIgnoreCase)
-                   || exception.Message.Contains("too large", StringComparison.OrdinalIgnoreCase));
+                    || exception.Message.Contains("window", StringComparison.OrdinalIgnoreCase)
+                    || exception.Message.Contains("maximum", StringComparison.OrdinalIgnoreCase)
+                    || exception.Message.Contains("too large", StringComparison.OrdinalIgnoreCase));
     }
+
 }

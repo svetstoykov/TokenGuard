@@ -31,7 +31,7 @@ public sealed record BenchmarkConfiguration(
     public static BenchmarkConfiguration SlidingWindow { get; } = new(
         Name: "SlidingWindow",
         Mode: BenchmarkMode.SlidingWindow,
-        MaxTokens: 50_000,
+        MaxTokens: 14_000,
         CompactionThreshold: 0.80,
         MaxIterations: 50);
 }
