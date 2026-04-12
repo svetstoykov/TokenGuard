@@ -346,10 +346,16 @@ public sealed class BenchmarkRunner
         messages.Add(assistant);
     }
 
-    private static BenchmarkComparison BuildComparison(IReadOnlyList<RunResult> runs)
+    private static BenchmarkComparison? BuildComparison(IReadOnlyList<RunResult> runs)
     {
-        var raw = runs.Single(run => run.Configuration == BenchmarkConfiguration.Raw.Name);
-        var managed = runs.Single(run => run.Configuration == BenchmarkConfiguration.SlidingWindow.Name);
+        var raw = runs.SingleOrDefault(run => run.Configuration == BenchmarkConfiguration.Raw.Name);
+        var managed = runs.SingleOrDefault(run => run.Configuration == BenchmarkConfiguration.SlidingWindow.Name);
+
+        if (raw is null || managed is null)
+        {
+            return null;
+        }
+
         var savingsPercent = raw.TotalInputTokens == 0
             ? 0
             : ((raw.TotalInputTokens - managed.TotalInputTokens) / (double)raw.TotalInputTokens) * 100;

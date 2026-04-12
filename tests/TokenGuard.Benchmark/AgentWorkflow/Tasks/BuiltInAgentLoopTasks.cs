@@ -38,9 +38,9 @@ public static class BuiltInAgentLoopTasks
     public static AgentLoopTaskDefinition ApiContractAudit => ApiContractAuditTask.Create();
 
     /// <summary>
-    /// Gets the escalating implementation drill benchmark task definition.
+    /// Gets the database schema evolution audit benchmark task definition.
     /// </summary>
-    public static AgentLoopTaskDefinition EscalatingImplementationDrill => EscalatingImplementationDrillTask.Create();
+    public static AgentLoopTaskDefinition DatabaseSchemaEvolutionAudit => DatabaseSchemaEvolutionAuditTask.Create();
 
     /// <summary>
     /// Gets all built-in benchmark task definitions.
@@ -53,7 +53,7 @@ public static class BuiltInAgentLoopTasks
         DependencyAuditTask.Create(),
         CodeReviewTask.Create(),
         ReleaseAuditTask.Create(),
-        EscalatingImplementationDrillTask.Create(),
-        ApiContractAuditTask.Create()
+        ApiContractAuditTask.Create(),
+        DatabaseSchemaEvolutionAuditTask.Create()
     ];
 }
