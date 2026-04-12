@@ -1,4 +1,4 @@
-namespace TokenGuard.E2E.Tasks;
+namespace TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
 /// <summary>
 /// Describes one E2E agent-loop task: how to seed its workspace, what to tell the model,
@@ -21,5 +21,5 @@ public sealed class AgentLoopTaskDefinition(
     public Func<string, Task> SeedWorkspaceAsync { get; } = seedWorkspaceAsync;
     public Func<string, string?, Task> AssertOutcomeAsync { get; } = assertOutcomeAsync;
 
-    public override string ToString() => Name;
+    public override string ToString() => this.Name;
 }

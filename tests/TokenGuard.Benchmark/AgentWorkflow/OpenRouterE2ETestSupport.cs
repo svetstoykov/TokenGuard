@@ -1,8 +1,9 @@
 using OpenAI;
 using OpenAI.Chat;
+using TokenGuard.Benchmark.Helpers;
 using TokenGuard.Tools.Tools;
 
-namespace TokenGuard.E2E.OpenAI;
+namespace TokenGuard.Benchmark.AgentWorkflow;
 
 /// <summary>
 /// Builds live OpenRouter test dependencies used by the E2E agent-loop suite.

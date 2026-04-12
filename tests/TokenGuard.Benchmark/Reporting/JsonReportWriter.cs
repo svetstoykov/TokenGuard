@@ -1,7 +1,7 @@
 using System.Collections;
 using System.Reflection;
 using System.Text.Json;
-using TokenGuard.Benchmark.Models;
+using TokenGuard.Benchmark.AgentWorkflow.Models;
 
 namespace TokenGuard.Benchmark.Reporting;
 

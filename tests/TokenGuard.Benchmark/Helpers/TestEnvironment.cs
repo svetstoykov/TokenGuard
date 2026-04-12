@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace TokenGuard.E2E;
+namespace TokenGuard.Benchmark.Helpers;
 
 /// <summary>
 /// Resolves test-only environment variables from process state or the local E2E dotenv file.

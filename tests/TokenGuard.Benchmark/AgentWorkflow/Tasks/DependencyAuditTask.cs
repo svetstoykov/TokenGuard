@@ -1,6 +1,6 @@
 using FluentAssertions;
 
-namespace TokenGuard.E2E.Tasks;
+namespace TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
 /// <summary>
 /// Defines a dependency-audit scenario with mixed vulnerability and licence outcomes.

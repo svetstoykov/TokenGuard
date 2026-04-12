@@ -3,13 +3,19 @@
     <ItemGroup>
         <ProjectReference Include="..\..\src\TokenGuard.Core\TokenGuard.Core.csproj"/>
         <ProjectReference Include="..\..\src\TokenGuard.Extensions.OpenAI\TokenGuard.Extensions.OpenAI.csproj"/>
-        <ProjectReference Include="..\TokenGuard.E2E\TokenGuard.E2E.csproj"/>
         <ProjectReference Include="..\..\samples\TokenGuard.Tools\TokenGuard.Tools.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="FluentAssertions" Version="8.9.0" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0"/>
         <PackageReference Include="OpenAI" Version="2.10.0"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update=".env.local">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
     </ItemGroup>
 
     <PropertyGroup>

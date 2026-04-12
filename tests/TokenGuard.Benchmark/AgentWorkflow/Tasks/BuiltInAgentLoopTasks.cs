@@ -1,4 +1,6 @@
-namespace TokenGuard.E2E.Tasks;
+using TokenGuard.E2E.Tasks;
+
+namespace TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
 /// <summary>
 /// Provides public access to the built-in E2E agent-loop task definitions.

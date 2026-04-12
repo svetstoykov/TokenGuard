@@ -1,7 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 
-namespace TokenGuard.E2E.Tasks;
+namespace TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
 /// <summary>
 /// Defines a heavy mixed coding, review, and CI triage scenario designed to accumulate tokens in staged waves.

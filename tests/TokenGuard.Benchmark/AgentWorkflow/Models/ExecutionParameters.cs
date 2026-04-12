@@ -1,8 +1,8 @@
 using OpenAI.Chat;
-using TokenGuard.E2E.Tasks;
+using TokenGuard.Benchmark.AgentWorkflow.Tasks;
 using TokenGuard.Tools.Tools;
 
-namespace TokenGuard.Benchmark.Models;
+namespace TokenGuard.Benchmark.AgentWorkflow.Models;
 
 /// <summary>
 /// Bundles infrastructure state shared across both raw and managed benchmark execution paths.

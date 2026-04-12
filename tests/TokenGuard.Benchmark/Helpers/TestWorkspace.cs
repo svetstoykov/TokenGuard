@@ -1,4 +1,4 @@
-namespace TokenGuard.E2E;
+namespace TokenGuard.Benchmark.Helpers;
 
 /// <summary>
 /// Represents a workspace directory used by a single E2E run.

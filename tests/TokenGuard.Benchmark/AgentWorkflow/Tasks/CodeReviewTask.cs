@@ -1,4 +1,5 @@
 using FluentAssertions;
+using TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
 namespace TokenGuard.E2E.Tasks;
 

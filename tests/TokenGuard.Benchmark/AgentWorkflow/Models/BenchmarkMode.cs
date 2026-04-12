@@ -1,4 +1,4 @@
-namespace TokenGuard.Benchmark.Models;
+namespace TokenGuard.Benchmark.AgentWorkflow.Models;
 
 /// <summary>
 /// Identifies how benchmark run manages conversation history.

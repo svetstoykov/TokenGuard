@@ -1,4 +1,4 @@
-namespace TokenGuard.Benchmark.Models;
+namespace TokenGuard.Benchmark.AgentWorkflow.Models;
 
 /// <summary>
 /// Represents one benchmark configuration executed by benchmark runner.

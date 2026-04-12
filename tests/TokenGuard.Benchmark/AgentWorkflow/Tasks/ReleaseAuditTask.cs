@@ -1,6 +1,6 @@
 using FluentAssertions;
 
-namespace TokenGuard.E2E.Tasks;
+namespace TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
 /// <summary>
 /// Defines a release-audit scenario that makes the model assemble notes, manifest data, and changelog updates.

@@ -1,7 +1,8 @@
 using TokenGuard.Benchmark;
-using TokenGuard.Benchmark.Models;
+using TokenGuard.Benchmark.AgentWorkflow;
+using TokenGuard.Benchmark.AgentWorkflow.Models;
+using TokenGuard.Benchmark.AgentWorkflow.Tasks;
 using TokenGuard.Benchmark.Reporting;
-using TokenGuard.E2E.Tasks;
 
 var task = SelectTask();
 var runner = new BenchmarkRunner();

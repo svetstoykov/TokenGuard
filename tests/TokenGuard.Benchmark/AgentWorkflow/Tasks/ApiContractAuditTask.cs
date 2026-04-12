@@ -1,6 +1,6 @@
 using FluentAssertions;
 
-namespace TokenGuard.E2E.Tasks;
+namespace TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
 /// <summary>
 /// Defines a multi-version API contract audit scenario that forces the model to diff five consecutive API spec

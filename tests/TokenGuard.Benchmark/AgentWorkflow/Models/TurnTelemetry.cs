@@ -1,4 +1,4 @@
-namespace TokenGuard.Benchmark.Models;
+namespace TokenGuard.Benchmark.AgentWorkflow.Models;
 
 /// <summary>
 /// Represents per-turn benchmark telemetry captured during one run.

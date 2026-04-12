@@ -1,4 +1,4 @@
-namespace TokenGuard.Benchmark.Models;
+namespace TokenGuard.Benchmark.AgentWorkflow.Models;
 
 /// <summary>
 /// Represents persisted JSON report for one benchmark task execution.

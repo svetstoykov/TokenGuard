@@ -1,18 +1,17 @@
 using Microsoft.Extensions.DependencyInjection;
 using OpenAI.Chat;
-using TokenGuard.Benchmark.Models;
+using TokenGuard.Benchmark.AgentWorkflow.Models;
+using TokenGuard.Benchmark.AgentWorkflow.Tasks;
+using TokenGuard.Benchmark.Helpers;
 using TokenGuard.Benchmark.Reporting;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Extensions;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
-using TokenGuard.E2E;
-using TokenGuard.E2E.OpenAI;
-using TokenGuard.E2E.Tasks;
 using TokenGuard.Extensions.OpenAI;
 
-namespace TokenGuard.Benchmark;
+namespace TokenGuard.Benchmark.AgentWorkflow;
 
 /// <summary>
 /// Executes raw and managed benchmark runs for seeded E2E task definitions.
