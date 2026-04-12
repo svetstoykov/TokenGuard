@@ -1,4 +1,4 @@
-namespace TokenGuard.Samples.Benchmark.Models;
+namespace TokenGuard.Benchmark.Models;
 
 /// <summary>
 /// Represents derived comparison metrics between raw and managed runs.

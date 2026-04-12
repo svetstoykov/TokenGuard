@@ -3,8 +3,8 @@
     <ItemGroup>
         <ProjectReference Include="..\..\src\TokenGuard.Core\TokenGuard.Core.csproj"/>
         <ProjectReference Include="..\..\src\TokenGuard.Extensions.OpenAI\TokenGuard.Extensions.OpenAI.csproj"/>
-        <ProjectReference Include="..\..\tests\TokenGuard.E2E\TokenGuard.E2E.csproj"/>
-        <ProjectReference Include="..\TokenGuard.Tools\TokenGuard.Tools.csproj"/>
+        <ProjectReference Include="..\TokenGuard.E2E\TokenGuard.E2E.csproj"/>
+        <ProjectReference Include="..\..\samples\TokenGuard.Tools\TokenGuard.Tools.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

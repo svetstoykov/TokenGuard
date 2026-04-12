@@ -1,9 +1,9 @@
 using System.Collections;
 using System.Reflection;
 using System.Text.Json;
-using TokenGuard.Samples.Benchmark.Models;
+using TokenGuard.Benchmark.Models;
 
-namespace TokenGuard.Samples.Benchmark.Reporting;
+namespace TokenGuard.Benchmark.Reporting;
 
 /// <summary>
 /// Writes benchmark reports to timestamped JSON files.

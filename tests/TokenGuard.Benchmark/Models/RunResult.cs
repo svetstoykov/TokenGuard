@@ -1,4 +1,4 @@
-namespace TokenGuard.Samples.Benchmark.Models;
+namespace TokenGuard.Benchmark.Models;
 
 /// <summary>
 /// Represents full result of one benchmark configuration run.

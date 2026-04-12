@@ -1,6 +1,6 @@
-using TokenGuard.Samples.Benchmark.Models;
+using TokenGuard.Benchmark.Models;
 
-namespace TokenGuard.Samples.Benchmark.Reporting;
+namespace TokenGuard.Benchmark.Reporting;
 
 /// <summary>
 /// Represents persisted diagnostic details for failed benchmark runs.

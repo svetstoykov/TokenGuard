@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using OpenAI.Chat;
+using TokenGuard.Benchmark.Models;
+using TokenGuard.Benchmark.Reporting;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Extensions;
@@ -9,10 +11,8 @@ using TokenGuard.E2E;
 using TokenGuard.E2E.OpenAI;
 using TokenGuard.E2E.Tasks;
 using TokenGuard.Extensions.OpenAI;
-using TokenGuard.Samples.Benchmark.Models;
-using TokenGuard.Samples.Benchmark.Reporting;
 
-namespace TokenGuard.Samples.Benchmark;
+namespace TokenGuard.Benchmark;
 
 /// <summary>
 /// Executes raw and managed benchmark runs for seeded E2E task definitions.
@@ -126,7 +126,7 @@ public sealed class BenchmarkRunner
         catch (Exception ex) when (configuration.Mode == BenchmarkMode.Raw && IsContextLengthError(ex))
         {
             completed = false;
-            failureReason = await PersistFailureAsync(
+            failureReason = await this.PersistFailureAsync(
                 task,
                 configuration,
                 parameters,
@@ -142,7 +142,7 @@ public sealed class BenchmarkRunner
         catch (Exception ex)
         {
             completed = false;
-            failureReason = await PersistFailureAsync(
+            failureReason = await this.PersistFailureAsync(
                 task,
                 configuration,
                 parameters,

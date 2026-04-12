@@ -14,7 +14,7 @@
         <InternalsVisibleTo Include="TokenGuard.Tests" />
         <InternalsVisibleTo Include="TokenGuard.IntegrationTests" />
         <InternalsVisibleTo Include="TokenGuard.Samples.Console" />
-        <InternalsVisibleTo Include="TokenGuard.Samples.Benchmark" />
+        <InternalsVisibleTo Include="TokenGuard.Benchmark" />
     </ItemGroup>
 
 </Project>
