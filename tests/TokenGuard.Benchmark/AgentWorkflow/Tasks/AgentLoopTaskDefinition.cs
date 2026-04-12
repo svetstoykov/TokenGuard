@@ -11,7 +11,8 @@ public sealed class AgentLoopTaskDefinition(
     string userMessage,
     string completionMarker,
     Func<string, Task> seedWorkspaceAsync,
-    Func<string, string?, Task> assertOutcomeAsync)
+    Func<string, string?, Task> assertOutcomeAsync,
+    TaskSize size = TaskSize.Small)
 {
     public string Name { get; } = name;
     public string ConversationName { get; } = conversationName;
@@ -20,6 +21,7 @@ public sealed class AgentLoopTaskDefinition(
     public string CompletionMarker { get; } = completionMarker;
     public Func<string, Task> SeedWorkspaceAsync { get; } = seedWorkspaceAsync;
     public Func<string, string?, Task> AssertOutcomeAsync { get; } = assertOutcomeAsync;
+    public TaskSize Size { get; } = size;
 
     public override string ToString() => this.Name;
 }

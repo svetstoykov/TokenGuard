@@ -37,7 +37,8 @@ internal static class DependencyAuditTask
             "Do not claim completion until audit-report.md, upgrade-plan.txt, and compliance-matrix.txt all exist and are populated.",
         completionMarker: CompletionMarker,
         seedWorkspaceAsync: SeedAsync,
-        assertOutcomeAsync: AssertAsync);
+        assertOutcomeAsync: AssertAsync,
+        size: TaskSize.Small);
 
     /// <summary>
     /// Seeds dependency, advisory, and policy files that require cross-file reasoning and output generation.

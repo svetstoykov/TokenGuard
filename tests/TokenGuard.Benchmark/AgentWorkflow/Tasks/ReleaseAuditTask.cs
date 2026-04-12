@@ -40,7 +40,8 @@ internal static class ReleaseAuditTask
             "Do not claim completion until all three output files are written and verified.",
         completionMarker: CompletionMarker,
         seedWorkspaceAsync: SeedAsync,
-        assertOutcomeAsync: AssertAsync);
+        assertOutcomeAsync: AssertAsync,
+        size: TaskSize.Small);
 
     /// <summary>
     /// Seeds release inputs and historical artefacts for the audit workflow.

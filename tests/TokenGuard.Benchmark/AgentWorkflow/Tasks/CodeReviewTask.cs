@@ -1,7 +1,6 @@
 using FluentAssertions;
-using TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
-namespace TokenGuard.E2E.Tasks;
+namespace TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
 /// <summary>
 /// Defines a seeded code-review scenario that forces the model to inspect multiple flawed source files.
@@ -35,7 +34,8 @@ internal static class CodeReviewTask
             "Do not claim completion until review-report.md, action-items.txt, and all three source-file headers are in place.",
         completionMarker: CompletionMarker,
         seedWorkspaceAsync: SeedAsync,
-        assertOutcomeAsync: AssertAsync);
+        assertOutcomeAsync: AssertAsync,
+        size: TaskSize.Small);
 
     /// <summary>
     /// Seeds a workspace with review rules, flawed modules, and enough context volume to trigger tool use.

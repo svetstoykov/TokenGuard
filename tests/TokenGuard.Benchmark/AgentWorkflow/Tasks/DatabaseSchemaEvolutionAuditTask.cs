@@ -60,7 +60,8 @@ internal static class DatabaseSchemaEvolutionAuditTask
             "  Do not claim completion until all six output files exist and are verified.",
         completionMarker: CompletionMarker,
         seedWorkspaceAsync: SeedAsync,
-        assertOutcomeAsync: AssertAsync);
+        assertOutcomeAsync: AssertAsync,
+        size: TaskSize.ExtraLarge);
 
     /// <summary>
     /// Seeds the workspace with five verbose DDL schema files, five ORM entity snapshots, a migration-rules

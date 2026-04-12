@@ -32,7 +32,7 @@ var resultsDirectory = ReadText("Results directory", Path.Combine(AppContext.Bas
 var configurations = CreateConfigurations(selectedModes, maxIterations, maxTokens, compactionThreshold);
 
 Console.WriteLine();
-Console.WriteLine($"Tasks: {string.Join(", ", selectedTasks.Select(static task => task.Name))}");
+Console.WriteLine($"Tasks: {string.Join(", ", selectedTasks.Select(static task => $"{task.Name} [{task.Size}]"))}");
 Console.WriteLine($"Configurations: {string.Join(", ", configurations.Select(DescribeConfiguration))}");
 Console.WriteLine($"Results: {resultsDirectory}");
 Console.WriteLine();
@@ -72,7 +72,7 @@ static AgentLoopTaskDefinition SelectTask(IReadOnlyList<AgentLoopTaskDefinition>
 
     for (var i = 0; i < tasks.Count; i++)
     {
-        Console.WriteLine($"{i + 1}. {tasks[i].Name}");
+        Console.WriteLine($"{i + 1}. {tasks[i].Name} [{tasks[i].Size}]");
     }
 
     Console.Write("Choice [1]: ");

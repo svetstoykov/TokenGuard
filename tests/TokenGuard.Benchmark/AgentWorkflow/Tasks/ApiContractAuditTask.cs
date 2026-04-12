@@ -50,7 +50,8 @@ internal static class ApiContractAuditTask
             "Do not claim completion until all six output files exist and are verified.",
         completionMarker: CompletionMarker,
         seedWorkspaceAsync: SeedAsync,
-        assertOutcomeAsync: AssertAsync);
+        assertOutcomeAsync: AssertAsync,
+        size: TaskSize.Large);
 
     /// <summary>
     /// Seeds the workspace with five verbose API specification files, a deprecation policy, and a client registry.

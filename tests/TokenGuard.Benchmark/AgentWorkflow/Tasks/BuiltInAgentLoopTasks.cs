@@ -1,5 +1,3 @@
-using TokenGuard.E2E.Tasks;
-
 namespace TokenGuard.Benchmark.AgentWorkflow.Tasks;
 
 /// <summary>
