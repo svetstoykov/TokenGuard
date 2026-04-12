@@ -277,8 +277,10 @@ public sealed class SlidingWindowStrategyTests
 
         // Assert
         var masked = compacted.Messages[0];
-        var text = Assert.IsType<TextContent>(Assert.Single(masked.Segments));
-        Assert.Equal("[Tool result cleared — call_1, call_1]", text.Content);
+        var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(masked.Segments));
+        Assert.Equal("call_1", toolResult.ToolCallId);
+        Assert.Equal("call_1", toolResult.ToolName);
+        Assert.Equal("[Tool result cleared — call_1, call_1]", toolResult.Content);
         Assert.Equal(8, compacted.TokensBefore);
         Assert.Equal(5, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
@@ -341,7 +343,10 @@ public sealed class SlidingWindowStrategyTests
         // Assert
         Assert.Equal(3, compactedBlocks.Count);
         Assert.Equal("prefix", Assert.IsType<TextContent>(compactedBlocks[0]).Content);
-        Assert.Equal("[Tool result cleared — call_1, call_1]", Assert.IsType<TextContent>(compactedBlocks[1]).Content);
+        var maskedToolResult = Assert.IsType<ToolResultContent>(compactedBlocks[1]);
+        Assert.Equal("call_1", maskedToolResult.ToolCallId);
+        Assert.Equal("call_1", maskedToolResult.ToolName);
+        Assert.Equal("[Tool result cleared — call_1, call_1]", maskedToolResult.Content);
         Assert.Equal("suffix", Assert.IsType<TextContent>(compactedBlocks[2]).Content);
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
@@ -404,8 +409,10 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        var text = Assert.IsType<TextContent>(Assert.Single(compacted.Messages[1].Segments));
-        Assert.Equal("[Tool result cleared — calculator, call_1]", text.Content);
+        var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[1].Segments));
+        Assert.Equal("call_1", toolResult.ToolCallId);
+        Assert.Equal("calculator", toolResult.ToolName);
+        Assert.Equal("[Tool result cleared — calculator, call_1]", toolResult.Content);
         Assert.Equal(15, compacted.TokensBefore);
         Assert.Equal(9, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
@@ -430,8 +437,10 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        var text = Assert.IsType<TextContent>(Assert.Single(compacted.Messages[0].Segments));
-        Assert.Equal("[Tool result cleared — call_missing, call_missing]", text.Content);
+        var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[0].Segments));
+        Assert.Equal("call_missing", toolResult.ToolCallId);
+        Assert.Equal("call_missing", toolResult.ToolName);
+        Assert.Equal("[Tool result cleared — call_missing, call_missing]", toolResult.Content);
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);

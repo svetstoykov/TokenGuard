@@ -226,7 +226,10 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
                     ? toolName
                     : toolResult.ToolCallId;
 
-                replacedContent[i] = new TextContent(string.Format(placeholderFormat, resolvedName, toolResult.ToolCallId));
+                replacedContent[i] = new ToolResultContent(
+                    toolResult.ToolCallId,
+                    resolvedName,
+                    string.Format(placeholderFormat, resolvedName, toolResult.ToolCallId));
                 continue;
             }
 

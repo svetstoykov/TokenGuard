@@ -113,6 +113,164 @@ public sealed class OpenAIExtensionsTests
     }
 
     [Fact]
+    public void ForOpenAI_WhenToolMessageIsMaskedWithToolResultContent_EmitsToolChatMessage()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            new ContextMessage
+            {
+                Role = MessageRole.Model,
+                Segments =
+                [
+                    new ToolUseContent("call_1", "search", "{\"query\":\"token guard\"}"),
+                ],
+            },
+            new ContextMessage
+            {
+                Role = MessageRole.Tool,
+                State = CompactionState.Masked,
+                Segments =
+                [
+                    new ToolResultContent("call_1", "search", "[Tool result cleared - search, call_1]"),
+                ],
+            },
+        ];
+
+        // Act
+        var result = messages.ForOpenAI();
+
+        // Assert
+        result.Should().HaveCount(2);
+
+        var assistant = result[0].Should().BeOfType<AssistantChatMessage>().Subject;
+        assistant.ToolCalls.Should().ContainSingle();
+        assistant.ToolCalls[0].Id.Should().Be("call_1");
+
+        var tool = result[1].Should().BeOfType<ToolChatMessage>().Subject;
+        tool.ToolCallId.Should().Be("call_1");
+        tool.Content[0].Text.Should().Be("[Tool result cleared - search, call_1]");
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenMaskedAndUnmaskedToolMessagesShareToolCalls_EmitsToolChatMessageForEachCall()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            new ContextMessage
+            {
+                Role = MessageRole.Model,
+                Segments =
+                [
+                    new ToolUseContent("call_masked", "search", "{\"query\":\"token guard\"}"),
+                    new ToolUseContent("call_unmasked", "fetch", "{\"id\":2}"),
+                ],
+            },
+            new ContextMessage
+            {
+                Role = MessageRole.Tool,
+                State = CompactionState.Masked,
+                Segments =
+                [
+                    new ToolResultContent("call_masked", "search", "[Tool result cleared - search, call_masked]"),
+                ],
+            },
+            new ContextMessage
+            {
+                Role = MessageRole.Tool,
+                Segments =
+                [
+                    new ToolResultContent("call_unmasked", "fetch", "{\"value\":42}"),
+                ],
+            },
+        ];
+
+        // Act
+        var result = messages.ForOpenAI();
+
+        // Assert
+        result.Should().HaveCount(3);
+
+        var assistant = result[0].Should().BeOfType<AssistantChatMessage>().Subject;
+        assistant.ToolCalls.Should().HaveCount(2);
+        assistant.ToolCalls.Select(call => call.Id).Should().Equal("call_masked", "call_unmasked");
+
+        var toolMessages = result.Skip(1).Should().AllBeOfType<ToolChatMessage>().Subject.Cast<ToolChatMessage>().ToList();
+        toolMessages.Should().HaveCount(2);
+        toolMessages.Select(message => message.ToolCallId).Should().Equal("call_masked", "call_unmasked");
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenConversationContainsMaskedToolResult_DoesNotLeaveOrphanedToolCalls()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            ContextMessage.FromText(MessageRole.System, "system prompt"),
+            ContextMessage.FromText(MessageRole.User, "user input"),
+            new ContextMessage
+            {
+                Role = MessageRole.Model,
+                Segments =
+                [
+                    new ToolUseContent("call_masked", "search", "{\"query\":\"token guard\"}"),
+                ],
+            },
+            new ContextMessage
+            {
+                Role = MessageRole.Tool,
+                State = CompactionState.Masked,
+                Segments =
+                [
+                    new ToolResultContent("call_masked", "search", "[Tool result cleared - search, call_masked]"),
+                ],
+            },
+            new ContextMessage
+            {
+                Role = MessageRole.Model,
+                Segments =
+                [
+                    new ToolUseContent("call_unmasked", "fetch", "{\"id\":2}"),
+                ],
+            },
+            new ContextMessage
+            {
+                Role = MessageRole.Tool,
+                Segments =
+                [
+                    new ToolResultContent("call_unmasked", "fetch", "{\"value\":42}"),
+                ],
+            },
+        ];
+
+        // Act
+        var result = messages.ForOpenAI();
+
+        // Assert
+        result.Should().HaveCount(6);
+        result[0].Should().BeOfType<SystemChatMessage>();
+        result[1].Should().BeOfType<UserChatMessage>();
+        result[2].Should().BeOfType<AssistantChatMessage>();
+        result[3].Should().BeOfType<ToolChatMessage>();
+        result[4].Should().BeOfType<AssistantChatMessage>();
+        result[5].Should().BeOfType<ToolChatMessage>();
+
+        var toolMessages = result.OfType<ToolChatMessage>().ToList();
+        toolMessages.Should().HaveCount(2);
+        toolMessages.Select(message => message.ToolCallId).Should().Equal("call_masked", "call_unmasked");
+
+        var assistantToolCallIds = result
+            .OfType<AssistantChatMessage>()
+            .SelectMany(message => message.ToolCalls)
+            .Select(call => call.Id)
+            .ToList();
+
+        assistantToolCallIds.Should().Equal("call_masked", "call_unmasked");
+        toolMessages.Select(message => message.ToolCallId).Should().Equal(assistantToolCallIds);
+    }
+
+    [Fact]
     public void ForOpenAI_WhenMessagesIsNull_ThrowsArgumentNullException()
     {
         // Arrange
