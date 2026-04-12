@@ -222,7 +222,7 @@ public sealed class SessionLogger : IDisposable
 
     private static string DescribeMessage(ContextMessage contextMessage)
     {
-        var parts = contextMessage.Content.Select(DescribeContentSegment).Where(part => !string.IsNullOrWhiteSpace(part));
+        var parts = contextMessage.Segments.Select(DescribeContentSegment).Where(part => !string.IsNullOrWhiteSpace(part));
         var description = string.Join(" | ", parts);
         return string.IsNullOrWhiteSpace(description) ? "empty" : Sanitize(description);
     }

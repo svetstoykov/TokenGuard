@@ -181,7 +181,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         foreach (var message in messages)
         {
-            var content = message.Content;
+            var content = message.Segments;
 
             foreach (var contentSegment in content)
             {
@@ -200,7 +200,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         IReadOnlyDictionary<string, string> toolNameLookup,
         string placeholderFormat)
     {
-        var content = contextMessage.Content;
+        var content = contextMessage.Segments;
         var hasToolResult = false;
 
         foreach (var contentSegment in content)
@@ -235,7 +235,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         return contextMessage with
         {
-            Content = replacedContent,
+            Segments = replacedContent,
             State = CompactionState.Masked,
             TokenCount = null,
         };

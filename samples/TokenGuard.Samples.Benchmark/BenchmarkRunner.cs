@@ -271,7 +271,11 @@ public sealed class BenchmarkRunner
             var compacted = maskedCount > 0;
 
             var turnStopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var completion = (await p.ChatClient.CompleteChatAsync(preparedMessages.ForOpenAI(), p.ChatOptions, cancellationToken)).Value;
+            var openAiMessage = preparedMessages.ForOpenAI();
+            var resultFromChat = await p.ChatClient.CompleteChatAsync(openAiMessage, p.ChatOptions, cancellationToken);
+            
+            var completion = resultFromChat.Value;
+            
             turnStopwatch.Stop();
 
             var inputTokens = completion.InputTokens();

@@ -22,7 +22,7 @@ public sealed class OpenAIExtensionsTests
             new ContextMessage
             {
                 Role = MessageRole.Model,
-                Content =
+                Segments =
                 [
                     new TextContent("assistant reply"),
                     new ToolUseContent("call_1", "search", "{\"query\":\"token guard\"}"),
@@ -31,7 +31,7 @@ public sealed class OpenAIExtensionsTests
             new ContextMessage
             {
                 Role = MessageRole.Tool,
-                Content =
+                Segments =
                 [
                     new ToolResultContent("call_1", "search", "search result"),
                 ],
@@ -71,7 +71,7 @@ public sealed class OpenAIExtensionsTests
             new ContextMessage
             {
                 Role = MessageRole.Model,
-                Content =
+                Segments =
                 [
                     new ToolUseContent("call_1", "read_file", "{}"),
                 ],
@@ -98,7 +98,7 @@ public sealed class OpenAIExtensionsTests
             new ContextMessage
             {
                 Role = MessageRole.Tool,
-                Content =
+                Segments =
                 [
                     new TextContent("not a tool result"),
                 ],

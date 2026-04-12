@@ -42,7 +42,7 @@ public sealed class ProviderSwappableAgentLoop
 
         var budget = ContextBudget.For(maxTokens: 10000);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4));
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 10));
         var conversationContext = new ConversationContext(budget, counter, strategy);
 
         logger.LogBudgetInfo(budget, nameof(SlidingWindowStrategy));

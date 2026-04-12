@@ -26,7 +26,7 @@ namespace TokenGuard.Core.Models;
 /// </remarks>
 public sealed record ContextMessage
 {
-    private readonly IReadOnlyList<ContentSegment> _content = [];
+    private readonly IReadOnlyList<ContentSegment> _segments = [];
 
     /// <summary>
     /// Gets the participant role that produced this message.
@@ -42,19 +42,19 @@ public sealed record ContextMessage
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when the assigned value is empty.</exception>
     /// <exception cref="ArgumentNullException">Thrown when the assigned value is null.</exception>
-    public required IReadOnlyList<ContentSegment> Content
+    public required IReadOnlyList<ContentSegment> Segments
     {
-        get => this._content;
+        get => this._segments;
         init
         {
             ArgumentNullException.ThrowIfNull(value);
 
             if (value.Count == 0)
             {
-                throw new ArgumentException("Content must contain at least one segment.", nameof(this.Content));
+                throw new ArgumentException("Content must contain at least one segment.", nameof(this.Segments));
             }
 
-            this._content = value.ToArray();
+            this._segments = value.ToArray();
         }
     }
 
@@ -102,7 +102,7 @@ public sealed record ContextMessage
         return new ContextMessage
         {
             Role = role,
-            Content = [new TextContent(text)],
+            Segments = [new TextContent(text)],
         };
     }
 
@@ -124,7 +124,7 @@ public sealed record ContextMessage
         return new ContextMessage
         {
             Role = role,
-            Content = [segment],
+            Segments = [segment],
         };
     }
 
@@ -146,7 +146,7 @@ public sealed record ContextMessage
         return new ContextMessage
         {
             Role = role,
-            Content = blocks,
+            Segments = blocks,
         };
     }
 }

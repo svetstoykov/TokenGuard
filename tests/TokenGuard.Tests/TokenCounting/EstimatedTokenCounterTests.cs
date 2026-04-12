@@ -77,7 +77,7 @@ public class EstimatedTokenCounterTests
         var message = new ContextMessage
         {
             Role = MessageRole.Model,
-            Content = [
+            Segments = [
                 new TextContent("Hello"),
                 new ToolUseContent("call_1", "calc", "{}")
             ]
@@ -114,7 +114,7 @@ public class EstimatedTokenCounterTests
         var message = new ContextMessage
         {
             Role = MessageRole.User,
-            Content = [new TextContent("Some text")],
+            Segments = [new TextContent("Some text")],
             TokenCount = 100,
         };
 

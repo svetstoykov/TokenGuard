@@ -182,7 +182,7 @@ public sealed class ConversationContext : IConversationContext
         var message = new ContextMessage
         {
             Role = role,
-            Content = segments,
+            Segments = segments,
             IsPinned = true,
         };
 
@@ -243,7 +243,7 @@ public sealed class ConversationContext : IConversationContext
         if (segments.Length == 0)
             throw new ArgumentException("Content must contain at least one segment.", nameof(content));
 
-        var message = new ContextMessage { Role = MessageRole.Model, Content = segments };
+        var message = new ContextMessage { Role = MessageRole.Model, Segments = segments };
         this.AddMessage(message);
         this.ApplyAnchor(providerInputTokens);
     }

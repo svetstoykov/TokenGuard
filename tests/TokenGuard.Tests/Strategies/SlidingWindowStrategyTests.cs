@@ -178,7 +178,7 @@ public sealed class SlidingWindowStrategyTests
         var protectedToolResult = new ContextMessage
         {
             Role = MessageRole.User,
-            Content = [new ToolResultContent("call_1", "calculator", "42")],
+            Segments = [new ToolResultContent("call_1", "calculator", "42")],
             State = CompactionState.Summarized,
         };
 
@@ -277,7 +277,7 @@ public sealed class SlidingWindowStrategyTests
 
         // Assert
         var masked = compacted.Messages[0];
-        var text = Assert.IsType<TextContent>(Assert.Single(masked.Content));
+        var text = Assert.IsType<TextContent>(Assert.Single(masked.Segments));
         Assert.Equal("[Tool result cleared — call_1, call_1]", text.Content);
         Assert.Equal(8, compacted.TokensBefore);
         Assert.Equal(5, compacted.TokensAfter);
@@ -317,7 +317,7 @@ public sealed class SlidingWindowStrategyTests
         var mixed = new ContextMessage
         {
             Role = MessageRole.User,
-            Content =
+            Segments =
             [
                 new TextContent("prefix"),
                 new ToolResultContent("call_1", "tool", "payload"),
@@ -336,7 +336,7 @@ public sealed class SlidingWindowStrategyTests
 
         // Act
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
-        var compactedBlocks = compacted.Messages[0].Content;
+        var compactedBlocks = compacted.Messages[0].Segments;
 
         // Assert
         Assert.Equal(3, compactedBlocks.Count);
@@ -382,13 +382,13 @@ public sealed class SlidingWindowStrategyTests
         var toolUseMessage = new ContextMessage
         {
             Role = MessageRole.Model,
-            Content = [new ToolUseContent("call_1", "calculator", "{}")],
+            Segments = [new ToolUseContent("call_1", "calculator", "{}")],
         };
 
         var toolResultMessage = new ContextMessage
         {
             Role = MessageRole.User,
-            Content = [new ToolResultContent("call_1", "ignored-name", "42")],
+            Segments = [new ToolResultContent("call_1", "ignored-name", "42")],
         };
 
         var protectedMessage = ContextMessage.FromText(MessageRole.User, "recent");
@@ -404,7 +404,7 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        var text = Assert.IsType<TextContent>(Assert.Single(compacted.Messages[1].Content));
+        var text = Assert.IsType<TextContent>(Assert.Single(compacted.Messages[1].Segments));
         Assert.Equal("[Tool result cleared — calculator, call_1]", text.Content);
         Assert.Equal(15, compacted.TokensBefore);
         Assert.Equal(9, compacted.TokensAfter);
@@ -430,7 +430,7 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, ContextBudget.For(10), tokenCounter);
 
         // Assert
-        var text = Assert.IsType<TextContent>(Assert.Single(compacted.Messages[0].Content));
+        var text = Assert.IsType<TextContent>(Assert.Single(compacted.Messages[0].Segments));
         Assert.Equal("[Tool result cleared — call_missing, call_missing]", text.Content);
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
@@ -445,7 +445,7 @@ public sealed class SlidingWindowStrategyTests
         var originalMessage = new ContextMessage
         {
             Role = MessageRole.User,
-            Content = [new ToolResultContent("call_1", "tool", "payload")],
+            Segments = [new ToolResultContent("call_1", "tool", "payload")],
             State = CompactionState.Original,
         };
 
@@ -465,7 +465,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(2, messages.Count);
         Assert.Same(originalMessage, messages[0]);
         Assert.Equal(CompactionState.Original, originalMessage.State);
-        Assert.IsType<ToolResultContent>(originalMessage.Content[0]);
+        Assert.IsType<ToolResultContent>(originalMessage.Segments[0]);
         Assert.NotSame(originalMessage, compacted.Messages[0]);
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
@@ -544,7 +544,7 @@ public sealed class SlidingWindowStrategyTests
         return new ContextMessage
         {
             Role = MessageRole.User,
-            Content = [new ToolResultContent(toolCallId, toolName, payload)],
+            Segments = [new ToolResultContent(toolCallId, toolName, payload)],
         };
     }
 

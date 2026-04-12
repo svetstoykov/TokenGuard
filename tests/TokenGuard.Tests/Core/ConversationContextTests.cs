@@ -872,7 +872,7 @@ public sealed class ConversationContextTests
 
     private static string GetText(ContextMessage message)
     {
-        return Assert.IsType<TextContent>(Assert.Single(message.Content)).Content;
+        return Assert.IsType<TextContent>(Assert.Single(message.Segments)).Content;
     }
 
     private static void AssertText(ContextMessage message, string expected)
@@ -975,7 +975,7 @@ public sealed class ConversationContextTests
             if (this._counts.TryGetValue(contextMessage, out var cached))
                 return cached;
 
-            var firstText = contextMessage.Content.OfType<TokenGuard.Core.Models.Content.TextContent>().FirstOrDefault()?.Content;
+            var firstText = contextMessage.Segments.OfType<TokenGuard.Core.Models.Content.TextContent>().FirstOrDefault()?.Content;
             if (firstText != null && this._countsByText.TryGetValue(firstText, out var byText))
                 return byText;
 

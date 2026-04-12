@@ -40,7 +40,7 @@ public sealed class EstimatedTokenCounter : ITokenCounter
 
         long totalChars = 0;
 
-        foreach (var segment in contextMessage.Content)
+        foreach (var segment in contextMessage.Segments)
         {
             totalChars += segment switch
             {

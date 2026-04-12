@@ -47,7 +47,7 @@ public static class OpenAIExtensions
                 case MessageRole.Model:
                     AssistantChatMessage assistant = new(ExtractText(message));
 
-                    foreach (var toolUse in message.Content.OfType<ToolUseContent>())
+                    foreach (var toolUse in message.Segments.OfType<ToolUseContent>())
                     {
                         assistant.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
                             toolUse.ToolCallId,
@@ -59,7 +59,7 @@ public static class OpenAIExtensions
                     break;
 
                 case MessageRole.Tool:
-                    var toolResult = message.Content.OfType<ToolResultContent>().FirstOrDefault();
+                    var toolResult = message.Segments.OfType<ToolResultContent>().FirstOrDefault();
 
                     if (toolResult is not null)
                         result.Add(new ToolChatMessage(toolResult.ToolCallId, toolResult.Content));
@@ -147,5 +147,5 @@ public static class OpenAIExtensions
     }
 
     private static string ExtractText(ContextMessage contextMessage) =>
-        contextMessage.Content.OfType<TextContent>().FirstOrDefault()?.Content ?? string.Empty;
+        contextMessage.Segments.OfType<TextContent>().FirstOrDefault()?.Content ?? string.Empty;
 }

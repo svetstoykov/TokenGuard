@@ -69,7 +69,7 @@ public static class AnthropicExtensions
                         });
                     }
 
-                    foreach (var toolUse in message.Content.OfType<ToolUseContent>())
+                    foreach (var toolUse in message.Segments.OfType<ToolUseContent>())
                     {
                         var input = JsonSerializer.Deserialize<IReadOnlyDictionary<string, JsonElement>>(toolUse.Content);
 
@@ -89,7 +89,7 @@ public static class AnthropicExtensions
                     break;
 
                 case MessageRole.Tool:
-                    var toolResult = message.Content.OfType<ToolResultContent>().FirstOrDefault();
+                    var toolResult = message.Segments.OfType<ToolResultContent>().FirstOrDefault();
 
                     if (toolResult is not null)
                     {
@@ -204,7 +204,7 @@ public static class AnthropicExtensions
     }
 
     private static string ExtractText(ContextMessage message) =>
-        message.Content.OfType<TextContent>().FirstOrDefault()?.Content ?? string.Empty;
+        message.Segments.OfType<TextContent>().FirstOrDefault()?.Content ?? string.Empty;
 
     private static MessageCreateParamsSystem? BuildSystemPrompt(IReadOnlyList<ContextMessage> messages)
     {

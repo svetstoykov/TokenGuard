@@ -14,14 +14,14 @@ public sealed class ContextMessageTests
         var message = new ContextMessage
         {
             Role = MessageRole.User,
-            Content = [new TextContent("hello")],
+            Segments = [new TextContent("hello")],
         };
 
         // Act
 
         // Assert
         Assert.Equal(MessageRole.User, message.Role);
-        Assert.Single(message.Content);
+        Assert.Single(message.Segments);
         Assert.Equal(CompactionState.Original, message.State);
         Assert.Null(message.TokenCount);
         Assert.True(message.Timestamp >= now.AddSeconds(-1));
@@ -38,7 +38,7 @@ public sealed class ContextMessageTests
             _ = new ContextMessage
             {
                 Role = MessageRole.User,
-                Content = null!,
+                Segments = null!,
             };
 
         // Assert
@@ -55,7 +55,7 @@ public sealed class ContextMessageTests
             _ = new ContextMessage
             {
                 Role = MessageRole.User,
-                Content = [],
+                Segments = [],
             };
 
         // Assert
@@ -70,15 +70,15 @@ public sealed class ContextMessageTests
         var message = new ContextMessage
         {
             Role = MessageRole.User,
-            Content = source,
+            Segments = source,
         };
 
         // Act
         source.Add(new TextContent("second"));
 
         // Assert
-        Assert.Single(message.Content);
-        Assert.Equal("first", Assert.IsType<TextContent>(message.Content[0]).Content);
+        Assert.Single(message.Segments);
+        Assert.Equal("first", Assert.IsType<TextContent>(message.Segments[0]).Content);
     }
 
     [Fact]
@@ -91,8 +91,8 @@ public sealed class ContextMessageTests
 
         // Assert
         Assert.Equal(MessageRole.User, message.Role);
-        Assert.Single(message.Content);
-        Assert.Equal("hello", Assert.IsType<TextContent>(message.Content[0]).Content);
+        Assert.Single(message.Segments);
+        Assert.Equal("hello", Assert.IsType<TextContent>(message.Segments[0]).Content);
         Assert.Equal(CompactionState.Original, message.State);
         Assert.Null(message.TokenCount);
     }
@@ -124,8 +124,8 @@ public sealed class ContextMessageTests
 
         // Assert
         Assert.Equal(MessageRole.Model, message.Role);
-        Assert.Single(message.Content);
-        Assert.Same(segment, message.Content[0]);
+        Assert.Single(message.Segments);
+        Assert.Same(segment, message.Segments[0]);
         Assert.Equal(CompactionState.Original, message.State);
         Assert.Null(message.TokenCount);
     }
@@ -137,7 +137,7 @@ public sealed class ContextMessageTests
         var original = new ContextMessage
         {
             Role = MessageRole.Model,
-            Content =
+            Segments =
             [
                 new TextContent("Thinking"),
                 new ToolUseContent("call_1", "read_file", "{}"),
@@ -152,7 +152,7 @@ public sealed class ContextMessageTests
         // Assert
         Assert.Equal(CompactionState.Masked, modified.State);
         Assert.Equal(original.Role, modified.Role);
-        Assert.Equal(original.Content, modified.Content);
+        Assert.Equal(original.Segments, modified.Segments);
         Assert.Equal(original.Timestamp, modified.Timestamp);
         Assert.Equal(original.TokenCount, modified.TokenCount);
     }
@@ -166,7 +166,7 @@ public sealed class ContextMessageTests
         var message = new ContextMessage
         {
             Role = MessageRole.Model,
-            Content =
+            Segments =
             [
                 new TextContent("I will call a tool."),
                 new ToolUseContent("call_1", "web_search", "{\"query\":\"token guard\"}"),
@@ -175,8 +175,8 @@ public sealed class ContextMessageTests
 
         // Assert
         Assert.Equal(MessageRole.Model, message.Role);
-        Assert.Equal(2, message.Content.Count);
-        Assert.IsType<TextContent>(message.Content[0]);
-        Assert.IsType<ToolUseContent>(message.Content[1]);
+        Assert.Equal(2, message.Segments.Count);
+        Assert.IsType<TextContent>(message.Segments[0]);
+        Assert.IsType<ToolUseContent>(message.Segments[1]);
     }
 }
