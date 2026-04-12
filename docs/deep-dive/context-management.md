@@ -172,7 +172,7 @@ The **post-compaction reset** is equally important: after compaction runs, both 
 
 ## 5. The Sliding Window Strategy — What Gets Cut and Why
 
-The core insight behind the sliding window strategy comes from JetBrains research ("Cutting Through the Noise: How LLM-Agents Manage Context," NeurIPS 2025): in agent trajectories, approximately **84% of tokens are tool/observation data**. The agent's own reasoning is only ~16%. If you can target observations for removal, you get maximum token savings with minimum information loss.
+The core insight behind the sliding window strategy comes from JetBrains research ("Cutting Through the Noise: How LLM-Agents Manage Context," NeurIPS 2025): in agent trajectories, approximately **84% of tokens are tool/observation data**. The agent's own reasoning is only ~16%. If you can target observations for removal, you get maximum token savings with minimum information loss. See JetBrains' write-up: https://blog.jetbrains.com/research/2025/12/efficient-context-management/
 
 The reasoning is sound: a model only needs the raw contents of a file read during the turn when it's actively processing that file. After it's reasoned about it and moved on, the raw 10,000-token file read is dead weight. The model already "used" it.
 
@@ -182,16 +182,12 @@ The strategy walks backward from the newest message, building a "protected" tail
 
 ```mermaid
 flowchart TD
-    A[Start: boundary = messages.Count\nprotectedCount = 0, protectedTokens = 0] --> B[Walk backward from newest message]
-    B --> C{protectedCount >= WindowSize\nAND protectedTokens + next > maxProtected?}
-    C -- Yes --> D[Stop. boundary = current index]
-    C -- No --> E[protectedCount++\nprotectedTokens += message tokens\nboundary = i]
-    E --> F{More messages?}
-    F -- Yes --> B
-    F -- No --> G[All messages fit in window\nReturn unchanged — no compaction]
-    D --> H[For messages 0..boundary-1:\nMask ToolResultContent blocks]
-    H --> I[For messages boundary..end:\nKeep unchanged]
-    I --> J[Return CompactionResult]
+    A[Start at newest message] --> B[Protect newest messages]
+    B --> C{Window big enough\nfor message count and token budget?}
+    C -- No --> B
+    C -- Yes --> D[Older region becomes compactable]
+    D --> E[Mask old tool results]
+    E --> F[Keep protected tail unchanged]
 ```
 
 ### What Masking Does
@@ -207,24 +203,11 @@ Crucially: the `ToolResultContent` *type* is preserved. Only the `Content` strin
 The agent's reasoning text (in `TextContent` segments) is never touched. Only observations are masked.
 
 ```mermaid
-sequenceDiagram
-    participant History as Full History (8 messages)
-    participant Strategy as SlidingWindowStrategy
-    participant Prepared as Prepared View
-
-    History->>Strategy: messages[0..7]
-    Note over Strategy: boundary walk: protect messages[3..7]
-
-    Strategy->>Prepared: msg[0]: user "start task" → unchanged
-    Strategy->>Prepared: msg[1]: assistant "I'll read the file" + tool_call_001 → unchanged
-    Strategy->>Prepared: msg[2]: tool result (call_001): "[Tool result cleared — read_file, call_001]" ← masked ToolResultContent
-    Strategy->>Prepared: msg[3]: assistant "The file shows..." → unchanged (protected)
-    Strategy->>Prepared: msg[4]: assistant + tool_call_002 → unchanged (protected)
-    Strategy->>Prepared: msg[5]: tool result (call_002): "full 8000 token result" → unchanged (protected)
-    Strategy->>Prepared: msg[6]: assistant "Based on that..." → unchanged (protected)
-    Strategy->>Prepared: msg[7]: user "continue" → unchanged (protected)
-
-    Note over Prepared: Structural integrity preserved.\ntool_call_001 still has matching ToolResultContent at msg[2].\nOld content replaced, not removed.
+flowchart LR
+    A[Older tool result] --> B[Replace content with placeholder]
+    B --> C[Keep same ToolResultContent type]
+    C --> D[Provider still sees matching tool_call_id]
+    D --> E[Conversation stays valid]
 ```
 
 ### Why This Works
@@ -240,30 +223,10 @@ System messages define what the agent *is*. Compacting them would change the age
 When you call `SetSystemPrompt(text)`, the system message is stored with `IsPinned = true`. Before running the compaction strategy, `PrepareAsync` extracts all pinned messages and sets them aside. The strategy receives only the non-pinned, "compactable" messages. After compaction, pinned messages are reinserted at their original positions.
 
 ```mermaid
-graph LR
-    subgraph History
-        S[System - pinned]
-        U[User]
-        M1[Model]
-        T[Tool]
-        M2[Model]
-    end
-
-    subgraph Extraction
-        S2[System - extracted\nadded to ReservedTokens]
-        Compact[User + Model + Tool + Model\nsent to strategy]
-    end
-
-    subgraph AfterCompaction
-        S3[System - reattached\nat original position]
-        U2[User]
-        M1b[Model]
-        T2[Tool - masked]
-        M2b[Model]
-    end
-
-    History --> Extraction
-    Extraction --> AfterCompaction
+flowchart LR
+    A[History with pinned system message] --> B[Temporarily remove pinned messages]
+    B --> C[Compact only non-pinned messages]
+    C --> D[Reinsert pinned messages in original positions]
 ```
 
 The budget adjustment is important: when system messages are extracted, their token cost is added to `ReservedTokens` on the budget passed into the strategy. This tells the strategy "you have less room than the raw budget suggests." The boundary walk accounts for the system message overhead when computing how large the protected window can grow.
