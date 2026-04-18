@@ -42,6 +42,17 @@ public sealed class SessionLogger : IDisposable
     public string LogFilePath { get; }
 
     /// <summary>
+    /// Logs general system information.
+    /// </summary>
+    /// <param name="message">The information message.</param>
+    public void LogSystemInfo(string message)
+    {
+        this.WriteSection(
+            "System Info",
+            [$"- {Sanitize(message)}"]);
+    }
+
+    /// <summary>
     /// Logs the configured context budget and folding strategy.
     /// </summary>
     /// <param name="budget">The active context budget.</param>
@@ -65,6 +76,23 @@ public sealed class SessionLogger : IDisposable
     public void LogHistoryBeforePrepare(IReadOnlyList<ContextMessage> history)
     {
         this.LogSnapshot("HISTORY", "Before prepare", history);
+    }
+
+    /// <summary>
+    /// Logs a complete snapshot of the prepared messages returned by the engine.
+    /// </summary>
+    /// <param name="preparedMessages">The prepared messages.</param>
+    public void LogHistoryAfterPrepare(IReadOnlyList<ContextMessage> preparedMessages)
+    {
+        var totalTokens = preparedMessages.Sum(m => m.TokenCount ?? 0);
+        var maskedCount = preparedMessages.Count(m => m.State == CompactionState.Masked);
+        var summarizedCount = preparedMessages.Count(m => m.State == CompactionState.Summarized);
+        var status = maskedCount > 0 || summarizedCount > 0 ? "compacted" : "unchanged";
+
+        this.LogSnapshot(
+            "PREPARE",
+            $"Prepared for model | tokens={totalTokens} | status={status} | masked={maskedCount} | summarized={summarizedCount}",
+            preparedMessages);
     }
 
     /// <summary>
