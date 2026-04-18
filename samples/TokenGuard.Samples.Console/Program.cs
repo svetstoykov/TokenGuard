@@ -1,4 +1,3 @@
-using System.Linq;
 using TokenGuard.Benchmark.AgentWorkflow.Tasks;
 using TokenGuard.Samples.Console.AgentLoops;
 
@@ -53,18 +52,14 @@ static AgentLoopTaskDefinition SelectTask(IReadOnlyList<AgentLoopTaskDefinition>
 
 static async Task RunProviderSwappableLoopAsync()
 {
-    var providerOptions = new (ProviderKind Kind, string Label, string ModelId, string? Endpoint)[]
-    {
-        (ProviderKind.OpenRouter, "OpenRouter", "qwen/qwen3.6-plus", "https://openrouter.ai/api/v1"),
-        (ProviderKind.Anthropic, "Anthropic", "claude-3-haiku-20240307", null),
-    };
+    var providerOptions = ProviderRegistry.All();
 
     Console.WriteLine("=========================================");
     Console.WriteLine("   TokenGuard.Core Agentic Loop Sample");
     Console.WriteLine("=========================================\n");
-    Console.WriteLine($"Choose a provider (index 1-{providerOptions.Length}):\n");
+    Console.WriteLine($"Choose a provider (index 1-{providerOptions.Count}):\n");
 
-    for (var i = 0; i < providerOptions.Length; i++)
+    for (var i = 0; i < providerOptions.Count; i++)
     {
         Console.WriteLine($"{i + 1}. {providerOptions[i].Label} ({providerOptions[i].ModelId})");
     }
@@ -72,7 +67,7 @@ static async Task RunProviderSwappableLoopAsync()
     Console.Write("\nSelection: ");
     var selection = Console.ReadLine();
 
-    if (!int.TryParse(selection, out var selectedIndex) || selectedIndex < 1 || selectedIndex > providerOptions.Length)
+    if (!int.TryParse(selection, out var selectedIndex) || selectedIndex < 1 || selectedIndex > providerOptions.Count)
     {
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine("Invalid selection.");
@@ -107,17 +102,13 @@ static async Task RunTaskBasedLoopAsync(string taskName)
         return;
     }
 
-    var providerOptions = new (ProviderKind Kind, string Label, string ModelId, string? Endpoint)[]
-    {
-        (ProviderKind.OpenRouter, "OpenRouter", "qwen/qwen3.6-plus", "https://openrouter.ai/api/v1"),
-        (ProviderKind.Anthropic, "Anthropic", "claude-3-haiku-20240307", null),
-    };
+    var providerOptions = ProviderRegistry.All();
 
     Console.WriteLine();
     Console.WriteLine($"Task: {task.Name}");
-    Console.WriteLine($"Choose a provider (index 1-{providerOptions.Length}):\n");
+    Console.WriteLine($"Choose a provider (index 1-{providerOptions.Count}):\n");
 
-    for (var i = 0; i < providerOptions.Length; i++)
+    for (var i = 0; i < providerOptions.Count; i++)
     {
         Console.WriteLine($"{i + 1}. {providerOptions[i].Label} ({providerOptions[i].ModelId})");
     }
@@ -125,7 +116,7 @@ static async Task RunTaskBasedLoopAsync(string taskName)
     Console.Write("\nSelection: ");
     var selection = Console.ReadLine();
 
-    if (!int.TryParse(selection, out var selectedIndex) || selectedIndex < 1 || selectedIndex > providerOptions.Length)
+    if (!int.TryParse(selection, out var selectedIndex) || selectedIndex < 1 || selectedIndex > providerOptions.Count)
     {
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine("Invalid selection.");
