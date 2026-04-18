@@ -43,7 +43,8 @@ public sealed class ConversationContext : IConversationContext
     private readonly ICompactionStrategy _strategy;
     private readonly ICompactionObserver? _observer;
 
-    private readonly List<ContextMessage> _history = [];
+    private readonly List<AgentTurn> _turns = [];
+    private readonly List<ContextMessage> _flattened = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
     private int _lastPreparedTotal;
@@ -102,7 +103,8 @@ public sealed class ConversationContext : IConversationContext
         get
         {
             ObjectDisposedException.ThrowIf(this._disposed, this);
-            return this._history;
+            this.RebuildFlattened();
+            return this._flattened;
         }
     }
 
@@ -129,14 +131,14 @@ public sealed class ConversationContext : IConversationContext
 
         var message = ContextMessage.FromText(MessageRole.System, text) with { IsPinned = true };
 
-        var existing = this._history.FindIndex(m => m.Role == MessageRole.System);
-        if (existing >= 0)
+        var existingTurnIndex = this._turns.FindIndex(t => t.Messages.Count > 0 && t.Messages[0].Role == MessageRole.System);
+        if (existingTurnIndex >= 0)
         {
-            this.ReplaceMessage(existing, message);
+            this.ReplaceMessageInTurn(existingTurnIndex, 0, message);
             return;
         }
 
-        this.AddMessage(message, 0);
+        this.InsertMessageAtFront(message);
     }
 
     /// <summary>
@@ -156,7 +158,7 @@ public sealed class ConversationContext : IConversationContext
             throw new ArgumentException("Pinned message text cannot be null or whitespace.", nameof(text));
 
         var message = ContextMessage.FromText(role, text) with { IsPinned = true };
-        this.AddMessage(message);
+        this.AddMessageToNewTurn(message);
     }
 
     /// <summary>
@@ -186,7 +188,7 @@ public sealed class ConversationContext : IConversationContext
             IsPinned = true,
         };
 
-        this.AddMessage(message);
+        this.AddMessageToNewTurn(message);
     }
 
     /// <summary>
@@ -205,7 +207,7 @@ public sealed class ConversationContext : IConversationContext
             throw new ArgumentException("User message text cannot be null or whitespace.", nameof(text));
 
         var message = ContextMessage.FromText(MessageRole.User, text);
-        this.AddMessage(message);
+        this.AddMessageToNewTurn(message);
     }
 
     /// <summary>
@@ -244,10 +246,10 @@ public sealed class ConversationContext : IConversationContext
             throw new ArgumentException("Content must contain at least one segment.", nameof(content));
 
         var message = new ContextMessage { Role = MessageRole.Model, Segments = segments };
-        this.AddMessage(message);
+        this.AddMessageToNewTurn(message);
         this.ApplyAnchor(providerInputTokens);
     }
-    
+
     /// <summary>
     /// Records the result of one tool execution.
     /// </summary>
@@ -280,7 +282,7 @@ public sealed class ConversationContext : IConversationContext
         ArgumentNullException.ThrowIfNull(content);
 
         var message = ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
-        this.AddMessage(message);
+        this.AppendToCurrentTurnOrNew(message);
     }
 
     /// <summary>
@@ -321,7 +323,8 @@ public sealed class ConversationContext : IConversationContext
             throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.EmergencyTriggerTokens);
         }
 
-        IReadOnlyList<ContextMessage> messages = this._history;
+        this.RebuildFlattened();
+        var messages = this._flattened;
         var total = this.Sum(messages) + this._anchorCorrection;
 
         if (total < this._budget.CompactionTriggerTokens)
@@ -409,11 +412,68 @@ public sealed class ConversationContext : IConversationContext
             return;
 
         this._disposed = true;
-        this._history.Clear();
+        this._turns.Clear();
+    }
+
+    private void RebuildFlattened()
+    {
+        this._flattened.Clear();
+        foreach (var turn in this._turns)
+        {
+            this._flattened.AddRange(turn.Messages);
+        }
+    }
+
+    private void AddMessageToNewTurn(ContextMessage message)
+    {
+        var turn = new AgentTurn();
+        turn.AddMessage(message);
+        this._turns.Add(turn);
+
+        var tokenCount = this.EnsureCounted(message);
+
+        if (message.IsPinned)
+        {
+            this._pinnedTokenTotal += tokenCount;
+        }
+    }
+
+    private void InsertMessageAtFront(ContextMessage message)
+    {
+        var turn = new AgentTurn();
+        turn.AddMessage(message);
+        this._turns.Insert(0, turn);
+
+        var tokenCount = this.EnsureCounted(message);
+
+        if (message.IsPinned)
+        {
+            this._pinnedTokenTotal += tokenCount;
+        }
+    }
+
+    private void AppendToCurrentTurnOrNew(ContextMessage message)
+    {
+        if (message.Role == MessageRole.Tool && this._turns.Count > 0)
+        {
+            var lastTurn = this._turns[^1];
+            if (lastTurn.Messages.Count > 0 && lastTurn.Messages[0].Role == MessageRole.Model)
+            {
+                lastTurn.AddMessage(message);
+                var tokenCount = this.EnsureCounted(message);
+                if (message.IsPinned)
+                {
+                    this._pinnedTokenTotal += tokenCount;
+                }
+                return;
+            }
+        }
+
+        this.AddMessageToNewTurn(message);
     }
 
     /// <summary>
-    /// Applies an oldest-first emergency truncation pass to <paramref name="prepared"/> when the
+    /// Applies oldest-first emergency truncation to <paramref name="prepared"/> when the
     /// current token total still exceeds <see cref="ContextBudget.EmergencyTriggerTokens"/> after
     /// the primary compaction strategy has run.
     /// </summary>
@@ -456,15 +516,12 @@ public sealed class ConversationContext : IConversationContext
 
         var preservedFloorStartIndex = this.FindPreservedFloorStartIndex(prepared);
 
-        // Nothing to drop when the prepared list already consists only of the preserved floor.
         if (preservedFloorStartIndex <= 0)
         {
             truncated = null;
             return false;
         }
 
-        // Collect drop candidates: unpinned messages that appear before the preserved floor,
-        // oldest first.
         var candidates = new List<(int Index, int Tokens)>();
         for (var i = 0; i < preservedFloorStartIndex; i++)
         {
@@ -481,7 +538,6 @@ public sealed class ConversationContext : IConversationContext
             return false;
         }
 
-        // Drop oldest-first until the budget is satisfied or candidates are exhausted.
         var dropIndices = new HashSet<int>();
         var total = currentTotal;
         foreach (var (index, tokens) in candidates)
@@ -510,7 +566,6 @@ public sealed class ConversationContext : IConversationContext
         {
             if (!prepared[i].IsPinned)
             {
-                // The preserved tail starts from the newest unpinned message by default.
                 newestUnpinnedIndex = i;
                 break;
             }
@@ -520,11 +575,9 @@ public sealed class ConversationContext : IConversationContext
             return prepared.Count;
 
         var floorStartIndex = newestUnpinnedIndex;
-        
-        // If last message was not a Model message, we should just return it.
+
         if (prepared[newestUnpinnedIndex].Role != MessageRole.Model) return floorStartIndex;
-        
-        // Otherwise the conversation ends with a model reply, preserve the triggering user turn too.
+
         for (var i = newestUnpinnedIndex - 1; i >= 0; i--)
         {
             if (prepared[i].IsPinned)
@@ -541,34 +594,16 @@ public sealed class ConversationContext : IConversationContext
 
     private int Sum(IReadOnlyList<ContextMessage> messages) => messages.Sum(this.EnsureCounted);
 
-    private void AddMessage(ContextMessage message, int? index = null)
+    private void ReplaceMessageInTurn(int turnIndex, int messageIndex, ContextMessage message)
     {
-        if (index.HasValue)
-        {
-            this._history.Insert(index.Value, message);
-        }
-        else
-        {
-            this._history.Add(message);
-        }
-
-        var tokenCount = this.EnsureCounted(message);
-
-        if (message.IsPinned)
-        {
-            this._pinnedTokenTotal += tokenCount;
-        }
-    }
-
-    private void ReplaceMessage(int index, ContextMessage message)
-    {
-        var existing = this._history[index];
+        var turn = this._turns[turnIndex];
+        var existing = turn.Messages[messageIndex];
         if (existing.IsPinned)
         {
             this._pinnedTokenTotal -= this.EnsureCounted(existing);
         }
 
-        this._history[index] = message;
+        turn.Messages[messageIndex] = message;
 
         var tokenCount = this.EnsureCounted(message);
         if (message.IsPinned)
