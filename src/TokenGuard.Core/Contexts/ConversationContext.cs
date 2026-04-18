@@ -35,6 +35,12 @@ namespace TokenGuard.Core.Contexts;
 /// that value can be supplied through <see cref="RecordModelResponse(IEnumerable{ContentSegment}, int?)"/>
 /// so future preparation stays better aligned with the provider's own counting behavior.
 /// </para>
+/// <para>
+/// Internally, history is organized as a <see cref="List{T}"/> of <see cref="AgentTurn"/> objects so
+/// compaction write-back can drop entire turns rather than splicing the flat list. The public
+/// <see cref="History"/> property exposes a flat read-only view that remains behaviorally identical to
+/// a plain message list for all external callers.
+/// </para>
 /// </remarks>
 public sealed class ConversationContext : IConversationContext
 {
@@ -43,7 +49,8 @@ public sealed class ConversationContext : IConversationContext
     private readonly ICompactionStrategy _strategy;
     private readonly ICompactionObserver? _observer;
 
-    private readonly List<ContextMessage> _history = [];
+    private readonly List<AgentTurn> _turns = [];
+    private readonly List<ContextMessage> _flatHistory = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
     private int _lastPreparedTotal;
@@ -102,9 +109,17 @@ public sealed class ConversationContext : IConversationContext
         get
         {
             ObjectDisposedException.ThrowIf(this._disposed, this);
-            return this._history;
+            return this._flatHistory;
         }
     }
+
+    /// <summary>
+    /// Gets the structured turn list that backs the flat <see cref="History"/> view.
+    /// </summary>
+    /// <remarks>
+    /// Exposed internally so tests can verify turn grouping behavior without going through the public API.
+    /// </remarks>
+    internal IReadOnlyList<AgentTurn> Turns => this._turns;
 
     /// <summary>
     /// Sets the system message for the conversation.
@@ -129,14 +144,28 @@ public sealed class ConversationContext : IConversationContext
 
         var message = ContextMessage.FromText(MessageRole.System, text) with { IsPinned = true };
 
-        var existing = this._history.FindIndex(m => m.Role == MessageRole.System);
-        if (existing >= 0)
+        if (this._turns.Count > 0 && this._turns[0].Messages[0].Role == MessageRole.System)
         {
-            this.ReplaceMessage(existing, message);
+            var existing = this._flatHistory[0];
+            if (existing.IsPinned)
+                this._pinnedTokenTotal -= this.EnsureCounted(existing);
+
+            this._turns[0].ReplaceOnly(message);
+            this._flatHistory[0] = message;
+
+            var tokenCount = this.EnsureCounted(message);
+            if (message.IsPinned)
+                this._pinnedTokenTotal += tokenCount;
+
             return;
         }
 
-        this.AddMessage(message, 0);
+        this._turns.Insert(0, new AgentTurn(message));
+        this._flatHistory.Insert(0, message);
+
+        var newTokenCount = this.EnsureCounted(message);
+        if (message.IsPinned)
+            this._pinnedTokenTotal += newTokenCount;
     }
 
     /// <summary>
@@ -156,7 +185,7 @@ public sealed class ConversationContext : IConversationContext
             throw new ArgumentException("Pinned message text cannot be null or whitespace.", nameof(text));
 
         var message = ContextMessage.FromText(role, text) with { IsPinned = true };
-        this.AddMessage(message);
+        this.AppendNewTurn(message);
     }
 
     /// <summary>
@@ -186,7 +215,7 @@ public sealed class ConversationContext : IConversationContext
             IsPinned = true,
         };
 
-        this.AddMessage(message);
+        this.AppendNewTurn(message);
     }
 
     /// <summary>
@@ -205,7 +234,7 @@ public sealed class ConversationContext : IConversationContext
             throw new ArgumentException("User message text cannot be null or whitespace.", nameof(text));
 
         var message = ContextMessage.FromText(MessageRole.User, text);
-        this.AddMessage(message);
+        this.AppendNewTurn(message);
     }
 
     /// <summary>
@@ -244,10 +273,10 @@ public sealed class ConversationContext : IConversationContext
             throw new ArgumentException("Content must contain at least one segment.", nameof(content));
 
         var message = new ContextMessage { Role = MessageRole.Model, Segments = segments };
-        this.AddMessage(message);
+        this.AppendNewTurn(message);
         this.ApplyAnchor(providerInputTokens);
     }
-    
+
     /// <summary>
     /// Records the result of one tool execution.
     /// </summary>
@@ -280,7 +309,7 @@ public sealed class ConversationContext : IConversationContext
         ArgumentNullException.ThrowIfNull(content);
 
         var message = ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
-        this.AddMessage(message);
+        this.AppendToLastTurn(message);
     }
 
     /// <summary>
@@ -321,7 +350,7 @@ public sealed class ConversationContext : IConversationContext
             throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.EmergencyTriggerTokens);
         }
 
-        IReadOnlyList<ContextMessage> messages = this._history;
+        IReadOnlyList<ContextMessage> messages = this._flatHistory;
         var total = this.Sum(messages) + this._anchorCorrection;
 
         if (total < this._budget.CompactionTriggerTokens)
@@ -409,7 +438,8 @@ public sealed class ConversationContext : IConversationContext
             return;
 
         this._disposed = true;
-        this._history.Clear();
+        this._turns.Clear();
+        this._flatHistory.Clear();
     }
 
     /// <summary>
@@ -520,10 +550,10 @@ public sealed class ConversationContext : IConversationContext
             return prepared.Count;
 
         var floorStartIndex = newestUnpinnedIndex;
-        
+
         // If last message was not a Model message, we should just return it.
         if (prepared[newestUnpinnedIndex].Role != MessageRole.Model) return floorStartIndex;
-        
+
         // Otherwise the conversation ends with a model reply, preserve the triggering user turn too.
         for (var i = newestUnpinnedIndex - 1; i >= 0; i--)
         {
@@ -541,40 +571,24 @@ public sealed class ConversationContext : IConversationContext
 
     private int Sum(IReadOnlyList<ContextMessage> messages) => messages.Sum(this.EnsureCounted);
 
-    private void AddMessage(ContextMessage message, int? index = null)
+    private void AppendNewTurn(ContextMessage message)
     {
-        if (index.HasValue)
-        {
-            this._history.Insert(index.Value, message);
-        }
-        else
-        {
-            this._history.Add(message);
-        }
+        this._turns.Add(new AgentTurn(message));
+        this._flatHistory.Add(message);
 
         var tokenCount = this.EnsureCounted(message);
-
         if (message.IsPinned)
-        {
             this._pinnedTokenTotal += tokenCount;
-        }
     }
 
-    private void ReplaceMessage(int index, ContextMessage message)
+    private void AppendToLastTurn(ContextMessage message)
     {
-        var existing = this._history[index];
-        if (existing.IsPinned)
-        {
-            this._pinnedTokenTotal -= this.EnsureCounted(existing);
-        }
-
-        this._history[index] = message;
+        this._turns[^1].Append(message);
+        this._flatHistory.Add(message);
 
         var tokenCount = this.EnsureCounted(message);
         if (message.IsPinned)
-        {
             this._pinnedTokenTotal += tokenCount;
-        }
     }
 
     private List<ContextMessage> ReassemblePreparedMessages(
