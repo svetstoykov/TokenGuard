@@ -55,7 +55,9 @@ internal static class DatabaseSchemaEvolutionAuditTask
             "  and the specific tables or columns they use.\n" +
             "  Consumers unaffected by any breaking change must still appear with the note 'No impact detected.'\n\n" +
             "Step 6 – create 'breaking-changes-summary.md' — a chronological list of every BREAKING change across\n" +
-            "  all four version hops, with: version hop, affected table and column, change type, and description.\n\n" +
+            "  all four version hops. Each entry must use exactly this format:\n" +
+            "    [BREAKING] | <version hop> | <table.column> | <change type> | <one-line description>\n" +
+            "  Example: [BREAKING] | v2→v3 | users.phone | COLUMN RENAME | Renamed to phone_number; existing queries will fail.\n\n" +
             "Step 7 – read back each of the six output files to confirm they contain the expected content.\n" +
             "  Do not claim completion until all six output files exist and are verified.",
         completionMarker: CompletionMarker,
@@ -1764,9 +1766,7 @@ internal static class DatabaseSchemaEvolutionAuditTask
         "  Rationale: Existing data or write paths may violate the new constraint.\n" +
         "  Required action: Audit existing data; update application validation before deployment.\n\n" +
 
-        string.Join("\n", Enumerable.Range(1, 50).Select(i =>
-            $"# Policy note {i}: all classification decisions are final per the DBA review board; appeals must go through the schema RFC process.")) +
-        "\n\n# ============================================================================\n" +
+        "\n# ============================================================================\n" +
         "# Migration Policy - Detailed Implementation Guidelines\n" +
         "# ============================================================================\n\n" +
         "# RULE 1 Implementation Details - Column Removal\n" +
@@ -1872,9 +1872,7 @@ internal static class DatabaseSchemaEvolutionAuditTask
         "    users        – id, name, email\n" +
         "  Description: Logistics and shipping label generation service.\n\n" +
 
-        string.Join("\n", Enumerable.Range(1, 40).Select(i =>
-            $"# Registry note {i}: consumers must register schema version upgrades with the Platform Integration team before deployment.")) +
-        "\n\n# ============================================================================\n" +
+        "# ============================================================================\n" +
         "# Consumer Impact Analysis and Migration Paths\n" +
         "# ============================================================================\n\n" +
         "# ConsumerA - Legacy Billing System\n" +

@@ -524,3 +524,6 @@ http-client.private.env.json
 # Application specific environments
 appsettings.development.json
 appsettings.Development.json
+
+# Internal tasks for agents
+.tasks
