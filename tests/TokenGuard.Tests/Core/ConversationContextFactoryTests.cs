@@ -1,7 +1,7 @@
 using TokenGuard.Core.Abstractions;
 using FluentAssertions;
+using TokenGuard.Core;
 using TokenGuard.Core.Configuration;
-using TokenGuard.Core.Contexts;
 using TokenGuard.Core.Models;
 
 namespace TokenGuard.Tests.Core;

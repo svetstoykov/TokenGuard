@@ -1,6 +1,6 @@
 using FluentAssertions;
+using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
-using TokenGuard.Core.Contexts;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Exceptions;
 using TokenGuard.Core.Models;
@@ -862,6 +862,66 @@ public sealed class ConversationContextTests
 
         // Assert
         observer.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenCompactionOccursWithActiveAnchorCorrection_RecalibratesAnchorAgainstCompactedRawCountOnly()
+    {
+        // Arrange
+        // Budget: compaction trigger = 500, emergency = 900.
+        //
+        // The bug: after compaction, _lastPreparedTotal is set to
+        //   finalTokens + old_anchorCorrection  (wrong)
+        // instead of:
+        //   finalTokens                         (correct)
+        //
+        // This poisons the baseline for the next ApplyAnchor call, making the new
+        // correction wrong by exactly old_anchorCorrection. When the pre-compaction
+        // correction was large (+200), the poisoned baseline (-180 instead of +20)
+        // prevents the subsequent PrepareAsync from detecting that the total has
+        // crossed the compaction trigger, so the strategy is never called a second time.
+
+        var budget = new ContextBudget(1000, 0.5, 0.9);
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+
+        // Register token counts before adding messages so EnsureCounted caches them correctly.
+        counter.SetByText("u1", 300);
+        counter.SetByText("m1", 0);
+        counter.SetByText("u2", 200);
+        counter.SetByText("m2", 0);
+        counter.SetByText("u3", 0);
+
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        // Turn 1 — no compaction; establish a large pre-compaction anchor (+200).
+        engine.AddUserMessage("u1");
+        _ = await engine.PrepareAsync();
+        // total = 300, _lastPreparedTotal = 300
+
+        engine.RecordModelResponse([new TextContent("m1")], providerInputTokens: 500);
+        // _anchorCorrection = 500 - 300 = +200
+
+        // Turn 2 — total = 300 + 0 + 200 + 200(correction) = 700 → compaction triggered.
+        engine.AddUserMessage("u2");
+        _ = await engine.PrepareAsync();
+        // CompactCalls = 1; strategy returns pass-through (WasApplied=false).
+        // finalTokens = 500.
+        // CORRECT: _lastPreparedTotal = 500,       _anchorCorrection = 0
+
+        // True drift for the compacted messages is +20 (provider counts 520, raw estimate is 500).
+        engine.RecordModelResponse([new TextContent("m2")], providerInputTokens: 520);
+        // CORRECT: _anchorCorrection = 520 - 500 = +20
+
+        // Turn 3 — rawSum(history) = 300 + 0 + 200 + 0 + 0 = 500.
+        engine.AddUserMessage("u3");
+
+        // Act
+        _ = await engine.PrepareAsync();
+
+        // Assert
+        // CORRECT: total = 500 + 20 = 520 ≥ 500 → compaction runs, CompactCalls = 2.
+        strategy.CompactCalls.Should().Be(2);
     }
 
     private static Task Sync(Action action)

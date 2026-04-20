@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Configuration;
-using TokenGuard.Core.Contexts;
+using TokenGuard.Core;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;

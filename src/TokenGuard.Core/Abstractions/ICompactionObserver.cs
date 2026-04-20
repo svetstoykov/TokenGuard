@@ -8,7 +8,7 @@ namespace TokenGuard.Core.Abstractions;
 /// <remarks>
 /// <para>
 /// Implement this interface to plug logging, metrics emission, or any other side-effect into the compaction
-/// pipeline without modifying <see cref="Contexts.ConversationContext"/> or the strategy layer.
+/// pipeline without modifying <see cref="ConversationContext"/> or the strategy layer.
 /// </para>
 /// <para>
 /// <see cref="OnCompaction"/> is called synchronously on the thread that invoked
