@@ -288,17 +288,18 @@ public sealed class ConversationContext : IConversationContext
     /// </summary>
     /// <param name="cancellationToken">A token that can cancel asynchronous compaction before the prepared list is produced.</param>
     /// <returns>
-    /// A task that resolves to the full history when it fits within the configured budget, or to a
-    /// compacted message list when compaction is required.
+    /// A task that resolves to a <see cref="PrepareResult"/> containing the prepared messages
+    /// and metadata describing what happened during preparation.
     /// </returns>
     /// <remarks>
     /// <para>
     /// This is the main read operation of the context. Await it immediately before every provider
-    /// request. The returned list is the list that should be sent to the model.
+    /// request. Use <see cref="PrepareResult.Messages"/> for the list that should be sent to the model.
     /// </para>
     /// <para>
     /// If the estimated token total is below the compaction trigger, the current history is
-    /// returned directly. If the trigger is reached, the configured <see cref="ICompactionStrategy"/>
+    /// returned directly with <see cref="PrepareResult.Outcome"/> set to <see cref="Enums.PrepareOutcome.Ready"/>.
+    /// If the trigger is reached, the configured <see cref="ICompactionStrategy"/>
     /// is awaited to produce a smaller list.
     /// </para>
     /// <para>
@@ -311,7 +312,7 @@ public sealed class ConversationContext : IConversationContext
     /// representation of that history should be sent next.
     /// </para>
     /// </remarks>
-    public async Task<IReadOnlyList<ContextMessage>> PrepareAsync(CancellationToken cancellationToken = default)
+    public async Task<PrepareResult> PrepareAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
@@ -322,18 +323,19 @@ public sealed class ConversationContext : IConversationContext
         }
 
         IReadOnlyList<ContextMessage> messages = this._history;
-        var total = this.Sum(messages) + this._anchorCorrection;
+        var totalBeforeCompaction = this.Sum(messages) + this._anchorCorrection;
 
-        if (total < this._budget.CompactionTriggerTokens)
+        if (totalBeforeCompaction < this._budget.CompactionTriggerTokens)
         {
-            this._lastPreparedTotal = total;
-            return messages;
+            this._lastPreparedTotal = totalBeforeCompaction;
+            return new PrepareResult(
+                messages,
+                PrepareOutcome.Ready,
+                totalBeforeCompaction,
+                totalBeforeCompaction,
+                messagesCompacted: 0);
         }
-
-        var trigger = total >= this._budget.EmergencyTriggerTokens
-            ? CompactionTrigger.Emergency
-            : CompactionTrigger.Normal;
-
+        
         var pinnedSlots = new List<(int Index, ContextMessage Message)>();
         List<ContextMessage>? compactableMessages = null;
 
@@ -367,9 +369,10 @@ public sealed class ConversationContext : IConversationContext
 
         var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
         var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
-
+        
         var final = emergencyApplied ? truncated! : prepared;
         var finalTokens = this.Sum(final);
+        var messagesCompacted = compacted.MessagesAffected + (emergencyApplied ? prepared.Count - final.Count : 0);
 
         if (emergencyApplied)
         {
@@ -385,13 +388,43 @@ public sealed class ConversationContext : IConversationContext
         }
         else if (compacted.WasApplied)
         {
-            this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, trigger, this._budget));
+            this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, CompactionTrigger.Normal, this._budget));
         }
 
         this._lastPreparedTotal = finalTokens;
         this._anchorCorrection = 0;
 
-        return final;
+        var outcome = this.DetermineOutcome(finalTokens, messagesCompacted);
+        var degradationReason = outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted
+            ? this.BuildDegradationReason(outcome, finalTokens, messagesCompacted, pinnedSlots.Count > 0)
+            : null;
+
+        return new PrepareResult(
+            final,
+            outcome,
+            totalBeforeCompaction,
+            finalTokens,
+            messagesCompacted,
+            degradationReason);
+    }
+
+    private PrepareOutcome DetermineOutcome(int finalTokens, int messagesCompacted)
+    {
+        if (finalTokens <= this._budget.MaxTokens)
+        {
+            return messagesCompacted > 0 ? PrepareOutcome.Compacted : PrepareOutcome.Ready;
+        }
+
+        return messagesCompacted == 0
+            ? PrepareOutcome.ContextExhausted
+            : PrepareOutcome.Degraded;
+    }
+
+    private string BuildDegradationReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted, bool hasPinned)
+    {
+        return outcome == PrepareOutcome.ContextExhausted 
+            ? $"A single message or structural content exceeds the budget ({finalTokens} tokens > {this._budget.MaxTokens} max). Compaction is impossible." 
+            : $"Compaction reduced content but still exceeds budget ({finalTokens} tokens > {this._budget.MaxTokens} max). {messagesCompacted} messages were compacted but insufficient.";
     }
 
     /// <summary>

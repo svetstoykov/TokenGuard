@@ -157,24 +157,26 @@ public interface IConversationContext : IDisposable
     /// A token that can cancel asynchronous compaction before the prepared list is produced.
     /// </param>
     /// <returns>
-    /// A task that resolves to the full history when it fits within the configured budget, or to a
-    /// compacted message list when compaction is required.
+    /// A task that resolves to a <see cref="Models.PrepareResult"/> containing the prepared messages
+    /// and metadata describing what happened during preparation.
     /// </returns>
     /// <remarks>
     /// <para>
     /// This is the main read operation of the context. Await it immediately before every provider
-    /// request. The list it returns is what should be sent to the model.
+    /// request. Use <see cref="Models.PrepareResult.Messages"/> for the list that should be sent to the model.
     /// </para>
     /// <para>
     /// If the estimated token total is below the compaction trigger, the current history is returned
-    /// directly. If the trigger is reached, the configured compaction strategy is awaited to produce
-    /// a smaller list. Pinned messages are separated from the compactable set and reassembled into the
-    /// final result at their original positions regardless of compaction outcome.
+    /// directly with <see cref="Models.PrepareResult.Outcome"/> set to <see cref="Enums.PrepareOutcome.Ready"/>.
+    /// If the trigger is reached, the configured compaction strategy is awaited to produce a smaller list.
+    /// Pinned messages are handled specially: they are excluded from the compactable set, their token cost
+    /// is added to the reserved budget passed into the compaction strategy, and they are reassembled into
+    /// the final result at their original positions after compaction finishes.
     /// </para>
     /// <para>
     /// Calling this method does not modify <see cref="History"/>. It only determines what subset or
     /// representation of that history should be sent next.
     /// </para>
     /// </remarks>
-    Task<IReadOnlyList<ContextMessage>> PrepareAsync(CancellationToken cancellationToken = default);
+    Task<Models.PrepareResult> PrepareAsync(CancellationToken cancellationToken = default);
 }

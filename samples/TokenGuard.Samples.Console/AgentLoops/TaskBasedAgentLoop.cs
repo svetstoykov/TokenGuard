@@ -105,7 +105,8 @@ public sealed class TaskBasedAgentLoop
 
                 logger.LogHistoryBeforePrepare(conversationContext.History);
 
-                var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
+                var prepareResult = await conversationContext.PrepareAsync(cancellationToken);
+                var preparedMessages = prepareResult.Messages;
                 logger.LogHistoryAfterPrepare(preparedMessages);
 
                 var compacted = preparedMessages.Any(m => m.State != CompactionState.Original);

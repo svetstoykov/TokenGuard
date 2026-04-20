@@ -35,7 +35,8 @@ public sealed class ConversationContextIntegrationTests
         var last = engine.History[^1];
 
         // Act
-        var compactedMessages = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var compactedMessages = result.Messages;
 
         // Assert
         compactedMessages.Should().NotBeSameAs(engine.History,
@@ -73,7 +74,7 @@ public sealed class ConversationContextIntegrationTests
         engine.RecordToolResult("call_123", "analyze_logs", new string('A', 4000));
         engine.RecordModelResponse([new TextContent("The logs show that the system was running normally, but there was a spike in memory usage at 3 AM.")]);
         engine.AddUserMessage("Can you check the database logs around 3 AM?");
-        await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
 
         int reportedInputTokens = 300;
 
@@ -82,7 +83,8 @@ public sealed class ConversationContextIntegrationTests
             [new ToolUseContent("call_456", "check_db", "{\"time\":\"03:00\"}")],
             providerInputTokens: reportedInputTokens);
 
-        var finalPrepared = await engine.PrepareAsync();
+        var finalResult = await engine.PrepareAsync();
+        var finalPrepared = finalResult.Messages;
 
         // Assert
         finalPrepared.Should().NotBeSameAs(engine.History,
@@ -108,7 +110,8 @@ public sealed class ConversationContextIntegrationTests
             because: "the first turn alone should still fit within the compaction threshold");
 
         // Act
-        var prep1 = await engine.PrepareAsync();
+        var prep1Result = await engine.PrepareAsync();
+        var prep1 = prep1Result.Messages;
         prep1.Should().Equal(engine.History,
             because: "preparing an under-budget conversation should preserve the original message sequence without compaction");
         prep1.Should().OnlyContain(message => message.State == CompactionState.Original,
@@ -121,7 +124,8 @@ public sealed class ConversationContextIntegrationTests
         engine.RecordToolResult("call_2", "delete_files", new string('D', 1200));
         engine.RecordModelResponse([new TextContent("Deleted all 10 files.")]);
 
-        var prep2 = await engine.PrepareAsync();
+        var prep2Result = await engine.PrepareAsync();
+        var prep2 = prep2Result.Messages;
         prep2.Should().NotBeSameAs(engine.History,
             because: "preparing an over-budget conversation should return a compacted projection");
 
@@ -131,7 +135,8 @@ public sealed class ConversationContextIntegrationTests
 
         engine.AddUserMessage("Thanks, what's next?");
 
-        var prep3 = await engine.PrepareAsync();
+        var prep3Result = await engine.PrepareAsync();
+        var prep3 = prep3Result.Messages;
         prep3.Should().NotBeSameAs(engine.History,
             because: "the conversation should still require compaction after the third user turn");
 
@@ -164,7 +169,8 @@ public sealed class ConversationContextIntegrationTests
         var latestModel = engine.History[^1];
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().NotBeSameAs(engine.History,
@@ -195,7 +201,8 @@ public sealed class ConversationContextIntegrationTests
         var latestModel = engine.History[1];
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().HaveCount(2);
@@ -224,7 +231,8 @@ public sealed class ConversationContextIntegrationTests
         var latestUser = engine.History[^1];
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().HaveCount(2);
@@ -252,7 +260,8 @@ public sealed class ConversationContextIntegrationTests
         var expectedPrepared = engine.History.ToArray();
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().BeEquivalentTo(expectedPrepared,

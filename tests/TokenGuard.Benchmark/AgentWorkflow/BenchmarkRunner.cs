@@ -265,7 +265,8 @@ public sealed class BenchmarkRunner
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
+            var prepareResult = await conversationContext.PrepareAsync(cancellationToken);
+            var preparedMessages = prepareResult.Messages;
             var maskedCount = preparedMessages.Count(static message => message.State == CompactionState.Masked);
             var compacted = maskedCount > 0;
 

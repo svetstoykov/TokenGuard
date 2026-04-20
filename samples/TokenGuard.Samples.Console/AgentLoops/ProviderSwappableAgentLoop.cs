@@ -98,7 +98,8 @@ public sealed class ProviderSwappableAgentLoop
         {
             logger.LogHistoryBeforePrepare(conversationContext.History);
 
-            var preparedMessages = await conversationContext.PrepareAsync();
+            var prepareResult = await conversationContext.PrepareAsync();
+            var preparedMessages = prepareResult.Messages;
             logger.LogPreparedMessages(preparedMessages, budget);
 
             if (preparedMessages.Any(m => m.State != CompactionState.Original))
