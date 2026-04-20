@@ -4,7 +4,7 @@ using TokenGuard.Core.Exceptions;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 
-namespace TokenGuard.Core.Contexts;
+namespace TokenGuard.Core;
 
 /// <summary>
 /// Represents the state of one LLM conversation. It records the full message history and prepares
@@ -388,7 +388,7 @@ public sealed class ConversationContext : IConversationContext
             this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, trigger, this._budget));
         }
 
-        this._lastPreparedTotal = finalTokens + this._anchorCorrection;
+        this._lastPreparedTotal = finalTokens;
         this._anchorCorrection = 0;
 
         return final;

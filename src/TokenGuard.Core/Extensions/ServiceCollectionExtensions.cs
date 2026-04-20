@@ -2,7 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
-using TokenGuard.Core.Contexts;
 using TokenGuard.Core.Models;
 
 namespace TokenGuard.Core.Extensions;

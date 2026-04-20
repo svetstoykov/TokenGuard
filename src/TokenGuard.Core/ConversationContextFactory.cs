@@ -2,7 +2,7 @@ using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Models;
 
-namespace TokenGuard.Core.Contexts;
+namespace TokenGuard.Core;
 
 internal sealed class ConversationContextFactory : IConversationContextFactory
 {
