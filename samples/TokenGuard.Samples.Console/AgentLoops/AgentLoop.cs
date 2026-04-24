@@ -4,6 +4,7 @@ using TokenGuard.Benchmark.AgentWorkflow.Tasks;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Extensions;
+using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Samples.Console.AgentLoops.Providers;
@@ -14,24 +15,23 @@ namespace TokenGuard.Samples.Console.AgentLoops;
 using Console = System.Console;
 
 /// <summary>
-/// Agent loop that executes a predefined <see cref="AgentLoopTaskDefinition"/> with TokenGuard context management.
+/// Executes a predefined <see cref="AgentLoopTaskDefinition"/> with TokenGuard context management.
 /// </summary>
 /// <remarks>
-/// <para>
-/// This loop seeds the workspace, runs the task using the provided provider, and asserts the outcome.
-/// It demonstrates how benchmark task definitions can be reused in sample applications.
-/// </para>
+/// Seeds the workspace, runs the task using the selected provider, then asserts the outcome.
+/// All context tunables are passed in at call time so they remain visible and editable at the
+/// call site in <c>Program.cs</c>.
 /// </remarks>
-public sealed class TaskBasedAgentLoop
+public sealed class AgentLoop
 {
     private readonly AgentLoopTaskDefinition _task;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="TaskBasedAgentLoop"/> class.
+    /// Initializes a new instance of the <see cref="AgentLoop"/> class.
     /// </summary>
     /// <param name="task">The task definition to execute.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="task"/> is null.</exception>
-    public TaskBasedAgentLoop(AgentLoopTaskDefinition task)
+    public AgentLoop(AgentLoopTaskDefinition task)
     {
         ArgumentNullException.ThrowIfNull(task);
         this._task = task;
@@ -42,15 +42,19 @@ public sealed class TaskBasedAgentLoop
     /// </summary>
     /// <param name="options">Provider and runtime options.</param>
     /// <param name="maxTokens">Maximum context budget in tokens.</param>
-    /// <param name="compactionThreshold">Threshold fraction that triggers compaction.</param>
+    /// <param name="compactionThreshold">Fraction of <paramref name="maxTokens"/> that triggers compaction.</param>
+    /// <param name="emergencyThreshold">Fraction of <paramref name="maxTokens"/> at which emergency truncation fires.</param>
+    /// <param name="protectedWindowFraction">Fraction of the window that the sliding strategy keeps protected.</param>
     /// <param name="maxIterations">Maximum turns allowed before stopping.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task RunAsync(
         AgentLoopOptions options,
-        int maxTokens = 80_000,
-        double compactionThreshold = 0.80,
-        int maxIterations = 50,
+        int maxTokens,
+        double compactionThreshold,
+        double emergencyThreshold,
+        double protectedWindowFraction,
+        int maxIterations,
         CancellationToken cancellationToken = default)
     {
         var startTime = DateTime.Now;
@@ -61,14 +65,17 @@ public sealed class TaskBasedAgentLoop
         {
             using var logger = new SessionLogger();
 
+            logger.LogBudgetInfo(new ContextBudget(maxTokens, compactionThreshold, emergencyThreshold, 0), nameof(SlidingWindowStrategy));
+
             var configuration = BuildConfiguration();
             var provider = CreateProvider(options, configuration);
 
             var services = new ServiceCollection();
             services.AddConversationContext(this._task.ConversationName, builder => builder
                 .WithMaxTokens(maxTokens)
-                .WithStrategy(new SlidingWindowStrategy(new SlidingWindowOptions(protectedWindowFraction: 0.2)))
-                .WithCompactionThreshold(compactionThreshold));
+                .WithStrategy(new SlidingWindowStrategy(new SlidingWindowOptions(protectedWindowFraction: protectedWindowFraction)))
+                .WithCompactionThreshold(compactionThreshold)
+                .WithEmergencyThreshold(emergencyThreshold));
 
             await using var serviceProvider = services.BuildServiceProvider();
             using var conversationContext = serviceProvider
@@ -223,7 +230,7 @@ public sealed class TaskBasedAgentLoop
         finally
         {
             // Uncomment to clean up workspace after run
-            // Directory.Delete(workspaceDirectory, recursive: true);
+            Directory.Delete(workspaceDirectory, recursive: true);
         }
     }
 

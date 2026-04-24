@@ -34,7 +34,7 @@ public sealed class BenchmarkRunner
     /// </summary>
     public const string ModelName = "openai/gpt-5.4-nano";
 
-    private readonly JsonReportWriter reportWriter = new();
+    private readonly JsonReportWriter _reportWriter = new();
 
     /// <summary>
     /// Executes selected task under each supplied configuration and returns report model.
@@ -270,6 +270,27 @@ public sealed class BenchmarkRunner
             var maskedCount = preparedMessages.Count(static message => message.State == CompactionState.Masked);
             var compacted = maskedCount > 0;
 
+            if (prepareResult.Outcome == PrepareOutcome.Degraded)
+            {
+                Console.WriteLine($"[{p.Configuration.Name}] turn={turn} degraded" +
+                                  $" reason={prepareResult.DegradationReason}" +
+                                  $" tokensBefore={prepareResult.TokensBeforeCompaction}" +
+                                  $" tokensAfter={prepareResult.TokensAfterCompaction}" +
+                                  $" messagesCompacted={prepareResult.MessagesCompacted}");
+                
+                break;
+            }
+
+            if (prepareResult.Outcome == PrepareOutcome.ContextExhausted)
+            {
+                Console.WriteLine($"[{p.Configuration.Name}] turn={turn} context exhausted" +
+                                  $" tokensBefore={prepareResult.TokensBeforeCompaction}" +
+                                  $" tokensAfter={prepareResult.TokensAfterCompaction}" +
+                                  $" messagesCompacted={prepareResult.MessagesCompacted}");
+                
+                break;
+            }
+
             var turnStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var openAiMessage = preparedMessages.ForOpenAI();
             var resultFromChat = await p.ChatClient.CompleteChatAsync(openAiMessage, p.ChatOptions, cancellationToken);
@@ -383,7 +404,7 @@ public sealed class BenchmarkRunner
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        return this.reportWriter.WriteFailureAsync(
+        return this._reportWriter.WriteFailureAsync(
             task.Name,
             configuration,
             ModelName,

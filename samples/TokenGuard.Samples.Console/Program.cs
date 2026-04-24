@@ -1,36 +1,33 @@
 using TokenGuard.Benchmark.AgentWorkflow.Tasks;
 using TokenGuard.Samples.Console.AgentLoops;
 
-var mode = SelectMode();
+// --- Context budget ---
+const int MaxTokens = 30_000;
+const double CompactionThreshold = 0.90;
+const double EmergencyThreshold = 1.0;
 
-if (mode == ExecutionMode.TaskBased)
-{
-    var tasks = BuiltInAgentLoopTasks.All();
-    var selectedTask = SelectTask(tasks);
-    await RunTaskBasedLoopAsync(selectedTask.Name);
-    return;
-}
+// --- SlidingWindowStrategy ---
+const double ProtectedWindowFraction = 0.2;
 
-await RunProviderSwappableLoopAsync();
+// --- Agent loop ---
+const int MaxIterations = 50;
 
-static ExecutionMode SelectMode()
-{
-    Console.WriteLine("=========================================");
-    Console.WriteLine("   TokenGuard.Core Agentic Loop Sample");
-    Console.WriteLine("=========================================\n");
-    Console.WriteLine("Select mode:");
-    Console.WriteLine("1. Provider-swappable (interactive chat)");
-    Console.WriteLine("2. Task-based (run predefined benchmark task)");
-    Console.Write("\nChoice [1]: ");
-    var input = Console.ReadLine();
-    Console.WriteLine();
+Console.WriteLine("=========================================");
+Console.WriteLine("   TokenGuard.Core Agentic Loop Sample");
+Console.WriteLine("=========================================\n");
 
-    return input?.Trim() switch
-    {
-        "2" => ExecutionMode.TaskBased,
-        _ => ExecutionMode.ProviderSwappable,
-    };
-}
+var task = SelectTask(BuiltInAgentLoopTasks.All());
+var provider = SelectProvider(ProviderRegistry.All());
+
+var loop = new AgentLoop(task);
+
+await loop.RunAsync(
+    new AgentLoopOptions(provider.Kind, provider.ModelId, provider.Endpoint),
+    MaxTokens,
+    CompactionThreshold,
+    EmergencyThreshold,
+    ProtectedWindowFraction,
+    MaxIterations);
 
 static AgentLoopTaskDefinition SelectTask(IReadOnlyList<AgentLoopTaskDefinition> tasks)
 {
@@ -38,7 +35,7 @@ static AgentLoopTaskDefinition SelectTask(IReadOnlyList<AgentLoopTaskDefinition>
 
     for (var i = 0; i < tasks.Count; i++)
     {
-        Console.WriteLine($"{i + 1}. {tasks[i].Name} [{tasks[i].Size}]");
+        Console.WriteLine($"  {i + 1}. {tasks[i].Name} [{tasks[i].Size}]");
     }
 
     Console.Write("\nChoice [1]: ");
@@ -50,97 +47,20 @@ static AgentLoopTaskDefinition SelectTask(IReadOnlyList<AgentLoopTaskDefinition>
         : tasks[0];
 }
 
-static async Task RunProviderSwappableLoopAsync()
+static ProviderDefinition SelectProvider(IReadOnlyList<ProviderDefinition> providers)
 {
-    var providerOptions = ProviderRegistry.All();
+    Console.WriteLine($"Select provider:");
 
-    Console.WriteLine("=========================================");
-    Console.WriteLine("   TokenGuard.Core Agentic Loop Sample");
-    Console.WriteLine("=========================================\n");
-    Console.WriteLine($"Choose a provider (index 1-{providerOptions.Count}):\n");
-
-    for (var i = 0; i < providerOptions.Count; i++)
+    for (var i = 0; i < providers.Count; i++)
     {
-        Console.WriteLine($"{i + 1}. {providerOptions[i].Label} ({providerOptions[i].ModelId})");
+        Console.WriteLine($"  {i + 1}. {providers[i].Label} ({providers[i].ModelId})");
     }
 
-    Console.Write("\nSelection: ");
-    var selection = Console.ReadLine();
-
-    if (!int.TryParse(selection, out var selectedIndex) || selectedIndex < 1 || selectedIndex > providerOptions.Count)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine("Invalid selection.");
-        Console.ResetColor();
-        return;
-    }
-
+    Console.Write("\nChoice [1]: ");
+    var input = Console.ReadLine();
     Console.WriteLine();
 
-    var selectedProvider = providerOptions[selectedIndex - 1];
-    var loop = new ProviderSwappableAgentLoop();
-
-    await loop.RunAsync(new AgentLoopOptions(
-        selectedProvider.Kind,
-        selectedProvider.ModelId,
-        selectedProvider.Endpoint));
-}
-
-static async Task RunTaskBasedLoopAsync(string taskName)
-{
-    var task = FindTask(taskName);
-    if (task is null)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"Unknown task: {taskName}");
-        Console.WriteLine("Available tasks:");
-        foreach (var t in BuiltInAgentLoopTasks.All())
-        {
-            Console.WriteLine($"  - {t.Name}");
-        }
-        Console.ResetColor();
-        return;
-    }
-
-    var providerOptions = ProviderRegistry.All();
-
-    Console.WriteLine();
-    Console.WriteLine($"Task: {task.Name}");
-    Console.WriteLine($"Choose a provider (index 1-{providerOptions.Count}):\n");
-
-    for (var i = 0; i < providerOptions.Count; i++)
-    {
-        Console.WriteLine($"{i + 1}. {providerOptions[i].Label} ({providerOptions[i].ModelId})");
-    }
-
-    Console.Write("\nSelection: ");
-    var selection = Console.ReadLine();
-
-    if (!int.TryParse(selection, out var selectedIndex) || selectedIndex < 1 || selectedIndex > providerOptions.Count)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine("Invalid selection.");
-        Console.ResetColor();
-        return;
-    }
-
-    Console.WriteLine();
-
-    var selectedProvider = providerOptions[selectedIndex - 1];
-    var loop = new TaskBasedAgentLoop(task);
-
-    await loop.RunAsync(new AgentLoopOptions(
-        selectedProvider.Kind,
-        selectedProvider.ModelId,
-        selectedProvider.Endpoint));
-}
-
-static AgentLoopTaskDefinition? FindTask(string name)
-    => BuiltInAgentLoopTasks.All().FirstOrDefault(t =>
-        string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
-
-enum ExecutionMode
-{
-    ProviderSwappable,
-    TaskBased,
+    return int.TryParse(input, out var index) && index >= 1 && index <= providers.Count
+        ? providers[index - 1]
+        : providers[0];
 }

@@ -41,6 +41,20 @@ public static class BuiltInAgentLoopTasks
     public static AgentLoopTaskDefinition DatabaseSchemaEvolutionAudit => DatabaseSchemaEvolutionAuditTask.Create();
 
     /// <summary>
+    /// Gets the config-migration benchmark task definition.
+    /// Designed to run 20–25 turns with small per-turn token output, making it well suited
+    /// for demonstrating compaction savings at modest token budgets (5–8K).
+    /// </summary>
+    public static AgentLoopTaskDefinition ConfigMigration => ConfigMigrationTask.Create();
+
+    /// <summary>
+    /// Gets the incident-registry benchmark task definition.
+    /// Designed to run 28–30 turns with a growing tool-result payload per turn, which makes
+    /// observation masking progressively more valuable as the registry accumulates entries.
+    /// </summary>
+    public static AgentLoopTaskDefinition IncidentRegistry => IncidentRegistryTask.Create();
+
+    /// <summary>
     /// Gets all built-in benchmark task definitions.
     /// </summary>
     /// <returns>
@@ -52,6 +66,8 @@ public static class BuiltInAgentLoopTasks
         CodeReviewTask.Create(),
         ReleaseAuditTask.Create(),
         ApiContractAuditTask.Create(),
-        DatabaseSchemaEvolutionAuditTask.Create()
+        DatabaseSchemaEvolutionAuditTask.Create(),
+        ConfigMigrationTask.Create(),
+        IncidentRegistryTask.Create(),
     ];
 }
