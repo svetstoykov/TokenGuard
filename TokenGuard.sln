@@ -26,6 +26,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Codexplorer", "Codexplorer"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer.App", "samples\Codexplorer\Codexplorer.App\Codexplorer.App.csproj", "{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer.App.Tests", "samples\Codexplorer\Codexplorer.App.Tests\Codexplorer.App.Tests.csproj", "{EE52B660-7571-4E38-A3D7-98B0E2F847FC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -68,6 +70,10 @@ Global
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EE52B660-7571-4E38-A3D7-98B0E2F847FC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EE52B660-7571-4E38-A3D7-98B0E2F847FC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EE52B660-7571-4E38-A3D7-98B0E2F847FC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EE52B660-7571-4E38-A3D7-98B0E2F847FC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{D4E5F6A7-B8C9-0123-DEF0-234567890123} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
@@ -77,5 +83,6 @@ Global
 		{3A3A95D8-6848-46E5-B852-EC6EEAC25F3F} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
 		{9B80301A-8153-2D25-DB91-7A6113C9E683} = {C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA} = {9B80301A-8153-2D25-DB91-7A6113C9E683}
+		{EE52B660-7571-4E38-A3D7-98B0E2F847FC} = {9B80301A-8153-2D25-DB91-7A6113C9E683}
 	EndGlobalSection
 EndGlobal

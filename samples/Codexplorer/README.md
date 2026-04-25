@@ -5,7 +5,7 @@ Minimal TokenGuard sample that proves OpenRouter connectivity through `TokenGuar
 ## Requirements
 
 - .NET 10 SDK
-- `OPENROUTER_API_KEY` environment variable
+- local `samples/Codexplorer/Codexplorer.App/appsettings.Development.json`
 
 ## Configuration
 
@@ -23,10 +23,23 @@ Default model lives in `samples/Codexplorer/Codexplorer.App/appsettings.json`:
 
 Change `Codexplorer:Model:Name` to switch models.
 
+Create local `samples/Codexplorer/Codexplorer.App/appsettings.Development.json` and keep it uncommitted:
+
+```json
+{
+  "Codexplorer": {
+    "OpenRouter": {
+      "ApiKey": "your-key"
+    }
+  }
+}
+```
+
+Repo `.gitignore` already ignores `appsettings.Development.json`.
+
 ## Run
 
 ```bash
-export OPENROUTER_API_KEY=your-key
 dotnet run --project samples/Codexplorer/Codexplorer.App
 ```
 

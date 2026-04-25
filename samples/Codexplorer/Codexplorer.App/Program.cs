@@ -1,6 +1,9 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using Codexplorer.App.Configuration;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
 using Serilog;
@@ -20,7 +23,9 @@ internal sealed class Program
         try
         {
             var builder = Host.CreateApplicationBuilder(args);
+            builder.Configuration.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false);
 
+            builder.Services.AddCodexplorerOptions(builder.Configuration);
             builder.Services.AddSerilog((_, loggerConfiguration) => loggerConfiguration
                 .MinimumLevel.Information()
                 .WriteTo.Console()
@@ -31,23 +36,61 @@ internal sealed class Program
             builder.Services.AddSingleton<OpenRouterHelloWorldRunner>();
 
             using var host = builder.Build();
-            return await host.Services
-                .GetRequiredService<OpenRouterHelloWorldRunner>()
-                .RunAsync();
+            await host.StartAsync();
+
+            try
+            {
+                LogResolvedConfiguration(host.Services);
+
+                return await host.Services
+                    .GetRequiredService<OpenRouterHelloWorldRunner>()
+                    .RunAsync();
+            }
+            finally
+            {
+                await host.StopAsync();
+            }
         }
-        catch (MissingEnvironmentVariableException ex)
+        catch (OptionsValidationException ex)
         {
-            Console.Error.WriteLine(ex.Message);
+            foreach (var failure in ex.Failures)
+            {
+                Console.Error.WriteLine(failure);
+            }
+
             return 1;
         }
     }
 
-    private sealed class OpenRouterHelloWorldRunner(IConfiguration configuration)
+    private static void LogResolvedConfiguration(IServiceProvider services)
+    {
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        var options = services.GetRequiredService<IOptions<CodexplorerOptions>>().Value;
+
+        logger.LogDebug("Resolved Codexplorer configuration {@CodexplorerOptions}", CreateRedactedConfigurationSnapshot(options));
+    }
+
+    private static object CreateRedactedConfigurationSnapshot(CodexplorerOptions options)
+    {
+        return new
+        {
+            options.Budget,
+            options.Model,
+            options.Workspace,
+            options.Logging,
+            OpenRouter = new
+            {
+                ApiKey = "***redacted***"
+            }
+        };
+    }
+
+    private sealed class OpenRouterHelloWorldRunner(IOptions<CodexplorerOptions> codexplorerOptions)
     {
         public async Task<int> RunAsync(CancellationToken cancellationToken = default)
         {
-            var apiKey = GetRequiredOpenRouterApiKey();
-            var modelName = GetRequiredModelName();
+            var apiKey = codexplorerOptions.Value.OpenRouter.ApiKey;
+            var modelName = codexplorerOptions.Value.Model.Name;
             var client = new OpenAIClient(
                 new System.ClientModel.ApiKeyCredential(apiKey),
                 new OpenAIClientOptions { Endpoint = OpenRouterEndpoint });
@@ -79,33 +122,5 @@ internal sealed class Program
             Console.WriteLine(reply);
             return 0;
         }
-
-        private string GetRequiredOpenRouterApiKey()
-        {
-            var apiKey = configuration["OPENROUTER_API_KEY"]
-                ?? Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
-
-            if (string.IsNullOrWhiteSpace(apiKey))
-            {
-                throw new MissingEnvironmentVariableException("OPENROUTER_API_KEY");
-            }
-
-            return apiKey;
-        }
-
-        private string GetRequiredModelName()
-        {
-            var modelName = configuration["Codexplorer:Model:Name"];
-
-            if (string.IsNullOrWhiteSpace(modelName))
-            {
-                throw new InvalidOperationException("Missing required configuration value 'Codexplorer:Model:Name'.");
-            }
-
-            return modelName;
-        }
     }
-
-    private sealed class MissingEnvironmentVariableException(string variableName)
-        : InvalidOperationException($"Missing required environment variable '{variableName}'.");
 }
