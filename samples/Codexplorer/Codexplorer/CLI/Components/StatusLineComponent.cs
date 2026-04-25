@@ -5,7 +5,7 @@ namespace Codexplorer.CLI.Components;
 
 internal static class StatusLineComponent
 {
-    public static IRenderable Render(int turnIndex, int maxTurns, int tokensInContext, int contextWindowTokens, CodexplorerTheme theme)
+    public static IRenderable Render(int turnIndex, int tokensInContext, int contextWindowTokens, CodexplorerTheme theme)
     {
         var percentUsed = contextWindowTokens == 0
             ? 0.0
@@ -17,7 +17,7 @@ internal static class StatusLineComponent
         table.AddColumn(string.Empty);
         table.AddRow(
             new Text(
-                $"turn {turnIndex + 1} / {maxTurns} | tokens in context {tokensInContext:N0} | budget used {percentUsed:F1}%",
+                $"model turn {turnIndex + 1} | tokens in context {tokensInContext:N0} | budget used {percentUsed:F1}%",
                 theme.TitleStyle));
 
         return table;

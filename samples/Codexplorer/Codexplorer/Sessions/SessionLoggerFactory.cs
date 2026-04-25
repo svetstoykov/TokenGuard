@@ -9,7 +9,7 @@ namespace Codexplorer.Sessions;
 /// </summary>
 /// <remarks>
 /// The factory centralizes filename generation and configuration capture so the rest of the application only needs a
-/// workspace and user query to begin a new transcript.
+/// workspace and session label to begin a new transcript.
 /// </remarks>
 public sealed class SessionLoggerFactory : ISessionLoggerFactory
 {
@@ -26,10 +26,10 @@ public sealed class SessionLoggerFactory : ISessionLoggerFactory
     }
 
     /// <inheritdoc />
-    public ISessionLogger BeginSession(WorkspaceModel workspace, string userQuery)
+    public ISessionLogger BeginSession(WorkspaceModel workspace, string sessionLabel)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        ArgumentException.ThrowIfNullOrWhiteSpace(userQuery);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionLabel);
 
         var loggingOptions = this._options.Logging
             ?? throw new InvalidOperationException("Codexplorer logging options are not configured.");
@@ -46,15 +46,14 @@ public sealed class SessionLoggerFactory : ISessionLoggerFactory
         Directory.CreateDirectory(logDirectory);
 
         var timestampUtc = DateTime.UtcNow;
-        var slug = SessionSlug.Create(userQuery);
-        var baseFileName = $"{timestampUtc:yyyyMMdd-HHmmssfff}-{slug}";
+        var baseFileName = $"{timestampUtc:yyyyMMdd-HHmmssfff}-{SessionSlug.Create(workspace.OwnerRepo)}-{SessionSlug.Create(sessionLabel)}";
         var logFilePath = CreateUniqueFilePath(logDirectory, baseFileName);
 
         return new MarkdownSessionLogger(
             logFilePath,
             timestampUtc,
             workspace,
-            userQuery,
+            sessionLabel,
             modelName,
             budgetOptions);
     }

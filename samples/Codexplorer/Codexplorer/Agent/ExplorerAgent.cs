@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Codexplorer.CLI;
 using Codexplorer.Configuration;
@@ -19,9 +18,9 @@ namespace Codexplorer.Agent;
 /// Runs the Codexplorer repository agent loop over TokenGuard and OpenRouter.
 /// </summary>
 /// <remarks>
-/// This service owns the full control loop: it prepares context with TokenGuard, sends requests to OpenRouter, executes
-/// tool calls serially inside the current workspace, records every relevant event to the session transcript, and turns
-/// terminal outcomes into stable result records for the caller.
+/// This service owns session creation for the Codexplorer repository agent loop. Each started session receives its own
+/// TokenGuard conversation context, transcript logger, renderer task, and OpenRouter chat client while still sharing
+/// the application's stable tool registry and validated configuration.
 /// </remarks>
 internal sealed class ExplorerAgent : IExplorerAgent
 {
@@ -66,186 +65,34 @@ internal sealed class ExplorerAgent : IExplorerAgent
     }
 
     /// <inheritdoc />
-    public async Task<AgentRunResult> RunAsync(WorkspaceModel workspace, string userQuery, CancellationToken ct)
+    public IExplorerSession StartSession(WorkspaceModel workspace)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        ArgumentException.ThrowIfNullOrWhiteSpace(userQuery);
 
-        ISessionLogger? sessionLogger = null;
-        IConversationContext? conversationContext = null;
-        Task? rendererTask = null;
-        var totalTurns = 0;
-        var totalTokens = 0;
-        string? lastAssistantText = null;
         var agentOptions = this._options.Agent
             ?? throw new InvalidOperationException("Codexplorer agent options are not configured.");
         var modelOptions = this._options.Model
             ?? throw new InvalidOperationException("Codexplorer model options are not configured.");
+        var conversationContext = this._conversationContextFactory.Create();
+        var sessionLogger = this._sessionLoggerFactory.BeginSession(workspace, "Interactive repo chat");
+        var rendererTask = this._sessionRenderer.RenderAsync(sessionLogger, CancellationToken.None);
+        var chatClient = CreateChatClient(this._options);
 
-        try
-        {
-            sessionLogger = this._sessionLoggerFactory.BeginSession(workspace, userQuery);
-            rendererTask = this._sessionRenderer.RenderAsync(sessionLogger, agentOptions.MaxTurns, CancellationToken.None);
-            conversationContext = this._conversationContextFactory.Create();
-            var chatClient = CreateChatClient(this._options);
+        conversationContext.SetSystemPrompt(SystemPrompt.Text);
 
-            conversationContext.SetSystemPrompt(SystemPrompt.Text);
-            conversationContext.AddUserMessage(userQuery);
-
-            for (var turnIndex = 0; turnIndex < agentOptions.MaxTurns; turnIndex++)
-            {
-                if (ct.IsCancellationRequested)
-                {
-                    return await CancelAsync(sessionLogger, lastAssistantText, totalTurns, turnIndex).ConfigureAwait(false);
-                }
-
-                var prepareResult = await conversationContext.PrepareAsync(ct).ConfigureAwait(false);
-                await sessionLogger.AppendAsync(
-                        new PreparedContextEvent(DateTime.UtcNow, turnIndex, prepareResult),
-                        CancellationToken.None)
-                    .ConfigureAwait(false);
-
-                if (prepareResult.Outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted)
-                {
-                    var reason = prepareResult.DegradationReason
-                        ?? (prepareResult.Outcome == PrepareOutcome.ContextExhausted
-                            ? "Context budget exhausted after compaction; a prepared request could no longer fit."
-                            : "Context budget degraded after compaction; the prepared request may exceed provider limits.");
-
-                    await sessionLogger.EndAsync(
-                            new SessionEndedEvent(DateTime.UtcNow, totalTurns, totalTokens, $"Degraded: {reason}"),
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-
-                    return new AgentDegraded(reason, lastAssistantText, totalTurns);
-                }
-
-                await sessionLogger.AppendAsync(
-                        new ModelRequestedEvent(DateTime.UtcNow, turnIndex, prepareResult.Messages),
-                        CancellationToken.None)
-                    .ConfigureAwait(false);
-
-                var completion = (await chatClient.CompleteChatAsync(
-                        prepareResult.Messages.ForOpenAI(),
-                        CreateChatCompletionOptions(this._chatTools, modelOptions.MaxOutputTokens),
-                        CancellationToken.None)
-                    .ConfigureAwait(false))
-                    .Value;
-
-                var assistantText = string.Join(
-                    Environment.NewLine,
-                    completion.TextSegments()
-                        .Select(segment => segment.Content)
-                        .Where(static content => !string.IsNullOrWhiteSpace(content)));
-
-                if (!string.IsNullOrWhiteSpace(assistantText))
-                {
-                    lastAssistantText = assistantText;
-                }
-
-                var toolCalls = completion.ToolCalls
-                    .Select(call => new SessionToolCall(call.Id, call.FunctionName, call.FunctionArguments.ToString()))
-                    .ToArray();
-
-                totalTurns = turnIndex + 1;
-                totalTokens += completion.Usage?.TotalTokenCount ?? 0;
-
-                await sessionLogger.AppendAsync(
-                        new ModelRespondedEvent(
-                            DateTime.UtcNow,
-                            turnIndex,
-                            assistantText,
-                            toolCalls,
-                            completion.Usage?.InputTokenCount,
-                            completion.Usage?.OutputTokenCount,
-                            completion.Usage?.TotalTokenCount),
-                        CancellationToken.None)
-                    .ConfigureAwait(false);
-
-                conversationContext.RecordModelResponse(completion.ResponseSegments(), completion.InputTokens());
-
-                if (toolCalls.Length == 0)
-                {
-                    await sessionLogger.AppendAsync(
-                            new FinalAnswerEvent(DateTime.UtcNow, assistantText),
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-
-                    await sessionLogger.EndAsync(
-                            new SessionEndedEvent(DateTime.UtcNow, totalTurns, totalTokens, "Succeeded"),
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-
-                    return new AgentSucceeded(assistantText, totalTurns, totalTokens);
-                }
-
-                foreach (var toolCall in toolCalls)
-                {
-                    await sessionLogger.AppendAsync(
-                            new ToolCalledEvent(DateTime.UtcNow, toolCall.ToolName, toolCall.ArgumentsJson),
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-
-                    var stopwatch = Stopwatch.StartNew();
-                    var toolResult = await this._toolRegistry.ExecuteAsync(
-                            toolCall.ToolName,
-                            ParseArguments(toolCall.ArgumentsJson),
-                            workspace,
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-                    stopwatch.Stop();
-
-                    conversationContext.RecordToolResult(toolCall.ToolCallId, toolCall.ToolName, toolResult);
-
-                    await sessionLogger.AppendAsync(
-                            new ToolCompletedEvent(DateTime.UtcNow, toolCall.ToolName, toolResult, stopwatch.Elapsed),
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
-            }
-
-            await sessionLogger.EndAsync(
-                    new SessionEndedEvent(DateTime.UtcNow, totalTurns, totalTokens, "MaxTurnsReached"),
-                    CancellationToken.None)
-                .ConfigureAwait(false);
-
-            return new AgentMaxTurnsReached(lastAssistantText, totalTurns);
-        }
-        catch (Exception ex) when (ct.IsCancellationRequested && ex is OperationCanceledException)
-        {
-            if (sessionLogger is not null)
-            {
-                return await CancelAsync(sessionLogger, lastAssistantText, totalTurns, totalTurns).ConfigureAwait(false);
-            }
-
-            return new AgentCancelled(lastAssistantText, totalTurns);
-        }
-        catch (Exception ex)
-        {
-            if (sessionLogger is not null)
-            {
-                await sessionLogger.AppendAsync(new SessionFailedEvent(DateTime.UtcNow, ex), CancellationToken.None).ConfigureAwait(false);
-            }
-
-            return new AgentFailed(ex, totalTurns);
-        }
-        finally
-        {
-            conversationContext?.Dispose();
-
-            if (sessionLogger is not null)
-            {
-                await sessionLogger.DisposeAsync().ConfigureAwait(false);
-            }
-
-            if (rendererTask is not null)
-            {
-                await rendererTask.ConfigureAwait(false);
-            }
-        }
+        return new ExplorerSession(
+            workspace,
+            conversationContext,
+            sessionLogger,
+            rendererTask,
+            this._toolRegistry,
+            chatClient,
+            this._chatTools,
+            agentOptions,
+            modelOptions);
     }
 
-    private static ChatCompletionOptions CreateChatCompletionOptions(IReadOnlyList<ChatTool> chatTools, int maxOutputTokens)
+    internal static ChatCompletionOptions CreateChatCompletionOptions(IReadOnlyList<ChatTool> chatTools, int maxOutputTokens)
     {
         var options = new ChatCompletionOptions
         {
@@ -295,23 +142,10 @@ internal sealed class ExplorerAgent : IExplorerAgent
             functionSchemaIsStrict: false);
     }
 
-    private static JsonElement ParseArguments(string json)
+    internal static JsonElement ParseArguments(string json)
     {
         using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
         return document.RootElement.Clone();
     }
 
-    private static async Task<AgentCancelled> CancelAsync(
-        ISessionLogger sessionLogger,
-        string? lastAssistantText,
-        int totalTurns,
-        int turnIndex)
-    {
-        await sessionLogger.AppendAsync(
-                new SessionCancelledEvent(DateTime.UtcNow, turnIndex, "Cancellation requested between turns."),
-                CancellationToken.None)
-            .ConfigureAwait(false);
-
-        return new AgentCancelled(lastAssistantText, totalTurns);
-    }
 }

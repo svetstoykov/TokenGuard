@@ -5,7 +5,7 @@ using WorkspaceModel = Codexplorer.Workspace.Workspace;
 namespace Codexplorer.Sessions;
 
 /// <summary>
-/// Represents one ordered event in a Codexplorer query transcript.
+/// Represents one ordered event in a Codexplorer session transcript.
 /// </summary>
 /// <param name="TimestampUtc">The UTC timestamp when the event occurred.</param>
 public abstract record SessionEvent(DateTime TimestampUtc);
@@ -15,15 +15,26 @@ public abstract record SessionEvent(DateTime TimestampUtc);
 /// </summary>
 /// <param name="TimestampUtc">The UTC timestamp when the session began.</param>
 /// <param name="Workspace">The workspace targeted by the query.</param>
-/// <param name="UserQuery">The original user query text.</param>
+/// <param name="SessionLabel">The human-readable session label.</param>
 /// <param name="Budget">The configured Codexplorer budget settings.</param>
 /// <param name="ModelName">The configured model identifier.</param>
 public sealed record SessionStartedEvent(
     DateTime TimestampUtc,
     WorkspaceModel Workspace,
-    string UserQuery,
+    string SessionLabel,
     BudgetOptions Budget,
     string ModelName) : SessionEvent(TimestampUtc);
+
+/// <summary>
+/// Captures one user message submitted during a live session.
+/// </summary>
+/// <param name="TimestampUtc">The UTC timestamp when the user message entered the session.</param>
+/// <param name="ExchangeIndex">The zero-based index of the user-message exchange inside the session.</param>
+/// <param name="Content">The raw user message content.</param>
+public sealed record UserPromptEvent(
+    DateTime TimestampUtc,
+    int ExchangeIndex,
+    string Content) : SessionEvent(TimestampUtc);
 
 /// <summary>
 /// Captures the diagnostics returned by one TokenGuard <see cref="PrepareResult"/>.
@@ -126,13 +137,28 @@ public sealed record ToolCompletedEvent(
     TimeSpan Duration) : SessionEvent(TimestampUtc);
 
 /// <summary>
-/// Captures the final human-facing answer emitted by Codexplorer.
+/// Captures one assistant reply emitted for one user message.
 /// </summary>
-/// <param name="TimestampUtc">The UTC timestamp when the final answer was produced.</param>
-/// <param name="Content">The final answer content.</param>
-public sealed record FinalAnswerEvent(
+/// <param name="TimestampUtc">The UTC timestamp when the assistant reply was produced.</param>
+/// <param name="ExchangeIndex">The zero-based index of the user-message exchange inside the session.</param>
+/// <param name="Content">The assistant reply content.</param>
+public sealed record AssistantReplyEvent(
     DateTime TimestampUtc,
+    int ExchangeIndex,
     string Content) : SessionEvent(TimestampUtc);
+
+/// <summary>
+/// Captures the final outcome of one user-message exchange inside the live session.
+/// </summary>
+/// <param name="TimestampUtc">The UTC timestamp when the exchange outcome was known.</param>
+/// <param name="ExchangeIndex">The zero-based index of the user-message exchange inside the session.</param>
+/// <param name="Outcome">The short outcome name.</param>
+/// <param name="Details">Optional details explaining the outcome.</param>
+public sealed record ExchangeOutcomeEvent(
+    DateTime TimestampUtc,
+    int ExchangeIndex,
+    string Outcome,
+    string? Details) : SessionEvent(TimestampUtc);
 
 /// <summary>
 /// Captures normal session completion.

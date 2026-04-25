@@ -34,13 +34,12 @@ internal sealed class SessionRenderer
     /// Consumes a session event stream and renders each event in order.
     /// </summary>
     /// <param name="sessionLogger">The active session logger whose events should be rendered.</param>
-    /// <param name="maxTurns">The configured turn cap for the current run.</param>
     /// <param name="ct">The cancellation token for the rendering loop.</param>
-    public async Task RenderAsync(ISessionLogger sessionLogger, int maxTurns, CancellationToken ct = default)
+    public async Task RenderAsync(ISessionLogger sessionLogger, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(sessionLogger);
 
-        var state = new RenderState(sessionLogger.LogFilePath, maxTurns);
+        var state = new RenderState(sessionLogger.LogFilePath);
 
         await foreach (var evt in sessionLogger.Events.WithCancellation(ct).ConfigureAwait(false))
         {
@@ -55,7 +54,6 @@ internal sealed class SessionRenderer
                 case PreparedContextEvent prepared:
                     this._console.Write(StatusLineComponent.Render(
                         prepared.TurnIndex,
-                        state.MaxTurns,
                         prepared.TokensAfterCompaction,
                         state.ContextWindowTokens,
                         this._theme));
@@ -83,8 +81,10 @@ internal sealed class SessionRenderer
                     RenderModelResponded(modelResponded, state, this._console, this._theme);
                     break;
 
-                case FinalAnswerEvent finalAnswer:
-                    state.LastFinalAnswer = finalAnswer.Content;
+                case AssistantReplyEvent assistantReply:
+                    state.LastAssistantReply = assistantReply.Content;
+                    this._console.Write(AnswerPanel.Render(assistantReply.Content, this._theme));
+                    this._console.WriteLine();
                     break;
 
                 case SessionEndedEvent sessionEnded:
@@ -118,6 +118,12 @@ internal sealed class SessionRenderer
         IAnsiConsole console,
         CodexplorerTheme theme)
     {
+        if (evt.ToolCallsIssued.Count == 0)
+        {
+            state.LastAssistantContent = evt.AssistantContent;
+            return;
+        }
+
         if (evt.ToolCallsIssued.Count > 0 && string.IsNullOrWhiteSpace(evt.AssistantContent))
         {
             console.Write(new Text($"Model issuing {evt.ToolCallsIssued.Count} tool call(s).", theme.AccentStyle));
@@ -147,32 +153,29 @@ internal sealed class SessionRenderer
         IAnsiConsole console,
         CodexplorerTheme theme)
     {
-        if (string.Equals(evt.TerminalOutcome, "Succeeded", StringComparison.Ordinal))
+        if (string.Equals(evt.TerminalOutcome, "EndedByUser", StringComparison.Ordinal))
         {
-            var answer = state.LastFinalAnswer ?? state.LastAssistantContent ?? "No final answer content was captured.";
-            console.Write(AnswerPanel.Render(answer, theme));
+            console.Write(new Text($"Session ended. Transcript saved to {state.LogFilePath}", theme.MutedStyle));
             console.WriteLine();
             return;
         }
 
         console.Write(DegradationNotice.RenderWarning(
-            "Run Ended Without Final Answer",
+            "Session Ended",
             $"{evt.TerminalOutcome}. Total turns: {evt.TotalTurns}. Total tokens: {evt.TotalReportedTokens?.ToString() ?? "n/a"}.",
             state.LogFilePath,
             theme));
         console.WriteLine();
     }
 
-    private sealed class RenderState(string logFilePath, int maxTurns)
+    private sealed class RenderState(string logFilePath)
     {
         public string LogFilePath { get; } = logFilePath;
-
-        public int MaxTurns { get; } = maxTurns;
 
         public int ContextWindowTokens { get; set; }
 
         public string? LastAssistantContent { get; set; }
 
-        public string? LastFinalAnswer { get; set; }
+        public string? LastAssistantReply { get; set; }
     }
 }

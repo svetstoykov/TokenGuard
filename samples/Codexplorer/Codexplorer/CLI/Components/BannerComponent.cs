@@ -19,11 +19,11 @@ internal static class BannerComponent
             new Text(
                 $"{evt.Budget.ContextWindowTokens} tokens | soft {evt.Budget.SoftThresholdRatio:P0} | hard {evt.Budget.HardThresholdRatio:P0}"));
         grid.AddEmptyRow();
-        grid.AddRow(new Text("Query", theme.MutedStyle), new Text(evt.UserQuery));
+        grid.AddRow(new Text("Session", theme.MutedStyle), new Text(evt.SessionLabel));
 
         return new Panel(grid)
         {
-            Header = new PanelHeader("Codexplorer Live Run"),
+            Header = new PanelHeader("Codexplorer Live Session"),
             Border = BoxBorder.Rounded,
             Padding = new Padding(1, 0, 1, 0)
         }.BorderColor(theme.Title);

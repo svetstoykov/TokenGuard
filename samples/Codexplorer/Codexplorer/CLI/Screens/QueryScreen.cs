@@ -1,4 +1,5 @@
 using Codexplorer.Agent;
+using Codexplorer.CLI.Components;
 using Codexplorer.Workspace;
 using Spectre.Console;
 using WorkspaceModel = Codexplorer.Workspace.Workspace;
@@ -7,43 +8,38 @@ namespace Codexplorer.CLI.Screens;
 
 internal sealed class QueryScreen : IScreen
 {
-    private const string AskAnotherQuestionOption = "Ask another question of this repo";
-    private const string DifferentRepoOption = "Different repo";
-    private const string MainMenuOption = "Main menu";
-    private const string QuitOption = "Quit";
-
     private readonly WorkspaceModel _workspace;
     private readonly IExplorerAgent _explorerAgent;
-    private readonly IWorkspaceManager _workspaceManager;
     private readonly CancellationCoordinator _cancellationCoordinator;
     private readonly IAnsiConsole _console;
 
     public QueryScreen(
         WorkspaceModel workspace,
         IExplorerAgent explorerAgent,
-        IWorkspaceManager workspaceManager,
         CancellationCoordinator cancellationCoordinator)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(explorerAgent);
-        ArgumentNullException.ThrowIfNull(workspaceManager);
         ArgumentNullException.ThrowIfNull(cancellationCoordinator);
 
         this._workspace = workspace;
         this._explorerAgent = explorerAgent;
-        this._workspaceManager = workspaceManager;
         this._cancellationCoordinator = cancellationCoordinator;
         this._console = AnsiConsole.Console;
     }
 
     public async Task<ScreenTransition> RunAsync(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested && !this._cancellationCoordinator.AppCancellationToken.IsCancellationRequested)
-        {
-            this._console.Clear();
-            this._console.MarkupLine($"[green]Repo:[/] {Markup.Escape(this._workspace.OwnerRepo)}");
-            this._console.MarkupLine($"[grey]{Markup.Escape(this._workspace.LocalPath)}[/]");
+        this._console.Clear();
+        using var sessionCancellationSource = this._cancellationCoordinator.BeginAgentRun();
+        await using var session = this._explorerAgent.StartSession(this._workspace);
 
+        while (!ct.IsCancellationRequested &&
+               !this._cancellationCoordinator.AppCancellationToken.IsCancellationRequested &&
+               !sessionCancellationSource.IsCancellationRequested)
+        {
+            this._console.WriteLine();
+            this._console.MarkupLine("[grey]Ask another question about this repo. Press Ctrl+C to end the current session, or submit an empty message to return to the main menu.[/]");
             var userQuery = NavigationPrompts.PromptTextOrBack(this._console, "Question", "the main menu");
 
             if (userQuery is null)
@@ -51,89 +47,57 @@ internal sealed class QueryScreen : IScreen
                 return new GoToMenu();
             }
 
-            AgentRunResult result;
-            var runCancellationSource = this._cancellationCoordinator.BeginAgentRun();
+            var result = await session.SubmitAsync(userQuery, sessionCancellationSource.Token).ConfigureAwait(false);
 
-            try
+            if (result is AgentReplyReceived)
             {
-                result = await this._explorerAgent
-                    .RunAsync(this._workspace, userQuery, runCancellationSource.Token)
-                    .ConfigureAwait(false);
-            }
-            finally
-            {
-                this._cancellationCoordinator.EndAgentRun(runCancellationSource);
+                continue;
             }
 
-            if (result is AgentCancelled)
+            switch (result)
             {
-                this._console.MarkupLine("[yellow]Run cancelled. Returning to the main menu.[/]");
-                await Task.Delay(400, CancellationToken.None).ConfigureAwait(false);
-                return new GoToMenu();
-            }
-
-            var nextStep = this._console.Prompt(
-                new SelectionPrompt<string>()
-                    .Title(CreatePostRunTitle(result))
-                    .PageSize(10)
-                    .AddChoices(
-                        AskAnotherQuestionOption,
-                        DifferentRepoOption,
-                        MainMenuOption,
-                        QuitOption));
-
-            switch (nextStep)
-            {
-                case AskAnotherQuestionOption:
+                case AgentExchangeMaxTurnsReached maxTurnsReached:
+                    this._console.Write(DegradationNotice.RenderWarning(
+                        "Message Turn Limit Reached",
+                        maxTurnsReached.PartialText is null
+                            ? "The assistant did not produce a reply before hitting the configured per-message turn limit."
+                            : "The assistant hit the configured per-message turn limit before producing a reply. Review the session log for the partial trace.",
+                        session.LogFilePath,
+                        CodexplorerTheme.Default));
+                    this._console.WriteLine();
                     continue;
-                case DifferentRepoOption:
-                    return await this.SelectDifferentRepoAsync().ConfigureAwait(false);
-                case MainMenuOption:
+
+                case AgentExchangeCancelled:
+                    this._console.MarkupLine("[yellow]Session cancelled. Returning to the main menu.[/]");
+                    await Task.Delay(400, CancellationToken.None).ConfigureAwait(false);
                     return new GoToMenu();
-                case QuitOption:
-                    return new ExitApp();
+
+                case AgentExchangeDegraded degraded:
+                    this._console.Write(DegradationNotice.RenderWarning(
+                        "Session Degraded",
+                        degraded.Reason,
+                        session.LogFilePath,
+                        CodexplorerTheme.Default));
+                    this._console.WriteLine();
+                    PromptContinue(this._console, "Press [green]Enter[/] to return to the main menu.");
+                    return new GoToMenu();
+
+                case AgentExchangeFailed failed:
+                    this._console.Write(DegradationNotice.RenderError(
+                        "Session Failed",
+                        $"{failed.Exception.GetType().Name}: {failed.Exception.Message}",
+                        session.LogFilePath,
+                        CodexplorerTheme.Default));
+                    this._console.WriteLine();
+                    PromptContinue(this._console, "Press [green]Enter[/] to return to the main menu.");
+                    return new GoToMenu();
+
                 default:
-                    throw new InvalidOperationException($"Unsupported query follow-up action '{nextStep}'.");
+                    throw new InvalidOperationException($"Unsupported session result '{result.GetType().Name}'.");
             }
         }
 
-        return new ExitApp();
-    }
-
-    private async Task<ScreenTransition> SelectDifferentRepoAsync()
-    {
-        var otherWorkspaces = this._workspaceManager.ListExisting()
-            .Where(workspace => !string.Equals(workspace.OwnerRepo, this._workspace.OwnerRepo, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-
-        if (otherWorkspaces.Length == 0)
-        {
-            this._console.MarkupLine("[yellow]No other cloned repos are available yet.[/]");
-            PromptContinue(this._console, "Press [green]Enter[/] to return to the main menu.");
-            return new GoToMenu();
-        }
-
-        var selectedWorkspace = NavigationPrompts.PromptSelectionOrBack(
-            this._console,
-            "Pick a different repo",
-            otherWorkspaces,
-            static workspace => $"{Markup.Escape(workspace.OwnerRepo)} [grey]({Markup.Escape(workspace.LocalPath)})[/]",
-            "Back to this repo");
-
-        await Task.CompletedTask.ConfigureAwait(false);
-        return selectedWorkspace is null ? new GoToQuery(this._workspace) : new GoToQuery(selectedWorkspace);
-    }
-
-    private static string CreatePostRunTitle(AgentRunResult result)
-    {
-        return result switch
-        {
-            AgentSucceeded => "Run complete. What next?",
-            AgentDegraded => "Run degraded. What next?",
-            AgentMaxTurnsReached => "Turn limit reached. What next?",
-            AgentFailed => "Run failed. What next?",
-            _ => "What next?"
-        };
+        return new GoToMenu();
     }
 
     private static void PromptContinue(IAnsiConsole console, string prompt)

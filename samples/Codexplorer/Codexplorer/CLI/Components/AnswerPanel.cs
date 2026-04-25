@@ -11,7 +11,7 @@ internal static class AnswerPanel
 
         return new Panel(content)
         {
-            Header = new PanelHeader("Final Answer"),
+            Header = new PanelHeader("Assistant Reply"),
             Border = BoxBorder.Rounded,
             Padding = new Padding(1, 0, 1, 0)
         }.BorderColor(theme.Success);

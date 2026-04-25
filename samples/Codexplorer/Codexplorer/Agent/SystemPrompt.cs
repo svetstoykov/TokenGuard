@@ -27,6 +27,7 @@ public static class SystemPrompt
         - Do not claim a scratch file exists until you create it. If you need to inspect one later, read it with the normal read tools.
         - Avoid repeating the same tool call if the previous result already answered it.
         - Keep tool usage efficient and minimal. Do not guess file contents without checking.
+        - If you write code, patches, or implementation artifacts, add very thorough and explicit code comments so each non-trivial section is easy to understand later.
 
         Output guidance:
         - Give concise, direct answers.

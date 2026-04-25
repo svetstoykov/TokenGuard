@@ -9,7 +9,7 @@ using WorkspaceModel = Codexplorer.Workspace.Workspace;
 namespace Codexplorer.Sessions;
 
 /// <summary>
-/// Persists one query transcript as markdown while publishing the same events to runtime consumers.
+/// Persists one live session transcript as markdown while publishing the same events to runtime consumers.
 /// </summary>
 /// <remarks>
 /// This implementation optimizes for durability and readability rather than throughput. Every append is serialized
@@ -40,21 +40,21 @@ public sealed class MarkdownSessionLogger : ISessionLogger
     /// </summary>
     /// <param name="logFilePath">The absolute transcript file path to create.</param>
     /// <param name="startedAtUtc">The UTC timestamp used for the initial session header.</param>
-    /// <param name="workspace">The workspace targeted by the query.</param>
-    /// <param name="userQuery">The original user query.</param>
+    /// <param name="workspace">The workspace targeted by the session.</param>
+    /// <param name="sessionLabel">The human-readable session label.</param>
     /// <param name="modelName">The configured model name.</param>
     /// <param name="budget">The configured Codexplorer budget.</param>
     public MarkdownSessionLogger(
         string logFilePath,
         DateTime startedAtUtc,
         WorkspaceModel workspace,
-        string userQuery,
+        string sessionLabel,
         string modelName,
         BudgetOptions budget)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(logFilePath);
         ArgumentNullException.ThrowIfNull(workspace);
-        ArgumentException.ThrowIfNullOrWhiteSpace(userQuery);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionLabel);
         ArgumentException.ThrowIfNullOrWhiteSpace(modelName);
         ArgumentNullException.ThrowIfNull(budget);
 
@@ -79,7 +79,7 @@ public sealed class MarkdownSessionLogger : ISessionLogger
                     FileOptions.Asynchronous),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-            var startedEvent = new SessionStartedEvent(startedAtUtc, workspace, userQuery, budget, modelName);
+            var startedEvent = new SessionStartedEvent(startedAtUtc, workspace, sessionLabel, budget, modelName);
             this.WriteInitialHeader(startedEvent);
             this._events.Writer.TryWrite(startedEvent);
         }
@@ -179,12 +179,14 @@ public sealed class MarkdownSessionLogger : ISessionLogger
         return evt switch
         {
             SessionStartedEvent started => this.RenderStartedEvent(started),
+            UserPromptEvent userPrompt => RenderUserPromptEvent(userPrompt),
             PreparedContextEvent prepared => RenderPreparedContextEvent(prepared),
             ModelRequestedEvent requested => RenderModelRequestedEvent(requested),
             ModelRespondedEvent responded => RenderModelRespondedEvent(responded),
             ToolCalledEvent toolCalled => RenderToolCalledEvent(toolCalled),
             ToolCompletedEvent toolCompleted => RenderToolCompletedEvent(toolCompleted),
-            FinalAnswerEvent finalAnswer => RenderFinalAnswerEvent(finalAnswer),
+            AssistantReplyEvent assistantReply => RenderAssistantReplyEvent(assistantReply),
+            ExchangeOutcomeEvent exchangeOutcome => RenderExchangeOutcomeEvent(exchangeOutcome),
             SessionEndedEvent ended => RenderSessionEndedEvent(ended),
             SessionCancelledEvent cancelled => RenderSessionCancelledEvent(cancelled),
             SessionFailedEvent failed => RenderSessionFailedEvent(failed),
@@ -203,11 +205,23 @@ public sealed class MarkdownSessionLogger : ISessionLogger
         builder.AppendLine($"- Model: `{evt.ModelName}`");
         builder.AppendLine(
             $"- Budget: `ContextWindowTokens={evt.Budget.ContextWindowTokens}, SoftThresholdRatio={evt.Budget.SoftThresholdRatio}, HardThresholdRatio={evt.Budget.HardThresholdRatio}, WindowSize={evt.Budget.WindowSize}`");
+        builder.AppendLine($"- Session: `{evt.SessionLabel}`");
         builder.AppendLine();
-        builder.AppendLine("## User Query");
+        builder.AppendLine("## Session Started");
+        builder.AppendLine();
+        return builder.ToString();
+    }
+
+    private static string RenderUserPromptEvent(UserPromptEvent evt)
+    {
+        StringBuilder builder = new();
+        builder.AppendLine();
+        builder.AppendLine($"## User Message {evt.ExchangeIndex + 1}");
+        builder.AppendLine();
+        builder.AppendLine($"- TimestampUtc: {FormatTimestamp(evt.TimestampUtc)}");
         builder.AppendLine();
         builder.AppendLine("```text");
-        builder.AppendLine(TruncateContent(evt.UserQuery, DefaultEventContentCap));
+        builder.AppendLine(TruncateContent(evt.Content, DefaultEventContentCap));
         builder.AppendLine("```");
         return builder.ToString();
     }
@@ -295,17 +309,29 @@ public sealed class MarkdownSessionLogger : ISessionLogger
         return builder.ToString();
     }
 
-    private static string RenderFinalAnswerEvent(FinalAnswerEvent evt)
+    private static string RenderAssistantReplyEvent(AssistantReplyEvent evt)
     {
         StringBuilder builder = new();
         builder.AppendLine();
-        builder.AppendLine("## Final Answer");
+        builder.AppendLine($"## Assistant Reply {evt.ExchangeIndex + 1}");
         builder.AppendLine();
         builder.AppendLine($"- TimestampUtc: {FormatTimestamp(evt.TimestampUtc)}");
         builder.AppendLine();
         builder.AppendLine("```text");
         builder.AppendLine(TruncateContent(evt.Content, FinalAnswerContentCap));
         builder.AppendLine("```");
+        return builder.ToString();
+    }
+
+    private static string RenderExchangeOutcomeEvent(ExchangeOutcomeEvent evt)
+    {
+        StringBuilder builder = new();
+        builder.AppendLine();
+        builder.AppendLine($"### Exchange Outcome {evt.ExchangeIndex + 1}");
+        builder.AppendLine();
+        builder.AppendLine($"- TimestampUtc: {FormatTimestamp(evt.TimestampUtc)}");
+        builder.AppendLine($"- Outcome: {evt.Outcome}");
+        builder.AppendLine($"- Details: {evt.Details ?? "n/a"}");
         return builder.ToString();
     }
 
