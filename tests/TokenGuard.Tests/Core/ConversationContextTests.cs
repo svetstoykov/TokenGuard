@@ -1041,6 +1041,50 @@ public sealed class ConversationContextTests
         strategy.CompactCalls.Should().Be(2);
     }
 
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationLeavesRawTotalOverBudgetButAdjustedTotalFits_DoesNotReportDegraded()
+    {
+        var budget = new ContextBudget(1_000, 0.5, 1.0);
+        var counter = new TrackingTokenCounter();
+        var dropCandidate = ContextMessage.FromText(MessageRole.User, "drop");
+        var keepMiddle = ContextMessage.FromText(MessageRole.User, "keep-middle");
+        var keepLatest = ContextMessage.FromText(MessageRole.User, "keep-latest");
+
+        dropCandidate.Turn = 0;
+        keepMiddle.Turn = 1;
+        keepLatest.Turn = 2;
+
+        counter.SetByText("seed", 400);
+        counter.SetByText("reply", 0);
+        counter.SetByText("trigger", 600);
+        counter.Set(dropCandidate, 150);
+        counter.Set(keepMiddle, 500);
+        counter.Set(keepLatest, 550);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult(
+            [dropCandidate, keepMiddle, keepLatest],
+            1_000,
+            1_200,
+            1,
+            "TestStrategy",
+            true));
+
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage("seed");
+        _ = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new TextContent("reply")], providerInputTokens: 300);
+        engine.AddUserMessage("trigger");
+
+        var result = await engine.PrepareAsync();
+
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.TokensAfterCompaction.Should().Be(950);
+        result.DegradationReason.Should().BeNull();
+        result.Messages.Should().Equal(keepMiddle, keepLatest);
+    }
+
     private static Task Sync(Action action)
     {
         action();

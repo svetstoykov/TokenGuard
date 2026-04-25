@@ -46,7 +46,7 @@ public sealed class ConversationContext : IConversationContext
     private readonly List<ContextMessage> _history = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
-    private int _lastPreparedTotal;
+    private int _lastEstimatedTotalTokens;
 
     // Additive correction applied to every raw estimate to account for systematic estimator drift.
     // Updated each time RecordModelResponse is called with a providerInputTokens value.
@@ -339,7 +339,7 @@ public sealed class ConversationContext : IConversationContext
 
         if (totalBeforeCompaction < this._budget.CompactionTriggerTokens)
         {
-            this._lastPreparedTotal = totalBeforeCompaction;
+            this._lastEstimatedTotalTokens = totalBeforeCompaction;
             return new PrepareResult(
                 messages,
                 PrepareOutcome.Ready,
@@ -383,7 +383,8 @@ public sealed class ConversationContext : IConversationContext
         var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
         
         var final = emergencyApplied ? truncated! : prepared;
-        var finalTokens = this.Sum(final);
+        var estimatedFinalTokens = this.Sum(final);
+        var finalTokens = estimatedFinalTokens + this._anchorCorrection;
         var messagesCompacted = compacted.MessagesAffected + (emergencyApplied ? prepared.Count - final.Count : 0);
 
         if (emergencyApplied)
@@ -403,12 +404,12 @@ public sealed class ConversationContext : IConversationContext
             this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, CompactionTrigger.Normal, this._budget));
         }
 
-        this._lastPreparedTotal = finalTokens;
+        this._lastEstimatedTotalTokens = estimatedFinalTokens;
         this._anchorCorrection = 0;
 
         var outcome = this.DetermineOutcome(finalTokens, messagesCompacted);
         var degradationReason = outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted
-            ? this.BuildDegradationReason(outcome, finalTokens, messagesCompacted, pinnedSlots.Count > 0)
+            ? this.BuildDegradationReason(outcome, finalTokens, messagesCompacted)
             : null;
 
         return new PrepareResult(
@@ -420,6 +421,12 @@ public sealed class ConversationContext : IConversationContext
             degradationReason);
     }
 
+    /// <summary>
+    /// Maps the prepared token total and compaction activity to the final preparation outcome.
+    /// </summary>
+    /// <param name="finalTokens">The final token total after compaction and any emergency truncation.</param>
+    /// <param name="messagesCompacted">The number of messages affected during preparation.</param>
+    /// <returns>The caller-facing outcome for the current prepared payload.</returns>
     private PrepareOutcome DetermineOutcome(int finalTokens, int messagesCompacted)
     {
         if (finalTokens <= this._budget.MaxTokens)
@@ -432,7 +439,14 @@ public sealed class ConversationContext : IConversationContext
             : PrepareOutcome.Degraded;
     }
 
-    private string BuildDegradationReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted, bool hasPinned)
+    /// <summary>
+    /// Builds the diagnostic message returned for degraded and exhausted outcomes.
+    /// </summary>
+    /// <param name="outcome">The outcome that requires a diagnostic explanation.</param>
+    /// <param name="finalTokens">The final token total after preparation.</param>
+    /// <param name="messagesCompacted">The number of messages affected during preparation.</param>
+    /// <returns>A stable diagnostic string describing why the prepared payload is still over budget.</returns>
+    private string BuildDegradationReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted)
     {
         return outcome == PrepareOutcome.ContextExhausted 
             ? $"A single message or structural content exceeds the budget ({finalTokens} tokens > {this._budget.MaxTokens} max). Compaction is impossible." 
@@ -556,6 +570,12 @@ public sealed class ConversationContext : IConversationContext
         return true;
     }
 
+    /// <summary>
+    /// Groups eligible prepared messages into atomic turn units for emergency truncation.
+    /// </summary>
+    /// <param name="prepared">The prepared message list produced for the next provider call.</param>
+    /// <param name="limit">The exclusive upper bound for indices that may be considered for dropping.</param>
+    /// <returns>Turn-ordered message groups paired with their aggregate token counts.</returns>
     private static IReadOnlyList<(IReadOnlyList<int> Indices, int Tokens)> BuildTurnGroups(IReadOnlyList<ContextMessage> prepared, int limit)
     {
         var groups = new List<(IReadOnlyList<int> Indices, int Tokens)>();
@@ -588,6 +608,13 @@ public sealed class ConversationContext : IConversationContext
         return groups;
     }
 
+    /// <summary>
+    /// Finds the first index of the newest tail that emergency truncation must preserve.
+    /// </summary>
+    /// <param name="prepared">The prepared message list produced for the next provider call.</param>
+    /// <returns>
+    /// The inclusive start index of the preserved tail, or <c>prepared.Count</c> when every message is pinned.
+    /// </returns>
     private int FindPreservedFloorStartIndex(IReadOnlyList<ContextMessage> prepared)
     {
         var newestUnpinnedIndex = -1;
@@ -624,8 +651,20 @@ public sealed class ConversationContext : IConversationContext
         return floorStartIndex;
     }
 
+    /// <summary>
+    /// Sums message token counts while populating any missing cached counts.
+    /// </summary>
+    /// <param name="messages">The messages whose token counts should be aggregated.</param>
+    /// <returns>The total token count across <paramref name="messages"/>.</returns>
     private int Sum(IReadOnlyList<ContextMessage> messages) => messages.Sum(this.EnsureCounted);
 
+    /// <summary>
+    /// Inserts a message into history, assigns its turn, and updates pinned token bookkeeping.
+    /// </summary>
+    /// <param name="message">The message to record.</param>
+    /// <param name="index">
+    /// The optional insertion index. When omitted, the message is appended to the end of history.
+    /// </param>
     private void AddMessage(ContextMessage message, int? index = null)
     {
         message.Turn = this._currentTurn;
@@ -649,6 +688,11 @@ public sealed class ConversationContext : IConversationContext
         }
     }
 
+    /// <summary>
+    /// Replaces one history entry while keeping pinned token bookkeeping consistent.
+    /// </summary>
+    /// <param name="index">The history index to replace.</param>
+    /// <param name="message">The replacement message.</param>
     private void ReplaceMessage(int index, ContextMessage message)
     {
         var existing = this._history[index];
@@ -667,6 +711,13 @@ public sealed class ConversationContext : IConversationContext
         }
     }
 
+    /// <summary>
+    /// Reassembles pinned messages into the compacted stream at their original positions.
+    /// </summary>
+    /// <param name="totalCount">The final total number of prepared messages after reassembly.</param>
+    /// <param name="pinnedSlots">The pinned messages paired with their original indices.</param>
+    /// <param name="compactedMessages">The compacted unpinned message stream.</param>
+    /// <returns>A prepared list that preserves the original placement of pinned messages.</returns>
     private List<ContextMessage> ReassemblePreparedMessages(
         int totalCount,
         IReadOnlyList<(int Index, ContextMessage Message)> pinnedSlots,
@@ -692,6 +743,11 @@ public sealed class ConversationContext : IConversationContext
         return prepared;
     }
 
+    /// <summary>
+    /// Returns the cached token count for a message or computes and stores it on first use.
+    /// </summary>
+    /// <param name="contextMessage">The message whose token count should be ensured.</param>
+    /// <returns>The cached or newly computed token count for <paramref name="contextMessage"/>.</returns>
     private int EnsureCounted(ContextMessage contextMessage)
     {
         if (contextMessage.TokenCount is { } count)
@@ -702,9 +758,15 @@ public sealed class ConversationContext : IConversationContext
         return computed;
     }
 
+    /// <summary>
+    /// Recomputes the active anchor correction from provider-reported input tokens.
+    /// </summary>
+    /// <param name="providerInputTokens">
+    /// The exact provider-reported input token total for the most recently prepared payload.
+    /// </param>
     private void ApplyAnchor(int? providerInputTokens)
     {
         if (providerInputTokens.HasValue)
-            this._anchorCorrection = providerInputTokens.Value - this._lastPreparedTotal;
+            this._anchorCorrection = providerInputTokens.Value - this._lastEstimatedTotalTokens;
     }
 }

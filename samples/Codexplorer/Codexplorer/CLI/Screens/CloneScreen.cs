@@ -1,0 +1,67 @@
+using Codexplorer.Workspace;
+using Spectre.Console;
+
+namespace Codexplorer.CLI.Screens;
+
+internal sealed class CloneScreen : IScreen
+{
+    private readonly IWorkspaceManager _workspaceManager;
+    private readonly IAnsiConsole _console;
+
+    public CloneScreen(IWorkspaceManager workspaceManager)
+    {
+        ArgumentNullException.ThrowIfNull(workspaceManager);
+
+        this._workspaceManager = workspaceManager;
+        this._console = AnsiConsole.Console;
+    }
+
+    public async Task<ScreenTransition> RunAsync(CancellationToken ct)
+    {
+        this._console.Clear();
+
+        var githubUrl = NavigationPrompts.PromptTextOrBack(this._console, "GitHub URL", "the main menu");
+
+        if (githubUrl is null)
+        {
+            return new GoToMenu();
+        }
+
+        try
+        {
+            Codexplorer.Workspace.Workspace? workspace = null;
+
+            await this._console
+                .Status()
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(Style.Parse("green"))
+                .StartAsync(
+                    "[green]Cloning repository... please wait.[/]",
+                    async _ =>
+                    {
+                        workspace = await this._workspaceManager.CloneAsync(githubUrl, ct: ct).ConfigureAwait(false);
+                    })
+                .ConfigureAwait(false);
+
+            if (workspace is null)
+            {
+                throw new InvalidOperationException("Clone completed without returning a workspace.");
+            }
+
+            this._console.MarkupLine($"[green]Cloned {Markup.Escape(workspace.OwnerRepo)} into {Markup.Escape(workspace.LocalPath)}.[/]");
+            PromptContinue(this._console, "Press [green]Enter[/] to open the query screen.");
+            return new GoToQuery(workspace);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or RepositoryTooLargeException)
+        {
+            this._console.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
+            PromptContinue(this._console, "Press [green]Enter[/] to return to the main menu.");
+            return new GoToMenu();
+        }
+    }
+
+    private static void PromptContinue(IAnsiConsole console, string prompt)
+    {
+        console.Prompt(new TextPrompt<string>(prompt).AllowEmpty());
+    }
+}
