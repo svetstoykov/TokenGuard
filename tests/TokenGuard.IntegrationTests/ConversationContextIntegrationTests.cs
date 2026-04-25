@@ -271,4 +271,59 @@ public sealed class ConversationContextIntegrationTests
         counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
             because: "the unchanged preserved floor plus system messages can remain over the emergency threshold");
     }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationDropsModelTurn_AlsoDropsAssociatedToolResult()
+    {
+        // Arrange
+        // Token math (ceil(chars/4)+4 per message):
+        //   model_1 = ToolUseContent("call_1","analyze",largeArgs[86 chars]) → ceil(86/4)+4 = 26 T
+        //   tool_1  = ToolResultContent("call_1","analyze",2000 chars)        → ceil(2006/4)+4 = 506 T original → masked to ~16 T
+        //   model_2 = TextContent(184 chars)                                  → ceil(184/4)+4 = 50 T
+        //   user    = "Continue the process please." (28 chars)               → ceil(28/4)+4 = 11 T  [protected tail]
+        //   model_3 = TextContent(636 chars)                                  → ceil(636/4)+4 = 163 T [protected tail]
+        //
+        // compaction trigger = floor(500 × 0.50) = 250 T
+        // emergency trigger  = floor(500 × 0.52) = 260 T
+        //
+        // original total ≈ 756 T → compaction fires; SlidingWindow masks tool_1 → total ≈ 266 T → emergency fires
+        //
+        // old (buggy): drop model_1 alone (~26 T) → 266-26 = 240 ≤ 260 → stop — tool_1_masked at index 0 is orphaned → HTTP 400
+        // new (fixed): drop {model_1, tool_1_masked} together (~42 T) → 266-42 = 224 ≤ 260 → stop — no orphan
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.50, emergencyThreshold: 0.52);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.10));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        var largeArgs = $"{{\"query\": \"{new string('A', 70)}\"}}";
+        engine.RecordModelResponse([new ToolUseContent("call_1", "analyze", largeArgs)]);
+        engine.RecordToolResult("call_1", "analyze", new string('X', 2000));
+        engine.RecordModelResponse([new TextContent(new string('M', 184))]);
+        engine.AddUserMessage("Continue the process please.");
+        engine.RecordModelResponse([new TextContent(new string('N', 636))]);
+
+        var turn1Model = engine.History[0];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        for (var i = 0; i < prepared.Count; i++)
+        {
+            if (prepared[i].Role != MessageRole.Tool) continue;
+            i.Should().BeGreaterThan(0,
+                because: "a Tool message must never be the first message in the prepared list");
+            prepared[i - 1].Role.Should().Be(MessageRole.Model,
+                because: "every tool result must be immediately preceded by its originating model turn");
+        }
+
+        prepared.Should().NotContain(m => ReferenceEquals(m, turn1Model),
+            because: "the model turn that issued tool call_1 is outside the protected window and must be removed by emergency truncation");
+
+        prepared.Should().NotContain(m =>
+                m.Role == MessageRole.Tool &&
+                m.Segments.OfType<ToolResultContent>().Any(r => r.ToolCallId == "call_1"),
+            because: "the tool result paired with the dropped model turn must be removed atomically — leaving it orphaned produces a malformed message sequence that providers reject with HTTP 400");
+    }
 }

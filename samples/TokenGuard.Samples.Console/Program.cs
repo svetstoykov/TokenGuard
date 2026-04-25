@@ -2,15 +2,15 @@ using TokenGuard.Benchmark.AgentWorkflow.Tasks;
 using TokenGuard.Samples.Console.AgentLoops;
 
 // --- Context budget ---
-const int MaxTokens = 30_000;
-const double CompactionThreshold = 0.90;
-const double EmergencyThreshold = 1.0;
+const int maxTokens = 7_000;
+const double compactionThreshold = 0.90;
+const double emergencyThreshold = 1.0;
 
 // --- SlidingWindowStrategy ---
-const double ProtectedWindowFraction = 0.2;
+const double protectedWindowFraction = 0.2;
 
 // --- Agent loop ---
-const int MaxIterations = 50;
+const int maxIterations = 200;
 
 Console.WriteLine("=========================================");
 Console.WriteLine("   TokenGuard.Core Agentic Loop Sample");
@@ -23,11 +23,11 @@ var loop = new AgentLoop(task);
 
 await loop.RunAsync(
     new AgentLoopOptions(provider.Kind, provider.ModelId, provider.Endpoint),
-    MaxTokens,
-    CompactionThreshold,
-    EmergencyThreshold,
-    ProtectedWindowFraction,
-    MaxIterations);
+    maxTokens,
+    compactionThreshold,
+    emergencyThreshold,
+    protectedWindowFraction,
+    maxIterations);
 
 static AgentLoopTaskDefinition SelectTask(IReadOnlyList<AgentLoopTaskDefinition> tasks)
 {

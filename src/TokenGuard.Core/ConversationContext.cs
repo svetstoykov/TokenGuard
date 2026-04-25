@@ -496,34 +496,29 @@ public sealed class ConversationContext : IConversationContext
             return false;
         }
 
-        // Collect drop candidates: unpinned messages that appear before the preserved floor,
-        // oldest first.
-        var candidates = new List<(int Index, int Tokens)>();
-        for (var i = 0; i < preservedFloorStartIndex; i++)
-        {
-            var msg = prepared[i];
-            if (msg.IsPinned)
-                continue;
+        // Collect drop candidates as atomic turn groups (model message + its tool results) so
+        // a tool result is never left without its preceding model turn, which would produce an
+        // invalid conversation structure rejected by providers.
+        var turnGroups = BuildTurnGroups(prepared, preservedFloorStartIndex);
 
-            candidates.Add((i, msg.TokenCount ?? 0));
-        }
-
-        if (candidates.Count == 0)
+        if (turnGroups.Count == 0)
         {
             truncated = null;
             return false;
         }
 
-        // Drop oldest-first until the budget is satisfied or candidates are exhausted.
+        // Drop whole turn groups oldest-first until the budget is satisfied or groups are exhausted.
         var dropIndices = new HashSet<int>();
         var total = currentTotal;
-        foreach (var (index, tokens) in candidates)
+        foreach (var (groupIndices, groupTokens) in turnGroups)
         {
             if (total <= this._budget.EmergencyTriggerTokens)
                 break;
 
-            dropIndices.Add(index);
-            total -= tokens;
+            foreach (var idx in groupIndices)
+                dropIndices.Add(idx);
+
+            total -= groupTokens;
         }
 
         if (dropIndices.Count == 0)
@@ -534,6 +529,48 @@ public sealed class ConversationContext : IConversationContext
 
         truncated = prepared.Where((_, i) => !dropIndices.Contains(i)).ToList();
         return true;
+    }
+
+    private static IReadOnlyList<(IReadOnlyList<int> Indices, int Tokens)> BuildTurnGroups(
+        IReadOnlyList<ContextMessage> prepared,
+        int limit)
+    {
+        var groups = new List<(IReadOnlyList<int> Indices, int Tokens)>();
+        var i = 0;
+
+        while (i < limit)
+        {
+            var msg = prepared[i];
+            if (msg.IsPinned)
+            {
+                i++;
+                continue;
+            }
+
+            if (msg.Role == MessageRole.Model)
+            {
+                var groupIndices = new List<int> { i };
+                var groupTokens = msg.TokenCount ?? 0;
+                var j = i + 1;
+
+                while (j < limit && prepared[j].Role == MessageRole.Tool && !prepared[j].IsPinned)
+                {
+                    groupIndices.Add(j);
+                    groupTokens += prepared[j].TokenCount ?? 0;
+                    j++;
+                }
+
+                groups.Add((groupIndices, groupTokens));
+                i = j;
+            }
+            else
+            {
+                groups.Add(([i], msg.TokenCount ?? 0));
+                i++;
+            }
+        }
+
+        return groups;
     }
 
     private int FindPreservedFloorStartIndex(IReadOnlyList<ContextMessage> prepared)

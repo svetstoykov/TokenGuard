@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using TokenGuard.Benchmark.AgentWorkflow;
 using TokenGuard.Benchmark.AgentWorkflow.Tasks;
+using TokenGuard.Benchmark.Helpers;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Extensions;
@@ -8,7 +10,6 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Samples.Console.AgentLoops.Providers;
-using TokenGuard.Tools.Tools;
 
 namespace TokenGuard.Samples.Console.AgentLoops;
 
@@ -58,180 +59,170 @@ public sealed class AgentLoop
         CancellationToken cancellationToken = default)
     {
         var startTime = DateTime.Now;
-        var workspaceDirectory = Path.Combine(Path.GetTempPath(), $"tokenguard-task-{this._task.Name}-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(workspaceDirectory);
+        using var workspace = TestWorkspace.Create($"tokenguard-task-{this._task.Name}");
+        using var logger = new SessionLogger();
 
-        try
+        logger.LogBudgetInfo(new ContextBudget(maxTokens, compactionThreshold, emergencyThreshold, 0), nameof(SlidingWindowStrategy));
+
+        var configuration = BuildConfiguration();
+        var provider = CreateProvider(options, configuration);
+
+        var services = new ServiceCollection();
+        services.AddConversationContext(this._task.ConversationName, builder => builder
+            .WithMaxTokens(maxTokens)
+            .WithStrategy(new SlidingWindowStrategy(new SlidingWindowOptions(protectedWindowFraction: protectedWindowFraction)))
+            .WithCompactionThreshold(compactionThreshold)
+            .WithEmergencyThreshold(emergencyThreshold));
+
+        await using var serviceProvider = services.BuildServiceProvider();
+        using var conversationContext = serviceProvider
+            .GetRequiredService<IConversationContextFactory>()
+            .Create(this._task.ConversationName);
+
+        Console.WriteLine("=========================================");
+        Console.WriteLine("   TokenGuard Task-Based Agent Loop");
+        Console.WriteLine("=========================================\n");
+        Console.WriteLine($"Task: {this._task.Name}");
+        Console.WriteLine($"Provider: {provider.Name}");
+        Console.WriteLine($"Model: {provider.ModelId}");
+        Console.WriteLine($"Workspace: {workspace.DirectoryPath}\n");
+
+        await this._task.SeedWorkspaceAsync(workspace.DirectoryPath);
+        logger.LogSystemInfo($"Workspace seeded: {workspace.DirectoryPath}");
+
+        var tools = OpenRouterE2ETestSupport.CreateTools(workspace.DirectoryPath);
+        var toolMap = tools.ToDictionary(t => t.Name, t => t);
+
+        conversationContext.SetSystemPrompt(this._task.SystemPrompt);
+        logger.LogMessageAdded(conversationContext.History.First(), "System Prompt Set");
+
+        conversationContext.AddPinnedMessage(MessageRole.User, this._task.UserMessage);
+        logger.LogMessageAdded(conversationContext.History.Last(), "User Task Loaded");
+
+        var totalCompactionCount = 0;
+        var completed = false;
+        string? finalResponseText = null;
+
+        for (var turn = 1; turn <= maxIterations && !completed; turn++)
         {
-            using var logger = new SessionLogger();
+            cancellationToken.ThrowIfCancellationRequested();
 
-            logger.LogBudgetInfo(new ContextBudget(maxTokens, compactionThreshold, emergencyThreshold, 0), nameof(SlidingWindowStrategy));
+            logger.LogHistoryBeforePrepare(conversationContext.History);
 
-            var configuration = BuildConfiguration();
-            var provider = CreateProvider(options, configuration);
+            var prepareResult = await conversationContext.PrepareAsync(cancellationToken);
+            var preparedMessages = prepareResult.Messages;
+            logger.LogHistoryAfterPrepare(preparedMessages);
 
-            var services = new ServiceCollection();
-            services.AddConversationContext(this._task.ConversationName, builder => builder
-                .WithMaxTokens(maxTokens)
-                .WithStrategy(new SlidingWindowStrategy(new SlidingWindowOptions(protectedWindowFraction: protectedWindowFraction)))
-                .WithCompactionThreshold(compactionThreshold)
-                .WithEmergencyThreshold(emergencyThreshold));
-
-            await using var serviceProvider = services.BuildServiceProvider();
-            using var conversationContext = serviceProvider
-                .GetRequiredService<IConversationContextFactory>()
-                .Create(this._task.ConversationName);
-
-            Console.WriteLine("=========================================");
-            Console.WriteLine("   TokenGuard Task-Based Agent Loop");
-            Console.WriteLine("=========================================\n");
-            Console.WriteLine($"Task: {this._task.Name}");
-            Console.WriteLine($"Provider: {provider.Name}");
-            Console.WriteLine($"Model: {provider.ModelId}");
-            Console.WriteLine($"Workspace: {workspaceDirectory}\n");
-
-            await this._task.SeedWorkspaceAsync(workspaceDirectory);
-            logger.LogSystemInfo($"Workspace seeded: {workspaceDirectory}");
-
-            var tools = CreateTools(workspaceDirectory);
-            var toolMap = tools.ToDictionary(t => t.Name, t => t);
-
-            conversationContext.SetSystemPrompt(this._task.SystemPrompt);
-            logger.LogMessageAdded(conversationContext.History.First(), "System Prompt Set");
-
-            conversationContext.AddUserMessage(this._task.UserMessage);
-            logger.LogMessageAdded(conversationContext.History.Last(), "User Task Loaded");
-
-            var totalCompactionCount = 0;
-            var completed = false;
-            string? finalResponseText = null;
-
-            for (var turn = 1; turn <= maxIterations && !completed; turn++)
+            var compacted = preparedMessages.Any(m => m.State != CompactionState.Original);
+            if (compacted)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                totalCompactionCount++;
+            }
 
-                logger.LogHistoryBeforePrepare(conversationContext.History);
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"[TokenGuard.Core: Turn {turn}, Prepared {preparedMessages.Count} messages, Compacted={compacted}]");
+            Console.ResetColor();
 
-                var prepareResult = await conversationContext.PrepareAsync(cancellationToken);
-                var preparedMessages = prepareResult.Messages;
-                logger.LogHistoryAfterPrepare(preparedMessages);
-
-                var compacted = preparedMessages.Any(m => m.State != CompactionState.Original);
-                if (compacted)
-                {
-                    totalCompactionCount++;
-                }
-
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($"[TokenGuard.Core: Turn {turn}, Prepared {preparedMessages.Count} messages, Compacted={compacted}]");
+            ProviderTurnResult turnResult;
+            try
+            {
+                turnResult = await provider.ExecuteTurnAsync(preparedMessages, tools, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"{provider.Name} turn execution", ex);
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"API Error: {ex.Message}");
                 Console.ResetColor();
+                break;
+            }
 
-                ProviderTurnResult turnResult;
-                try
-                {
-                    turnResult = await provider.ExecuteTurnAsync(preparedMessages, tools, cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError($"{provider.Name} turn execution", ex);
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"API Error: {ex.Message}");
-                    Console.ResetColor();
-                    break;
-                }
+            DisplayResponse(turnResult);
 
-                DisplayResponse(turnResult);
-
-                if (turnResult.HasToolCalls)
-                {
-                    conversationContext.RecordModelResponse(turnResult.ResponseSegments, turnResult.InputTokens);
-                    logger.LogModelResponse(
-                        conversationContext.History.Last(),
-                        turnResult.InputTokens,
-                        $"Tool Calls [{string.Join(", ", turnResult.ToolCalls.Select(call => call.ToolName))}]");
-
-                    foreach (var call in turnResult.ToolCalls)
-                    {
-                        var resultText = toolMap.TryGetValue(call.ToolName, out var tool)
-                            ? tool.Execute(call.ArgumentsJson)
-                            : "Error: Unknown tool.";
-
-                        Console.ForegroundColor = ConsoleColor.DarkGreen;
-                        Console.WriteLine($"[Tool Result: {resultText.Length} chars]");
-                        Console.ResetColor();
-
-                        conversationContext.RecordToolResult(call.ToolCallId, call.ToolName, resultText);
-                        logger.LogToolResultRecorded(conversationContext.History.Last());
-                    }
-
-                    continue;
-                }
-
+            if (turnResult.HasToolCalls)
+            {
                 conversationContext.RecordModelResponse(turnResult.ResponseSegments, turnResult.InputTokens);
                 logger.LogModelResponse(
                     conversationContext.History.Last(),
                     turnResult.InputTokens,
-                    "Text Response");
+                    $"Tool Calls [{string.Join(", ", turnResult.ToolCalls.Select(call => call.ToolName))}]");
 
-                finalResponseText = string.Join(
-                    Environment.NewLine,
-                    turnResult.ResponseSegments.OfType<TokenGuard.Core.Models.Content.TextContent>().Select(s => s.Content));
-
-                if (finalResponseText.Contains(this._task.CompletionMarker, StringComparison.Ordinal))
+                foreach (var call in turnResult.ToolCalls)
                 {
-                    completed = true;
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"[Completion marker '{this._task.CompletionMarker}' detected]");
+                    var resultText = toolMap.TryGetValue(call.ToolName, out var tool)
+                        ? tool.Execute(call.ArgumentsJson)
+                        : "Error: Unknown tool.";
+
+                    Console.ForegroundColor = ConsoleColor.DarkGreen;
+                    Console.WriteLine($"[Tool Result: {resultText.Length} chars]");
                     Console.ResetColor();
+
+                    conversationContext.RecordToolResult(call.ToolCallId, call.ToolName, resultText);
+                    logger.LogToolResultRecorded(conversationContext.History.Last());
                 }
-                else
-                {
-                    conversationContext.AddUserMessage(
-                        "The task is not complete yet. Continue using tools until all required output files are correctly written. " +
-                        $"Only the final completion message may contain {this._task.CompletionMarker}.");
-                    logger.LogMessageAdded(conversationContext.History.Last(), "Continuation Prompt Added");
-                }
+
+                continue;
             }
 
-            var duration = DateTime.Now - startTime;
-            var finalTokenCount = conversationContext.History.Sum(m => m.TokenCount ?? 0);
-            logger.LogSessionSummary(conversationContext.History.Count, totalCompactionCount, duration, finalTokenCount);
+            conversationContext.RecordModelResponse(turnResult.ResponseSegments, turnResult.InputTokens);
+            logger.LogModelResponse(
+                conversationContext.History.Last(),
+                turnResult.InputTokens,
+                "Text Response");
 
-            if (completed)
+            finalResponseText = string.Join(
+                Environment.NewLine,
+                turnResult.ResponseSegments.OfType<TokenGuard.Core.Models.Content.TextContent>().Select(s => s.Content));
+
+            if (finalResponseText.Contains(this._task.CompletionMarker, StringComparison.Ordinal))
             {
+                completed = true;
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("\nTask completed successfully. Running assertions...");
+                Console.WriteLine($"[Completion marker '{this._task.CompletionMarker}' detected]");
                 Console.ResetColor();
-
-                try
-                {
-                    await this._task.AssertOutcomeAsync(workspaceDirectory, finalResponseText);
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine("All assertions passed.");
-                    Console.ResetColor();
-                }
-                catch (Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Assertion failed: {ex.Message}");
-                    Console.ResetColor();
-                }
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"\nTask did not complete within {maxIterations} iterations.");
+                conversationContext.AddUserMessage(
+                    "The task is not complete yet. Continue using tools until all required output files are correctly written. " +
+                    $"Only the final completion message may contain {this._task.CompletionMarker}.");
+                logger.LogMessageAdded(conversationContext.History.Last(), "Continuation Prompt Added");
+            }
+        }
+
+        var duration = DateTime.Now - startTime;
+        var finalTokenCount = conversationContext.History.Sum(m => m.TokenCount ?? 0);
+        logger.LogSessionSummary(conversationContext.History.Count, totalCompactionCount, duration, finalTokenCount);
+
+        if (completed)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("\nTask completed successfully. Running assertions...");
+            Console.ResetColor();
+
+            try
+            {
+                await this._task.AssertOutcomeAsync(workspace.DirectoryPath, finalResponseText);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("All assertions passed.");
                 Console.ResetColor();
             }
-
-            Console.WriteLine($"\nSession complete. Log file: {logger.LogFilePath}");
-            Console.WriteLine($"Workspace: {workspaceDirectory}");
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Assertion failed: {ex.Message}");
+                Console.ResetColor();
+            }
         }
-        finally
+        else
         {
-            // Uncomment to clean up workspace after run
-            Directory.Delete(workspaceDirectory, recursive: true);
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"\nTask did not complete within {maxIterations} iterations.");
+            Console.ResetColor();
         }
+
+        Console.WriteLine($"\nSession complete. Log file: {logger.LogFilePath}");
+        Console.WriteLine($"Workspace: {workspace.DirectoryPath}");
     }
 
     private static IConfiguration BuildConfiguration()
@@ -270,12 +261,4 @@ public sealed class AgentLoop
             Console.ResetColor();
         }
     }
-
-    private static ITool[] CreateTools(string workspaceDirectory) =>
-    [
-        new ListFilesTool(workspaceDirectory),
-        new ReadFileTool(workspaceDirectory),
-        new CreateTextFileTool(workspaceDirectory),
-        new EditTextFileTool(workspaceDirectory),
-    ];
 }
