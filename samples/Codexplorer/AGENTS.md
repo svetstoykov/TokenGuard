@@ -42,10 +42,10 @@ In order of priority:
 - Do not generate code outside the immediate task without being asked.
 - Do not refactor existing code unless the task calls for it.
 - Do not propose new dependencies without flagging it first.
+- Do not create any unit, integration or e2e tests. No testing.
 
 ---
 
 ## Skills
 
 - **Use `caveman` on every response** unless told `stop caveman` or `normal mode`. Follow `ai/skills/caveman.md`.
-- **Use `task-writer` when authoring tasks.** Follow `ai/skills/task-writing.md` when asked to create a task, write a ticket, or formalize a change into a scoped implementation task.

@@ -55,7 +55,7 @@ internal sealed class Program
         {
             foreach (var failure in ex.Failures)
             {
-                Console.Error.WriteLine(failure);
+                await Console.Error.WriteLineAsync(failure);
             }
 
             return 1;
@@ -102,7 +102,7 @@ internal sealed class Program
                     "Say hello in one short sentence.")
             ];
 
-            ChatCompletion completion = (await client
+            var completion = (await client
                 .GetChatClient(modelName)
                 .CompleteChatAsync(prompt.ForOpenAI(), new ChatCompletionOptions(), cancellationToken))
                 .Value;

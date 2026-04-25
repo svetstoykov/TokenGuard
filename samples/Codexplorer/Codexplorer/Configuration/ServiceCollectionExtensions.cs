@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Codexplorer.Workspace;
 
 namespace Codexplorer.Configuration;
 
@@ -54,6 +55,9 @@ public static class ServiceCollectionExtensions
         services.AddOptions<CodexplorerOptions>()
             .Bind(configuration.GetSection(CodexplorerOptions.SectionName))
             .ValidateOnStart();
+
+        services.TryAddSingleton<IGitCloner, LibGit2Cloner>();
+        services.TryAddSingleton<IWorkspaceManager, WorkspaceManager>();
 
         return services;
     }
