@@ -1,4 +1,4 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -8,8 +8,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Tests", "tests\T
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.IntegrationTests", "tests\TokenGuard.IntegrationTests\TokenGuard.IntegrationTests.csproj", "{D4E5F6A7-B8C9-0123-DEF0-234567890123}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Samples.Console", "samples\TokenGuard.Samples.Console\TokenGuard.Samples.Console.csproj", "{E5F6A7B8-C9D0-1234-EF01-345678901234}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}"
@@ -18,13 +16,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.OpenA
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.Anthropic", "src\TokenGuard.Extensions.Anthropic\TokenGuard.Extensions.Anthropic.csproj", "{051F2D5B-B125-4F11-AC51-3A9EC21D4742}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Tools", "samples\TokenGuard.Tools\TokenGuard.Tools.csproj", "{3515F264-7C35-462F-A510-2BB97E5E81EC}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Benchmark", "tests\TokenGuard.Benchmark\TokenGuard.Benchmark.csproj", "{3A3A95D8-6848-46E5-B852-EC6EEAC25F3F}"
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Codexplorer", "Codexplorer", "{9B80301A-8153-2D25-DB91-7A6113C9E683}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer", "samples\Codexplorer\Codexplorer\Codexplorer.csproj", "{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer", "samples\Codexplorer\src\Codexplorer.csproj", "{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -44,10 +36,6 @@ Global
 		{D4E5F6A7-B8C9-0123-DEF0-234567890123}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D4E5F6A7-B8C9-0123-DEF0-234567890123}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D4E5F6A7-B8C9-0123-DEF0-234567890123}.Release|Any CPU.Build.0 = Release|Any CPU
-		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{E5F6A7B8-C9D0-1234-EF01-345678901234}.Release|Any CPU.Build.0 = Release|Any CPU
 		{C37F9AD0-5870-4386-97DA-134759F0CC88}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{C37F9AD0-5870-4386-97DA-134759F0CC88}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C37F9AD0-5870-4386-97DA-134759F0CC88}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -56,14 +44,6 @@ Global
 		{051F2D5B-B125-4F11-AC51-3A9EC21D4742}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{051F2D5B-B125-4F11-AC51-3A9EC21D4742}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{051F2D5B-B125-4F11-AC51-3A9EC21D4742}.Release|Any CPU.Build.0 = Release|Any CPU
-		{3515F264-7C35-462F-A510-2BB97E5E81EC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{3515F264-7C35-462F-A510-2BB97E5E81EC}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{3515F264-7C35-462F-A510-2BB97E5E81EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{3515F264-7C35-462F-A510-2BB97E5E81EC}.Release|Any CPU.Build.0 = Release|Any CPU
-		{3A3A95D8-6848-46E5-B852-EC6EEAC25F3F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{3A3A95D8-6848-46E5-B852-EC6EEAC25F3F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{3A3A95D8-6848-46E5-B852-EC6EEAC25F3F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{3A3A95D8-6848-46E5-B852-EC6EEAC25F3F}.Release|Any CPU.Build.0 = Release|Any CPU
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -72,10 +52,6 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{D4E5F6A7-B8C9-0123-DEF0-234567890123} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
 		{C3D4E5F6-A7B8-9012-CDEF-123456789012} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
-		{E5F6A7B8-C9D0-1234-EF01-345678901234} = {C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}
-		{3515F264-7C35-462F-A510-2BB97E5E81EC} = {C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}
-		{3A3A95D8-6848-46E5-B852-EC6EEAC25F3F} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
-		{9B80301A-8153-2D25-DB91-7A6113C9E683} = {C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}
-		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA} = {9B80301A-8153-2D25-DB91-7A6113C9E683}
+		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA} = {C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}
 	EndGlobalSection
 EndGlobal
