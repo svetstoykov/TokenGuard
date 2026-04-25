@@ -1,6 +1,6 @@
 using Spectre.Console;
 
-namespace Codexplorer.ConsoleRendering;
+namespace Codexplorer.CLI;
 
 /// <summary>
 /// Defines the shared visual palette for Codexplorer console rendering.

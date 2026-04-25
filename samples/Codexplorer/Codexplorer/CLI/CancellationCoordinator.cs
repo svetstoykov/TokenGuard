@@ -1,4 +1,4 @@
-namespace Codexplorer.ConsoleShell;
+namespace Codexplorer.CLI;
 
 internal sealed class CancellationCoordinator : IDisposable
 {
@@ -9,7 +9,7 @@ internal sealed class CancellationCoordinator : IDisposable
 
     public CancellationCoordinator()
     {
-        Console.CancelKeyPress += this.OnCancelKeyPress;
+        System.Console.CancelKeyPress += this.OnCancelKeyPress;
         AppDomain.CurrentDomain.ProcessExit += this.OnProcessExit;
     }
 
@@ -59,7 +59,7 @@ internal sealed class CancellationCoordinator : IDisposable
             }
 
             this._disposed = true;
-            Console.CancelKeyPress -= this.OnCancelKeyPress;
+            System.Console.CancelKeyPress -= this.OnCancelKeyPress;
             AppDomain.CurrentDomain.ProcessExit -= this.OnProcessExit;
             this._activeRunCancellationSource?.Cancel();
             this._activeRunCancellationSource?.Dispose();

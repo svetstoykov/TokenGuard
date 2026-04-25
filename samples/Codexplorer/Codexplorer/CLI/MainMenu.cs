@@ -1,11 +1,11 @@
+using Codexplorer.CLI.Screens;
 using Codexplorer.Configuration;
-using Codexplorer.ConsoleShell.Screens;
 using Codexplorer.Workspace;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Spectre.Console;
 
-namespace Codexplorer.ConsoleShell;
+namespace Codexplorer.CLI;
 
 internal sealed class MainMenu
 {

@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Codexplorer.CLI;
 using Codexplorer.Configuration;
-using Codexplorer.ConsoleRendering;
 using Codexplorer.Sessions;
 using Codexplorer.Tools;
 using OpenAI;

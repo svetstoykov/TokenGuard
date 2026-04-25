@@ -1,7 +1,7 @@
 using Codexplorer.Workspace;
 using Spectre.Console;
 
-namespace Codexplorer.ConsoleShell.Screens;
+namespace Codexplorer.CLI.Screens;
 
 internal sealed class CloneScreen : IScreen
 {
@@ -29,7 +29,25 @@ internal sealed class CloneScreen : IScreen
 
         try
         {
-            var workspace = await this._workspaceManager.CloneAsync(githubUrl.Trim(), ct: ct).ConfigureAwait(false);
+            Codexplorer.Workspace.Workspace? workspace = null;
+
+            await this._console
+                .Status()
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(Style.Parse("green"))
+                .StartAsync(
+                    "[green]Cloning repository... please wait.[/]",
+                    async _ =>
+                    {
+                        workspace = await this._workspaceManager.CloneAsync(githubUrl.Trim(), ct: ct).ConfigureAwait(false);
+                    })
+                .ConfigureAwait(false);
+
+            if (workspace is null)
+            {
+                throw new InvalidOperationException("Clone completed without returning a workspace.");
+            }
+
             this._console.MarkupLine($"[green]Cloned {Markup.Escape(workspace.OwnerRepo)} into {Markup.Escape(workspace.LocalPath)}.[/]");
             PromptContinue(this._console, "Press [green]Enter[/] to open the query screen.");
             return new GoToQuery(workspace);

@@ -2,7 +2,7 @@ using System.Text.Json;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
-namespace Codexplorer.ConsoleRendering.Components;
+namespace Codexplorer.CLI.Components;
 
 internal static class ToolCallEntry
 {

@@ -1,8 +1,8 @@
-using Codexplorer.ConsoleRendering.Components;
+using Codexplorer.CLI.Components;
 using Codexplorer.Sessions;
 using Spectre.Console;
 
-namespace Codexplorer.ConsoleRendering;
+namespace Codexplorer.CLI;
 
 /// <summary>
 /// Renders a live console feed from the ordered session event stream.

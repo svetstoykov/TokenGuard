@@ -3,7 +3,7 @@ using Codexplorer.Workspace;
 using Spectre.Console;
 using WorkspaceModel = Codexplorer.Workspace.Workspace;
 
-namespace Codexplorer.ConsoleShell.Screens;
+namespace Codexplorer.CLI.Screens;
 
 internal sealed class QueryScreen : IScreen
 {

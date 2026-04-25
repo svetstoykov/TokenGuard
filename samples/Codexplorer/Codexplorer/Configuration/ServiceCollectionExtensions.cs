@@ -1,6 +1,5 @@
 using Codexplorer.Agent;
-using Codexplorer.ConsoleShell;
-using Codexplorer.ConsoleRendering;
+using Codexplorer.CLI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

@@ -1,6 +1,6 @@
 using Spectre.Console;
 
-namespace Codexplorer.ConsoleShell.Screens;
+namespace Codexplorer.CLI.Screens;
 
 internal sealed class LogViewerScreen(string logFilePath) : IScreen
 {

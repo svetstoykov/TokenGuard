@@ -4,7 +4,7 @@ using Codexplorer.Configuration;
 using Microsoft.Extensions.Options;
 using Spectre.Console;
 
-namespace Codexplorer.ConsoleShell.Screens;
+namespace Codexplorer.CLI.Screens;
 
 internal sealed class ConfigScreen : IScreen
 {

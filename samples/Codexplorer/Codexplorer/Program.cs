@@ -1,5 +1,5 @@
+using Codexplorer.CLI;
 using Codexplorer.Configuration;
-using Codexplorer.ConsoleShell;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
