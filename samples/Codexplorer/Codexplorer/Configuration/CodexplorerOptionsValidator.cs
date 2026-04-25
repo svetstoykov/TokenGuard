@@ -82,10 +82,6 @@ internal sealed class CodexplorerOptionsValidator : IValidateOptions<Codexplorer
         {
             failures.Add("Codexplorer:OpenRouter section is required.");
         }
-        else
-        {
-            ValidateRequiredText(options.OpenRouter.ApiKey, "Codexplorer:OpenRouter:ApiKey", failures);
-        }
 
         return failures.Count > 0
             ? ValidateOptionsResult.Fail(failures)

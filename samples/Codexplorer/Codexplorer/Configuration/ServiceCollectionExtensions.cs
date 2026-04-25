@@ -1,4 +1,5 @@
 using Codexplorer.Agent;
+using Codexplorer.ConsoleShell;
 using Codexplorer.ConsoleRendering;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -78,6 +79,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ISessionLoggerFactory, SessionLoggerFactory>();
         services.TryAddSingleton<SessionRenderer>();
         services.TryAddSingleton<IExplorerAgent, ExplorerAgent>();
+        services.TryAddSingleton<CancellationCoordinator>();
+        services.TryAddSingleton<MainMenu>();
 
         return services;
     }

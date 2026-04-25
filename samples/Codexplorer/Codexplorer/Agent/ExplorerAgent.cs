@@ -27,7 +27,6 @@ internal sealed class ExplorerAgent : IExplorerAgent
 {
     private static readonly Uri OpenRouterEndpoint = new("https://openrouter.ai/api/v1");
 
-    private readonly ChatClient _chatClient;
     private readonly IConversationContextFactory _conversationContextFactory;
     private readonly ISessionLoggerFactory _sessionLoggerFactory;
     private readonly IToolRegistry _toolRegistry;
@@ -60,20 +59,6 @@ internal sealed class ExplorerAgent : IExplorerAgent
         this._sessionLoggerFactory = sessionLoggerFactory;
         this._sessionRenderer = sessionRenderer;
         this._options = options.Value;
-        var openRouterOptions = this._options.OpenRouter
-            ?? throw new InvalidOperationException("Codexplorer OpenRouter options are not configured.");
-        var modelOptions = this._options.Model
-            ?? throw new InvalidOperationException("Codexplorer model options are not configured.");
-        var apiKey = openRouterOptions.ApiKey
-            ?? throw new InvalidOperationException("Codexplorer OpenRouter API key is not configured.");
-        var modelName = modelOptions.Name
-            ?? throw new InvalidOperationException("Codexplorer model name is not configured.");
-
-        var client = new OpenAIClient(
-            new System.ClientModel.ApiKeyCredential(apiKey),
-            new OpenAIClientOptions { Endpoint = OpenRouterEndpoint });
-
-        this._chatClient = client.GetChatClient(modelName);
         this._chatTools = this._toolRegistry.GetSchemas()
             .Select(CreateChatTool)
             .ToArray();
@@ -101,6 +86,7 @@ internal sealed class ExplorerAgent : IExplorerAgent
             sessionLogger = this._sessionLoggerFactory.BeginSession(workspace, userQuery);
             rendererTask = this._sessionRenderer.RenderAsync(sessionLogger, agentOptions.MaxTurns, CancellationToken.None);
             conversationContext = this._conversationContextFactory.Create();
+            var chatClient = CreateChatClient(this._options);
 
             conversationContext.SetSystemPrompt(SystemPrompt.Text);
             conversationContext.AddUserMessage(userQuery);
@@ -136,7 +122,7 @@ internal sealed class ExplorerAgent : IExplorerAgent
                         CancellationToken.None)
                     .ConfigureAwait(false);
 
-                var completion = (await this._chatClient.CompleteChatAsync(
+                var completion = (await chatClient.CompleteChatAsync(
                         prepareResult.Messages.ForOpenAI(),
                         CreateChatCompletionOptions(this._chatTools, modelOptions.MaxOutputTokens),
                         CancellationToken.None)
@@ -271,6 +257,30 @@ internal sealed class ExplorerAgent : IExplorerAgent
         }
 
         return options;
+    }
+
+    private static ChatClient CreateChatClient(CodexplorerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var openRouterOptions = options.OpenRouter
+            ?? throw new InvalidOperationException("Codexplorer OpenRouter options are not configured.");
+        var modelOptions = options.Model
+            ?? throw new InvalidOperationException("Codexplorer model options are not configured.");
+        var apiKey = openRouterOptions.ApiKey;
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("Codexplorer OpenRouter API key is not configured.");
+        }
+
+        var modelName = modelOptions.Name
+            ?? throw new InvalidOperationException("Codexplorer model name is not configured.");
+        var client = new OpenAIClient(
+            new System.ClientModel.ApiKeyCredential(apiKey),
+            new OpenAIClientOptions { Endpoint = OpenRouterEndpoint });
+
+        return client.GetChatClient(modelName);
     }
 
     private static ChatTool CreateChatTool(ToolSchema schema)
