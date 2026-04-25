@@ -54,6 +54,12 @@ public sealed class ConversationContext : IConversationContext
 
     private int _pinnedTokenTotal;
 
+    // Turn counter incremented on each PrepareAsync call where the history has changed since the last prepare.
+    // Messages stamped with the same turn number form an atomic drop unit during emergency truncation.
+    private int _currentTurn;
+    private int _historyVersion;
+    private int _lastPreparedVersion;
+
     private bool _disposed;
 
     /// <summary>
@@ -317,9 +323,15 @@ public sealed class ConversationContext : IConversationContext
         ObjectDisposedException.ThrowIf(this._disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (this._pinnedTokenTotal > this._budget.EmergencyTriggerTokens)
+        if (this._historyVersion != this._lastPreparedVersion)
         {
-            throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.EmergencyTriggerTokens);
+            this._currentTurn++;
+            this._lastPreparedVersion = this._historyVersion;
+        }
+
+        if (this._pinnedTokenTotal > this._budget.AvailableTokens)
+        {
+            throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.AvailableTokens);
         }
 
         IReadOnlyList<ContextMessage> messages = this._history;
@@ -452,9 +464,14 @@ public sealed class ConversationContext : IConversationContext
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The method identifies eligible drop candidates by excluding pinned messages, which are never removed. The newest
-    /// unpinned message is always preserved as an irreducible floor, so the returned list is never empty, and the latest
-    /// active turn remains visible to the model.
+    /// The method returns immediately with no-op when <see cref="ContextBudget.EmergencyThreshold"/> is
+    /// <see langword="null"/>, because emergency truncation is opt-in. Configure it on the budget only when
+    /// hard message-dropping under extreme token pressure is acceptable for the target use case.
+    /// </para>
+    /// <para>
+    /// When enabled, the method identifies eligible drop candidates by excluding pinned messages, which are never
+    /// removed. The newest unpinned message is always preserved as an irreducible floor, so the returned list is never
+    /// empty, and the latest active turn remains visible to the model.
     /// </para>
     /// <para>
     /// Candidates are removed oldest first. The loop stops as soon as the running token total
@@ -476,12 +493,20 @@ public sealed class ConversationContext : IConversationContext
     /// </param>
     /// <returns>
     /// <see langword="true"/> when truncation was applied and <paramref name="truncated"/> contains
-    /// the reduced list; <see langword="false"/> when <paramref name="prepared"/> is already within
-    /// budget or no eligible candidates exist.
+    /// the reduced list; <see langword="false"/> when emergency truncation is disabled, when
+    /// <paramref name="prepared"/> is already within budget, or when no eligible candidates exist.
     /// </returns>
     private bool TryApplyEmergencyTruncation(IReadOnlyList<ContextMessage> prepared, int currentTotal, out IReadOnlyList<ContextMessage>? truncated)
     {
-        if (currentTotal <= this._budget.EmergencyTriggerTokens)
+        if (!this._budget.EmergencyTriggerTokens.HasValue)
+        {
+            truncated = null;
+            return false;
+        }
+
+        var emergencyLimit = this._budget.EmergencyTriggerTokens.Value;
+
+        if (currentTotal <= emergencyLimit)
         {
             truncated = null;
             return false;
@@ -512,7 +537,7 @@ public sealed class ConversationContext : IConversationContext
         var total = currentTotal;
         foreach (var (groupIndices, groupTokens) in turnGroups)
         {
-            if (total <= this._budget.EmergencyTriggerTokens)
+            if (total <= emergencyLimit)
                 break;
 
             foreach (var idx in groupIndices)
@@ -547,27 +572,19 @@ public sealed class ConversationContext : IConversationContext
                 continue;
             }
 
-            if (msg.Role == MessageRole.Model)
-            {
-                var groupIndices = new List<int> { i };
-                var groupTokens = msg.TokenCount ?? 0;
-                var j = i + 1;
+            var turn = msg.Turn;
+            var groupIndices = new List<int> { i };
+            var groupTokens = msg.TokenCount ?? 0;
+            i++;
 
-                while (j < limit && prepared[j].Role == MessageRole.Tool && !prepared[j].IsPinned)
-                {
-                    groupIndices.Add(j);
-                    groupTokens += prepared[j].TokenCount ?? 0;
-                    j++;
-                }
-
-                groups.Add((groupIndices, groupTokens));
-                i = j;
-            }
-            else
+            while (i < limit && !prepared[i].IsPinned && prepared[i].Turn == turn)
             {
-                groups.Add(([i], msg.TokenCount ?? 0));
+                groupIndices.Add(i);
+                groupTokens += prepared[i].TokenCount ?? 0;
                 i++;
             }
+
+            groups.Add((groupIndices, groupTokens));
         }
 
         return groups;
@@ -613,6 +630,8 @@ public sealed class ConversationContext : IConversationContext
 
     private void AddMessage(ContextMessage message, int? index = null)
     {
+        message.Turn = this._currentTurn;
+
         if (index.HasValue)
         {
             this._history.Insert(index.Value, message);
@@ -621,6 +640,8 @@ public sealed class ConversationContext : IConversationContext
         {
             this._history.Add(message);
         }
+
+        this._historyVersion++;
 
         var tokenCount = this.EnsureCounted(message);
 
@@ -639,6 +660,7 @@ public sealed class ConversationContext : IConversationContext
         }
 
         this._history[index] = message;
+        this._historyVersion++;
 
         var tokenCount = this.EnsureCounted(message);
         if (message.IsPinned)

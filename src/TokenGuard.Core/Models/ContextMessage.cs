@@ -87,6 +87,16 @@ public sealed record ContextMessage
     public int? TokenCount { get; internal set; }
 
     /// <summary>
+    /// Gets the turn index assigned when this message was recorded.
+    /// </summary>
+    /// <remarks>
+    /// TokenGuard sets this property internally when a message is added to a <see cref="ConversationContext"/>. All
+    /// messages added between two consecutive <see cref="ConversationContext.PrepareAsync"/> calls share the same turn
+    /// index, forming an atomic drop unit during emergency truncation.
+    /// </remarks>
+    internal int Turn { get; set; }
+
+    /// <summary>
     /// Creates a <see cref="ContextMessage"/> containing a single <see cref="TextContent"/> segment.
     /// </summary>
     /// <remarks>

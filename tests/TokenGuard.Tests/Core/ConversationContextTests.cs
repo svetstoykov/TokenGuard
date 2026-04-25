@@ -300,13 +300,14 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenPinnedMessagesExceedEmergencyThreshold_ThrowsDiagnosticException()
+    public async Task PrepareAsync_WhenPinnedMessagesExceedAvailableBudget_ThrowsDiagnosticException()
     {
         // Arrange
-        var budget = new ContextBudget(1_000, 0.5, 0.9);
+        // AvailableTokens = 1000 (no reserved). Pinned total = 1100 > 1000 → throws.
+        var budget = new ContextBudget(1_000, 0.5);
         var counter = new TrackingTokenCounter();
-        counter.SetByText("pin-a", 500);
-        counter.SetByText("pin-b", 450);
+        counter.SetByText("pin-a", 600);
+        counter.SetByText("pin-b", 500);
         var engine = new ConversationContext(budget, counter, new TrackingCompactionStrategy());
 
         engine.AddPinnedMessage(MessageRole.System, "pin-a");
@@ -317,8 +318,8 @@ public sealed class ConversationContextTests
 
         // Assert
         var ex = await act.Should().ThrowAsync<PinnedTokenBudgetExceededException>();
-        ex.Which.PinnedTokenTotal.Should().Be(950);
-        ex.Which.EmergencyTriggerTokens.Should().Be(900);
+        ex.Which.PinnedTokenTotal.Should().Be(1_100);
+        ex.Which.AvailableTokens.Should().Be(1_000);
     }
 
     [Fact]
@@ -353,25 +354,33 @@ public sealed class ConversationContextTests
     public async Task PrepareAsync_WhenEmergencyTruncationRuns_PinnedMessagesAreNeverDropped()
     {
         // Arrange
+        // Budget: compactionTrigger=500, emergencyTrigger=900.
+        // u1 and u2 are added in separate turns (PrepareAsync is called between them) so they form
+        // independent drop units. Dropping u1 alone (300 tokens) brings the total from 1150 to 850,
+        // which falls below the emergency threshold, so u2 is preserved.
         var budget = new ContextBudget(1_000, 0.5, 0.9);
         var counter = new TrackingTokenCounter();
-        counter.SetByText("pin-oldest", 200);
+        counter.SetByText("pin-oldest", 100);
         counter.SetByText("u1", 300);
         counter.SetByText("u2", 300);
         counter.SetByText("pin-middle", 150);
-        counter.SetByText("latest", 200);
+        counter.SetByText("latest", 300);
 
         var strategy = new TrackingCompactionStrategy();
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddPinnedMessage(MessageRole.System, "pin-oldest");
+        _ = await engine.PrepareAsync(); // advance turn; total=100, no compaction
+
         engine.AddUserMessage("u1");
+        _ = await engine.PrepareAsync(); // advance turn; total=400, no compaction
+
         engine.AddUserMessage("u2");
         engine.AddPinnedMessage(MessageRole.User, "pin-middle");
         engine.AddUserMessage("latest");
 
         // Act
-        var result = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync(); // total=1150 > emergencyTrigger(900)
         var prepared = result.Messages;
 
         // Assert

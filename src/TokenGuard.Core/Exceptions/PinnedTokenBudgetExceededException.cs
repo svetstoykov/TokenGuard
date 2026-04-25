@@ -1,16 +1,16 @@
 namespace TokenGuard.Core.Exceptions;
 
 /// <summary>
-/// Thrown when pinned messages alone exceed the configured emergency token threshold.
+/// Thrown when pinned messages alone exceed the available token budget.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This exception signals a configuration error in which non-compactable conversation state already consumes more than
-/// the emergency budget allows. Because pinned messages cannot be masked, summarized, or dropped, TokenGuard fails fast
-/// before invoking any compaction strategy.
+/// This exception signals a configuration error in which non-compactable conversation state already consumes more tokens
+/// than the available budget allows. Because pinned messages cannot be masked, summarized, or dropped, TokenGuard fails
+/// fast before invoking any compaction strategy.
 /// </para>
 /// <para>
-/// Inspect <see cref="PinnedTokenTotal"/> and <see cref="EmergencyTriggerTokens"/> to diagnose whether the fixed prompt
+/// Inspect <see cref="PinnedTokenTotal"/> and <see cref="AvailableTokens"/> to diagnose whether the fixed prompt
 /// set, pinned constraints, or other durable instructions need to be reduced.
 /// </para>
 /// </remarks>
@@ -20,12 +20,12 @@ public sealed class PinnedTokenBudgetExceededException : Exception
     /// Initializes a new instance of the <see cref="PinnedTokenBudgetExceededException"/> class.
     /// </summary>
     /// <param name="pinnedTokenTotal">The total token cost of all pinned messages.</param>
-    /// <param name="emergencyTriggerTokens">The configured emergency token threshold.</param>
-    public PinnedTokenBudgetExceededException(int pinnedTokenTotal, int emergencyTriggerTokens)
-        : base($"Pinned messages require {pinnedTokenTotal} tokens, which exceeds the emergency threshold of {emergencyTriggerTokens} tokens.")
+    /// <param name="availableTokens">The total available token budget after reservations are applied.</param>
+    public PinnedTokenBudgetExceededException(int pinnedTokenTotal, int availableTokens)
+        : base($"Pinned messages require {pinnedTokenTotal} tokens, which exceeds the available token budget of {availableTokens} tokens.")
     {
         this.PinnedTokenTotal = pinnedTokenTotal;
-        this.EmergencyTriggerTokens = emergencyTriggerTokens;
+        this.AvailableTokens = availableTokens;
     }
 
     /// <summary>
@@ -34,7 +34,7 @@ public sealed class PinnedTokenBudgetExceededException : Exception
     public int PinnedTokenTotal { get; }
 
     /// <summary>
-    /// Gets the configured emergency threshold that the pinned total exceeded.
+    /// Gets the total available token budget that the pinned total exceeded.
     /// </summary>
-    public int EmergencyTriggerTokens { get; }
+    public int AvailableTokens { get; }
 }

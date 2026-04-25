@@ -181,7 +181,7 @@ public sealed class ConversationContextIntegrationTests
         prepared.Should().OnlyContain(message =>
                 ReferenceEquals(message, systemMessage) || ReferenceEquals(message, latestUser) || ReferenceEquals(message, latestModel),
             because: "only the system prompt and newest user-model tail should survive the emergency floor");
-        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens!.Value,
             because: "the preserved floor can legitimately remain over budget when it cannot be reduced further");
     }
 
@@ -210,7 +210,7 @@ public sealed class ConversationContextIntegrationTests
         prepared.Should().BeEquivalentTo(engine.History,
             options => options.WithStrictOrdering(),
             "there is nothing older than the floor to truncate");
-        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens!.Value,
             because: "the preserved floor may still exceed the emergency threshold");
     }
 
@@ -239,7 +239,7 @@ public sealed class ConversationContextIntegrationTests
         prepared.Should().ContainInOrder(systemMessage, latestUser);
         prepared.Should().NotContain(engine.History[1],
             because: "older non-system messages should be dropped before the preserved floor");
-        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens!.Value,
             because: "the last user message may still leave the conversation over the emergency threshold");
     }
 
@@ -268,7 +268,7 @@ public sealed class ConversationContextIntegrationTests
             options => options.WithStrictOrdering(),
             "messages before the preserved floor are system messages only and are never eligible for emergency truncation");
         prepared.Should().OnlyContain(message => message.Role == MessageRole.System || ReferenceEquals(message, latestUser));
-        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens!.Value,
             because: "the unchanged preserved floor plus system messages can remain over the emergency threshold");
     }
 
@@ -325,5 +325,79 @@ public sealed class ConversationContextIntegrationTests
                 m.Role == MessageRole.Tool &&
                 m.Segments.OfType<ToolResultContent>().Any(r => r.ToolCallId == "call_1"),
             because: "the tool result paired with the dropped model turn must be removed atomically — leaving it orphaned produces a malformed message sequence that providers reject with HTTP 400");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyThresholdIsNotConfigured_DoesNotDropMessagesAfterCompaction()
+    {
+        // Arrange
+        // No emergency threshold — emergency truncation must not run even when the strategy result is over budget.
+        // compactionTrigger = floor(500 × 0.60) = 300 T. SlidingWindow keeps only the newest turn, so most history
+        // is masked. The masked result still exceeds what an emergency threshold would have been, but because no
+        // threshold is configured the runtime must not drop any further messages.
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt(new string('S', 1200));
+        engine.AddUserMessage(new string('A', 1400));
+        engine.RecordModelResponse([new ToolUseContent("call_1", "read_logs", "{}")]);
+        engine.RecordToolResult("call_1", "read_logs", new string('B', 2500));
+        engine.AddUserMessage(new string('C', 1600));
+        engine.RecordModelResponse([new TextContent(new string('D', 1600))]);
+
+        var systemMessage = engine.History[0];
+        var latestUser = engine.History[^2];
+        var latestModel = engine.History[^1];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        prepared.Should().Contain(m => ReferenceEquals(m, systemMessage),
+            because: "the pinned system prompt must always survive compaction");
+        prepared.Should().Contain(m => ReferenceEquals(m, latestUser),
+            because: "the newest user turn must survive compaction");
+        prepared.Should().Contain(m => ReferenceEquals(m, latestModel),
+            because: "the newest model turn must survive compaction");
+        result.Outcome.Should().NotBe(PrepareOutcome.Ready,
+            because: "the conversation required compaction");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyThresholdIsConfigured_DropsOldestMessagesWhenStrategyResultStillExceedsThreshold()
+    {
+        // Arrange
+        // Same scenario as the no-emergency test above, but with emergencyThreshold: 0.75 added.
+        // The strategy result exceeds the emergency threshold, so the runtime must drop oldest turn groups.
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt(new string('S', 1200));
+        engine.AddUserMessage(new string('A', 1400));
+        engine.RecordModelResponse([new ToolUseContent("call_1", "read_logs", "{}")]);
+        engine.RecordToolResult("call_1", "read_logs", new string('B', 2500));
+        engine.AddUserMessage(new string('C', 1600));
+        engine.RecordModelResponse([new TextContent(new string('D', 1600))]);
+
+        var systemMessage = engine.History[0];
+        var latestUser = engine.History[^2];
+        var latestModel = engine.History[^1];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        prepared.Should().ContainInOrder(systemMessage, latestUser, latestModel);
+        prepared.Should().HaveCount(3,
+            because: "emergency truncation must remove all older non-system messages before the preserved tail");
+        prepared.Should().OnlyContain(m =>
+                ReferenceEquals(m, systemMessage) || ReferenceEquals(m, latestUser) || ReferenceEquals(m, latestModel),
+            because: "only the pinned system prompt and the newest user-model turn should survive the emergency pass");
     }
 }
