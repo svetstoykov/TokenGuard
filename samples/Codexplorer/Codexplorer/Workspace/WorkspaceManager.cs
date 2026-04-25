@@ -46,8 +46,11 @@ public sealed class WorkspaceManager : IWorkspaceManager
 
         this._gitCloner = gitCloner;
         this._logger = logger;
-        this._workspaceOptions = options.Value.Workspace;
-        this._workspaceRootDirectory = Path.GetFullPath(this._workspaceOptions.RootDirectory);
+        this._workspaceOptions = options.Value.Workspace
+            ?? throw new InvalidOperationException("Codexplorer workspace options are not configured.");
+        var workspaceRootDirectory = this._workspaceOptions.RootDirectory
+            ?? throw new InvalidOperationException("Codexplorer workspace root directory is not configured.");
+        this._workspaceRootDirectory = Path.GetFullPath(workspaceRootDirectory);
     }
 
     /// <inheritdoc />

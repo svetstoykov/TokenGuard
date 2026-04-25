@@ -69,6 +69,15 @@ internal sealed class CodexplorerOptionsValidator : IValidateOptions<Codexplorer
             ValidateRequiredText(options.Logging.SessionLogsDirectory, "Codexplorer:Logging:SessionLogsDirectory", failures);
         }
 
+        if (options.Agent is null)
+        {
+            failures.Add("Codexplorer:Agent section is required.");
+        }
+        else if (options.Agent.MaxTurns <= 0)
+        {
+            failures.Add("Codexplorer:Agent:MaxTurns must be greater than 0.");
+        }
+
         if (options.OpenRouter is null)
         {
             failures.Add("Codexplorer:OpenRouter section is required.");

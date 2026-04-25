@@ -89,8 +89,14 @@ internal sealed class Program
     {
         public async Task<int> RunAsync(CancellationToken cancellationToken = default)
         {
-            var apiKey = codexplorerOptions.Value.OpenRouter.ApiKey;
-            var modelName = codexplorerOptions.Value.Model.Name;
+            var openRouterOptions = codexplorerOptions.Value.OpenRouter
+                ?? throw new InvalidOperationException("Codexplorer OpenRouter options are not configured.");
+            var modelOptions = codexplorerOptions.Value.Model
+                ?? throw new InvalidOperationException("Codexplorer model options are not configured.");
+            var apiKey = openRouterOptions.ApiKey
+                ?? throw new InvalidOperationException("Codexplorer OpenRouter API key is not configured.");
+            var modelName = modelOptions.Name
+                ?? throw new InvalidOperationException("Codexplorer model name is not configured.");
             var client = new OpenAIClient(
                 new System.ClientModel.ApiKeyCredential(apiKey),
                 new OpenAIClientOptions { Endpoint = OpenRouterEndpoint });

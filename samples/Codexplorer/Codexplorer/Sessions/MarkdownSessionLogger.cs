@@ -13,7 +13,7 @@ namespace Codexplorer.Sessions;
 /// </summary>
 /// <remarks>
 /// This implementation optimizes for durability and readability rather than throughput. Every append is serialized
-/// through one write gate, flushed immediately, and mirrored to a replayable async event stream so a human-readable log
+/// through one write gate, flushed immediately, and mirrored to an async event stream so a human-readable log
 /// and console rendering can stay in lockstep.
 /// </remarks>
 public sealed class MarkdownSessionLogger : ISessionLogger
@@ -29,7 +29,9 @@ public sealed class MarkdownSessionLogger : ISessionLogger
     };
 
     private readonly SemaphoreSlim _writeGate = new(1, 1);
-    private readonly ReplayableSessionEventStream _events = new();
+    private readonly Channel<SessionEvent> _events = Channel.CreateUnbounded<SessionEvent>(
+        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    
     private readonly StreamWriter _writer;
     private bool _isClosed;
 
@@ -79,7 +81,7 @@ public sealed class MarkdownSessionLogger : ISessionLogger
 
             var startedEvent = new SessionStartedEvent(startedAtUtc, workspace, userQuery, budget, modelName);
             this.WriteInitialHeader(startedEvent);
-            this._events.Publish(startedEvent);
+            this._events.Writer.TryWrite(startedEvent);
         }
         catch
         {
@@ -92,7 +94,7 @@ public sealed class MarkdownSessionLogger : ISessionLogger
     public string LogFilePath { get; }
 
     /// <inheritdoc />
-    public IAsyncEnumerable<SessionEvent> Events => this._events;
+    public IAsyncEnumerable<SessionEvent> Events => this._events.Reader.ReadAllAsync();
 
     /// <inheritdoc />
     public Task AppendAsync(SessionEvent evt, CancellationToken ct = default)
@@ -145,7 +147,7 @@ public sealed class MarkdownSessionLogger : ISessionLogger
             await this._writer.WriteAsync(markdown.AsMemory(), ct).ConfigureAwait(false);
             await this._writer.FlushAsync(ct).ConfigureAwait(false);
 
-            this._events.Publish(evt);
+            this._events.Writer.TryWrite(evt);
 
             if (closeAfterWrite)
             {
@@ -169,7 +171,7 @@ public sealed class MarkdownSessionLogger : ISessionLogger
 
         await this._writer.FlushAsync().ConfigureAwait(false);
         await this._writer.DisposeAsync().ConfigureAwait(false);
-        this._events.Complete();
+        this._events.Writer.TryComplete();
     }
 
     private string RenderEvent(SessionEvent evt)
@@ -428,121 +430,5 @@ public sealed class MarkdownSessionLogger : ISessionLogger
 
     private static string FormatTimestamp(DateTime timestampUtc) => timestampUtc.ToString("O");
 
-    private static bool IsTerminal(SessionEvent evt)
-    {
-        return evt is SessionCancelledEvent or SessionFailedEvent;
-    }
-
-    private sealed class ReplayableSessionEventStream : IAsyncEnumerable<SessionEvent>
-    {
-        private readonly object _gate = new();
-        private readonly List<SessionEvent> _history = [];
-        private readonly HashSet<Channel<SessionEvent>> _subscribers = [];
-        private bool _isCompleted;
-
-        public IAsyncEnumerator<SessionEvent> GetAsyncEnumerator(CancellationToken cancellationToken = default)
-        {
-            Channel<SessionEvent>? channel = null;
-            SessionEvent[] snapshot;
-            var completed = false;
-
-            lock (this._gate)
-            {
-                snapshot = [.. this._history];
-                completed = this._isCompleted;
-
-                if (!completed)
-                {
-                    channel = Channel.CreateUnbounded<SessionEvent>(new UnboundedChannelOptions
-                    {
-                        SingleReader = true,
-                        SingleWriter = false
-                    });
-
-                    this._subscribers.Add(channel);
-                }
-            }
-
-            return this.EnumerateAsync(snapshot, channel, cancellationToken).GetAsyncEnumerator(cancellationToken);
-        }
-
-        public void Publish(SessionEvent evt)
-        {
-            ArgumentNullException.ThrowIfNull(evt);
-
-            Channel<SessionEvent>[] subscribers;
-
-            lock (this._gate)
-            {
-                this._history.Add(evt);
-                subscribers = [.. this._subscribers];
-            }
-
-            foreach (var subscriber in subscribers)
-            {
-                subscriber.Writer.TryWrite(evt);
-            }
-        }
-
-        public void Complete()
-        {
-            Channel<SessionEvent>[] subscribers;
-
-            lock (this._gate)
-            {
-                if (this._isCompleted)
-                {
-                    return;
-                }
-
-                this._isCompleted = true;
-                subscribers = [.. this._subscribers];
-                this._subscribers.Clear();
-            }
-
-            foreach (var subscriber in subscribers)
-            {
-                subscriber.Writer.TryComplete();
-            }
-        }
-
-        private async IAsyncEnumerable<SessionEvent> EnumerateAsync(
-            IReadOnlyList<SessionEvent> snapshot,
-            Channel<SessionEvent>? channel,
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-        {
-            foreach (var evt in snapshot)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                yield return evt;
-            }
-
-            if (channel is null)
-            {
-                yield break;
-            }
-
-            try
-            {
-                await foreach (var evt in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
-                {
-                    yield return evt;
-                }
-            }
-            finally
-            {
-                this.Unsubscribe(channel);
-            }
-        }
-
-        private void Unsubscribe(Channel<SessionEvent> channel)
-        {
-            lock (this._gate)
-            {
-                this._subscribers.Remove(channel);
-            }
-
-            channel.Writer.TryComplete();
-        }
-    }
+    private static bool IsTerminal(SessionEvent evt) => evt is SessionCancelledEvent or SessionFailedEvent;
 }

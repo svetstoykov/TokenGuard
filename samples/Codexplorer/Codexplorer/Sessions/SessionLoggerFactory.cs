@@ -31,7 +31,18 @@ public sealed class SessionLoggerFactory : ISessionLoggerFactory
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentException.ThrowIfNullOrWhiteSpace(userQuery);
 
-        var logDirectory = Path.GetFullPath(this._options.Logging.SessionLogsDirectory);
+        var loggingOptions = this._options.Logging
+            ?? throw new InvalidOperationException("Codexplorer logging options are not configured.");
+        var modelOptions = this._options.Model
+            ?? throw new InvalidOperationException("Codexplorer model options are not configured.");
+        var budgetOptions = this._options.Budget
+            ?? throw new InvalidOperationException("Codexplorer budget options are not configured.");
+        var sessionLogsDirectory = loggingOptions.SessionLogsDirectory
+            ?? throw new InvalidOperationException("Codexplorer session logs directory is not configured.");
+        var modelName = modelOptions.Name
+            ?? throw new InvalidOperationException("Codexplorer model name is not configured.");
+
+        var logDirectory = Path.GetFullPath(sessionLogsDirectory);
         Directory.CreateDirectory(logDirectory);
 
         var timestampUtc = DateTime.UtcNow;
@@ -44,8 +55,8 @@ public sealed class SessionLoggerFactory : ISessionLoggerFactory
             timestampUtc,
             workspace,
             userQuery,
-            this._options.Model.Name,
-            this._options.Budget);
+            modelName,
+            budgetOptions);
     }
 
     private static string CreateUniqueFilePath(string logDirectory, string baseFileName)

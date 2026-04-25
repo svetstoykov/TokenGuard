@@ -1,3 +1,4 @@
+using Codexplorer.Agent;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Codexplorer.Sessions;
 using Codexplorer.Tools;
 using Codexplorer.Workspace;
+using TokenGuard.Core.Extensions;
 
 namespace Codexplorer.Configuration;
 
@@ -58,10 +60,22 @@ public static class ServiceCollectionExtensions
             .Bind(configuration.GetSection(CodexplorerOptions.SectionName))
             .ValidateOnStart();
 
+        services.AddConversationContext(builder =>
+        {
+            var budgetOptions = configuration.GetSection(CodexplorerOptions.SectionName)
+                .Get<CodexplorerOptions>()?.Budget ?? new BudgetOptions();
+
+            builder
+                .WithMaxTokens(budgetOptions.ContextWindowTokens)
+                .WithCompactionThreshold(budgetOptions.SoftThresholdRatio)
+                .WithEmergencyThreshold(budgetOptions.HardThresholdRatio);
+        });
+
         services.TryAddSingleton<IGitCloner, LibGit2Cloner>();
         services.TryAddSingleton<IWorkspaceManager, WorkspaceManager>();
         services.TryAddSingleton<IToolRegistry, ToolRegistry>();
         services.TryAddSingleton<ISessionLoggerFactory, SessionLoggerFactory>();
+        services.TryAddSingleton<IExplorerAgent, ExplorerAgent>();
 
         return services;
     }

@@ -1,3 +1,5 @@
+using Codexplorer.Agent;
+
 namespace Codexplorer.Configuration;
 
 /// <summary>
@@ -24,27 +26,32 @@ public sealed record CodexplorerOptions
     /// <summary>
     /// Gets token-budget settings that govern when Codexplorer should compact context.
     /// </summary>
-    public BudgetOptions Budget { get; init; } = new();
+    public BudgetOptions? Budget { get; init; } = new();
 
     /// <summary>
     /// Gets model-selection settings for Codexplorer's LLM requests.
     /// </summary>
-    public ModelOptions Model { get; init; } = new();
+    public ModelOptions? Model { get; init; } = new();
 
     /// <summary>
     /// Gets workspace-management settings for repository checkout and size limits.
     /// </summary>
-    public WorkspaceOptions Workspace { get; init; } = new();
+    public WorkspaceOptions? Workspace { get; init; } = new();
+
+    /// <summary>
+    /// Gets agent-loop settings that bound exploration turns.
+    /// </summary>
+    public AgentOptions? Agent { get; init; } = new();
 
     /// <summary>
     /// Gets logging settings for Codexplorer diagnostics and per-session output.
     /// </summary>
-    public LoggingOptions Logging { get; init; } = new();
+    public LoggingOptions? Logging { get; init; } = new();
 
     /// <summary>
     /// Gets OpenRouter provider settings used for authenticated API calls.
     /// </summary>
-    public OpenRouterOptions OpenRouter { get; init; } = new();
+    public OpenRouterOptions? OpenRouter { get; init; } = new();
 }
 
 /// <summary>
@@ -100,7 +107,7 @@ public sealed record ModelOptions
     /// <summary>
     /// Gets model identifier sent to OpenRouter.
     /// </summary>
-    public string Name { get; init; } = "google/gemini-2.5-flash";
+    public string? Name { get; init; } = "google/gemini-2.5-flash";
 
     /// <summary>
     /// Gets upper bound for model-generated output tokens.
@@ -125,7 +132,7 @@ public sealed record WorkspaceOptions
     /// <summary>
     /// Gets root directory where Codexplorer-managed workspaces live.
     /// </summary>
-    public string RootDirectory { get; init; } = "./workspace";
+    public string? RootDirectory { get; init; } = "./workspace";
 
     /// <summary>
     /// Gets git clone depth requested for workspace checkouts.
@@ -150,12 +157,12 @@ public sealed record LoggingOptions
     /// <summary>
     /// Gets directory where per-session log files should be written.
     /// </summary>
-    public string SessionLogsDirectory { get; init; } = "./logs/sessions";
+    public string? SessionLogsDirectory { get; init; } = "./logs/sessions";
 
     /// <summary>
     /// Gets configured minimum log level name.
     /// </summary>
-    public string MinimumLevel { get; init; } = "Information";
+    public string? MinimumLevel { get; init; } = "Information";
 }
 
 /// <summary>
@@ -177,5 +184,5 @@ public sealed record OpenRouterOptions
     /// <summary>
     /// Gets OpenRouter API key used to authenticate requests.
     /// </summary>
-    public string ApiKey { get; init; } = string.Empty;
+    public string? ApiKey { get; init; } = string.Empty;
 }
