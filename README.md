@@ -1,256 +1,293 @@
-# TokenGuard 🛡️
+<div align="center">
 
-TokenGuard stops your LLM agent from blowing up its context window.
+# TokenGuard
 
-It watches token growth, masks old tool output when chat gets too large, and can fall back to emergency truncation before your loop crashes.
+**Token budget management for LLM agent loops.**
 
-- Keeps long-running agent loops inside token budget
-- Hides stale tool output instead of making you hand-roll truncation
-- Supports pinned messages that must always stay in context
-- Works with OpenAI and Anthropic adapters
+[![NuGet](https://img.shields.io/nuget/v/TokenGuard.Core?style=flat-square&color=5c2d91)](https://nuget.org/packages/TokenGuard.Core)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square)](https://dotnet.microsoft.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-Domain background and longer-term architecture live in `.specs/token-guard-spec.md`.
+</div>
 
-## Quick Start ⚡
+---
 
-Primary onboarding path is dependency injection.
-
-Register `IConversationContextFactory` once at startup, then create a fresh context for each conversation. Factory keeps configuration singleton-scoped while ensuring stateful conversation object is not shared across requests.
-
-### Default profile
-
-Use unnamed/default profile when application has one main conversation budget.
+TokenGuard wraps your message list and keeps each prepared payload under a configured token budget. It masks stale tool
+output when pressure builds, drops the oldest unpinned messages when masking isn't enough, and leaves your raw history
+intact. Integration is one call before each provider request.
 
 ```csharp
-using Microsoft.Extensions.DependencyInjection;
-using TokenGuard.Core.Abstractions;
-using TokenGuard.Core.Extensions;
+var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
+```
 
-var services = new ServiceCollection();
+---
 
+## What it does
+
+- **Tracks token growth** across the full turn sequence — user, assistant, tool, system, and pinned messages
+- **Masks stale tool results** using a sliding-window strategy when the conversation crosses a configurable soft
+  threshold
+- **Falls back to emergency truncation** when masking alone cannot recover enough budget — drops oldest eligible
+  messages, preserves everything pinned
+- **Pins durable context** that survives both compaction tiers: system prompts, task constraints, repository rules, any
+  message you need to live forever
+- **Stays provider-agnostic** in core, with first-class adapter helpers for OpenAI and Anthropic
+- **Emits compaction events** through `ICompactionObserver` for observability, logging, and diagnostics
+- **Integrates in minutes** via `AddConversationContext(...)` and a standard DI factory
+
+---
+
+## Benchmark
+
+A 22-turn tool-heavy session from [`samples/Codexplorer`](samples/Codexplorer), a simple coding agent, run under a
+20,000-token budget.
+
+> **~160,000 tokens saved. 39% cost reduction.**
+
+|                         | Without TokenGuard |                With TokenGuard |
+|-------------------------|-------------------:|-------------------------------:|
+| Cumulative input tokens |            407,560 |                    **247,357** |
+| Peak context size       |      34,394 tokens |              **19,124 tokens** |
+| Billing reduction       |                    | **39.3% (~160K tokens saved)** |
+
+Three compaction events kept the session alive and affordable:
+
+| Turn | Before compaction | After compaction | Reduction |
+|-----:|------------------:|-----------------:|----------:|
+|    6 |     16,736 tokens |    16,209 tokens |      3.1% |
+|    9 |     17,926 tokens |     8,260 tokens | **53.9%** |
+|   18 |     32,822 tokens |    19,124 tokens | **41.7%** |
+
+Without TokenGuard, the session would have crashed the context budget from turn 11 onward.  
+Full numbers in [`samples/Codexplorer/README.md`](samples/Codexplorer/README.md).
+
+<details>
+<summary>Benchmark configuration</summary>
+
+|                     |                                                                      |
+|---------------------|----------------------------------------------------------------------|
+| Sample              | [`samples/Codexplorer`](samples/Codexplorer) — a simple coding agent |
+| Turns               | 22 (tool-heavy)                                                      |
+| Model               | `openai/gpt-5.4-nano`                                                |
+| Context budget      | 20,000 tokens                                                        |
+| Soft threshold      | 0.80 → compaction triggers at 16,000                                 |
+| Emergency threshold | 1.0 → hard cap at 20,000                                             |
+
+</details>
+
+---
+
+## Install
+
+```bash
+dotnet add package TokenGuard.Core
+dotnet add package TokenGuard.Extensions.OpenAI      # or Anthropic
+```
+
+---
+
+## Quick start
+
+### 1. Register at startup
+
+```csharp
 services.AddConversationContext(builder => builder
     .WithMaxTokens(100_000)
     .WithCompactionThreshold(0.80)
     .WithEmergencyThreshold(0.95));
+```
 
+Multiple named profiles work too:
+
+```csharp
 services.AddConversationContext("analysis", builder => builder
     .WithMaxTokens(200_000)
     .WithCompactionThreshold(0.75)
     .WithEmergencyThreshold(0.90));
+```
 
-using var serviceProvider = services.BuildServiceProvider();
+`WithEmergencyThreshold` is optional. Skip it and there's no fallback once masking saturates — fine for short sessions,
+risky for anything long-running.
 
+### 2. Create a context per conversation
+
+```csharp
 using var conversationContext = serviceProvider
     .GetRequiredService<IConversationContextFactory>()
     .Create();
 ```
 
-`WithEmergencyThreshold(...)` is optional. If you omit it, TokenGuard stops after masking-based compaction and does not activate the emergency truncation phase. That can be acceptable for tightly constrained scenarios, but configuring it is strongly recommended because after enough pressure builds up, masking alone can no longer reclaim space and TokenGuard must start dropping older eligible messages to keep the loop moving.
+Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, safe to use across
+concurrent requests.
 
-### Core loop
-
-Call `PrepareAsync()` before each provider request. It decides whether next outbound payload can use full recorded history, apply masking-based compaction, or, when configured, fall back to emergency truncation. It does not rewrite `History` in place.
+### 3. Run the loop
 
 ```csharp
 using TokenGuard.Extensions.OpenAI;
 
-using var conversationContext = factory.Create();
+var factory = serviceProvider.GetRequiredService<IConversationContextFactory>();
+using var conversationContext = factory.Create("coding-assistant");
 
 conversationContext.SetSystemPrompt("You are a precise coding assistant.");
-conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project. Keep all paths relative to it.");
-conversationContext.AddUserMessage("Inspect repository and summarize failing tests.");
+conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
+conversationContext.AddUserMessage("Summarize the failing tests.");
 
 while (true)
 {
     var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
-    var providerMessages = preparedMessages.ForOpenAI();
+    var response = await chatClient.CompleteChatAsync(
+        preparedMessages.ForOpenAI(), chatOptions, cancellationToken);
 
-    var response = await chatClient.CompleteChatAsync(providerMessages, chatOptions, cancellationToken);
-
-    conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+    conversationContext.RecordModelResponse(
+        response.ResponseSegments(),
+        response.InputTokens());
 
     if (response.ToolCalls.Count == 0)
-    {
         break;
-    }
 
     foreach (var toolCall in response.ToolCalls)
     {
-        var toolResult = _toolExecutor.Execute(toolCall);
-        conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, toolResult);
+        var result = toolExecutor.Execute(toolCall);
+        conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
     }
 }
 ```
 
-### Non-DI path
+`PrepareAsync()` returns a snapshot. It does not mutate `History`, so your raw history stays intact.
 
-If you are not using container, you can construct `ConversationContext` directly with `ContextBudget`, token counter, and compaction strategy. Keep that as secondary setup path; for most applications, `AddConversationContext(...)` plus `IConversationContextFactory` is intended entry point.
+---
 
-## What TokenGuard Does
+## Pinned messages
 
-TokenGuard manages conversation state inside an LLM loop so application code stays focused on provider calls and tool execution.
+Some context needs to survive the whole session — task constraints, repository layout, coding standards.
 
-- Tracks conversation growth across user, model, system, pinned, and tool messages
-- Prepares next outbound payload with `PrepareAsync()`
-- Applies masking when configured compaction threshold is reached
-- Can fall back to oldest-first emergency truncation when prepared payload still exceeds emergency threshold
-- Preserves pinned messages at their original positions during both masking and truncation
-- Accepts provider-reported input token counts to improve later estimates
-- Emits compaction observer events for monitoring and diagnostics
-
-## Compaction Model
-
-TokenGuard now uses a practical compaction flow designed for tool-heavy agent loops:
-
-1. **Tier 1 - Observation masking**: configured compaction strategy shrinks history by masking older tool results while keeping recent turns intact.
-2. **Tier 2 - Emergency truncation (optional but recommended)**: if you configure an emergency threshold and masked payload still exceeds it, TokenGuard drops oldest eligible unpinned messages first while preserving pinned messages and newest active tail.
-
-This gives normal runs a cheap, structure-preserving compaction path and, when enabled, keeps an emergency escape hatch for oversized conversations that still do not fit after masking. If you do not configure an emergency threshold, TokenGuard will not drop messages automatically once masking stops being effective.
-
-### Pinned messages
-
-Pinned messages are durable conversation entries recorded with `AddPinnedMessage(...)` or implicitly through `SetSystemPrompt(...)`.
-
-- Never masked
-- Never truncated by emergency fallback
-- Reinserted at original positions after compaction
-- Counted against reserved budget during preparation
-
-Use pinned messages for durable task constraints, repository rules, user preferences, or other high-value instructions that must survive long sessions.
-
-## Provider Adapters
-
-TokenGuard stays provider-agnostic in core, then offers adapter helpers for common SDKs.
-
-- `src/TokenGuard.Extensions.OpenAI` - convert prepared messages with `ForOpenAI()` and map provider responses back with `ResponseSegments()` and `InputTokens()`
-- `src/TokenGuard.Extensions.Anthropic` - convert prepared messages with `ForAnthropic()` and map provider responses back with `ResponseSegments()` and `InputTokens()`
-
-## Repository Layout
-
-- `src/TokenGuard.Core` - core abstractions, message model, budget handling, pinned-message support, observer hooks, and compaction pipeline
-- `src/TokenGuard.Extensions.OpenAI` - OpenAI message conversion helpers and integration points
-- `src/TokenGuard.Extensions.Anthropic` - Anthropic message conversion helpers and integration points
-- `samples/TokenGuard.Samples.Console` - interactive sample app with OpenAI and Anthropic agent loops
-- `samples/Codexplorer` - interactive repository explorer that showcases TokenGuard token budgeting and live compaction pressure in a longer-running agent session
-- `tests/TokenGuard.Tests` - unit tests
-- `tests/TokenGuard.IntegrationTests` - integration tests for cross-component behavior
-- `tests/TokenGuard.E2E` - live end-to-end tests with real model loops and tool execution
-- `tests/TokenGuard.TestCommon` - shared testing tools and fixtures
-
-## Samples 🧪
-
-After quick-start snippets, best full references are `samples/TokenGuard.Samples.Console` and `samples/Codexplorer`.
-
-Sample projects include:
-
-- `samples/TokenGuard.Samples.Console` - complete OpenAI loop, minimal OpenAI loop, and minimal Anthropic loop
-- `samples/Codexplorer` - interactive repository agent that showcases TokenGuard budget-aware context preparation, masking, and emergency degradation behavior in a real terminal workflow
-
-Run the console sample with:
-
-```bash
-dotnet run --project samples/TokenGuard.Samples.Console
+```csharp
+conversationContext.SetSystemPrompt("You are a senior Go engineer.");
+conversationContext.AddPinnedMessage(MessageRole.User, "All file paths must be relative to /workspace.");
 ```
 
-Sample reads configuration from:
+Pinned messages are never masked, never dropped, and reinserted at their original positions after each compaction pass.
+They count against the budget so their cost is always accounted for.
 
-- environment variables
-- `appsettings.json`
-- `appsettings.{DOTNET_ENVIRONMENT}.json`
+---
 
-Preferred local setup is environment variables so secrets stay outside tracked files:
+## How compaction works
 
-```bash
-export OPENROUTER_API_KEY='your-openrouter-key'
-export ANTHROPIC_API_KEY='your-anthropic-key'
-dotnet run --project samples/TokenGuard.Samples.Console
+Two ordered tiers:
+
+**1. Observation masking.** The sliding-window strategy walks backwards through history and masks tool results outside
+the active window. Recent turns stay intact, structure is preserved, message count doesn't change. This runs first
+whenever the soft threshold is crossed.
+
+**2. Emergency truncation** *(optional)*. If the masked payload still exceeds the emergency threshold, TokenGuard drops
+the oldest unpinned messages until it fits.
+
+---
+
+## Provider adapters
+
+The core has no provider dependency. Adapters handle the conversion in both directions.
+
+**OpenAI**
+
+```csharp
+var messages = preparedMessages.ForOpenAI();
+conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
 ```
 
-Sample task input is read from `samples/TokenGuard.Samples.Console/Tasks/001-context-burn-task.txt`.
+**Anthropic**
 
-Run Codexplorer with:
+```csharp
+var messages = preparedMessages.ForAnthropic();
+conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+```
+
+---
+
+## Observability
+
+```csharp
+services.AddConversationContext(builder => builder
+    .WithMaxTokens(100_000)
+    .WithCompactionThreshold(0.80)
+    .WithObserver(new MyCompactionObserver()));
+```
+
+`ICompactionObserver` fires on each compaction event with message counts and before/after token totals. Wire it to your
+logger, metrics pipeline, or dashboard.
+
+---
+
+## Without DI
+
+If you're not using a container, construct directly:
+
+```csharp
+var budget = new ContextBudget(maxTokens: 100_000, compactionThreshold: 0.80);
+var context = new ConversationContext(budget, tokenCounter, compactionStrategy);
+```
+
+DI is the recommended path. Direct construction is there for tests and constrained environments.
+
+---
+
+## Repository layout
+
+```
+src/
+  TokenGuard.Core                     core abstractions, message model, compaction pipeline
+  TokenGuard.Extensions.OpenAI        OpenAI message conversion and response mapping
+  TokenGuard.Extensions.Anthropic     Anthropic message conversion and response mapping
+
+samples/
+  Codexplorer                         repository-analysis sample, benchmark reference
+
+tests/
+  TokenGuard.Tests                    unit tests
+  TokenGuard.IntegrationTests         cross-component coverage
+
+docs/                                supporting notes and documentation
+ai/skills/                           shared agent workflow guidance
+```
+
+---
+
+## Build and test
+
+```bash
+dotnet build TokenGuard.sln
+dotnet test TokenGuard.sln --no-restore
+```
+
+Codexplorer is not part of `TokenGuard.sln`. Build it from its own directory:
 
 ```bash
 cd samples/Codexplorer
-dotnet run --project ./src/Codexplorer.csproj
+dotnet build ./src/Codexplorer.csproj
 ```
 
-Codexplorer is documented in `samples/Codexplorer/README.md`.
+---
 
 ## Requirements
 
-- .NET SDK 10.0 or newer
-- LLM provider API key for live samples or E2E tests
-- macOS, Linux, or Windows shell capable of exporting environment variables
+- .NET SDK 10.0+
+- LLM provider API key for live samples
+- macOS, Linux, or Windows
 
-## Build 🔧
-
-```bash
-dotnet build
-```
-
-## Test ✅
-
-Run main automated suite:
-
-```bash
-dotnet test tests/TokenGuard.Tests
-dotnet test tests/TokenGuard.IntegrationTests
-```
-
-Run full test set when needed:
-
-```bash
-dotnet test
-```
-
-## Live E2E Tests 🌐
-
-`tests/TokenGuard.E2E` contains live provider tests. These require real credentials and are intended for opt-in local runs or CI jobs with injected secrets.
-
-OpenRouter E2E test reads `OPENROUTER_API_KEY` from process environment.
-
-### Local usage
-
-If you have not already set `OPENROUTER_API_KEY`, create local env file at `tests/TokenGuard.E2E/.env.local`:
-
-```dotenv
-OPENROUTER_API_KEY=your-openrouter-key
-```
-
-Project already sets **Copy to Output Directory: Always** for `.env.local`, so file is automatically available to test runner after build.
-
-Then run test project normally:
-
-```bash
-dotnet test tests/TokenGuard.E2E/TokenGuard.E2E.csproj --filter FullyQualifiedName~OpenRouterAgentLoopE2ETests
-```
-
-You can append extra `dotnet test` arguments as needed:
-
-```bash
-dotnet test tests/TokenGuard.E2E/TokenGuard.E2E.csproj --filter FullyQualifiedName~OpenRouterAgentLoopE2ETests --logger "console;verbosity=detailed"
-```
-
-Test checks process environment first and then falls back to `tests/TokenGuard.E2E/.env.local`, so GitHub Actions can still inject `OPENROUTER_API_KEY` through job `env` or repository secrets without any test code changes.
-
-## Configuration Notes
-
-- OpenRouter sample and E2E flows use `OPENROUTER_API_KEY`
-- Anthropic sample flow uses `ANTHROPIC_API_KEY`
-- Do not commit real keys into `appsettings*.json`, scripts, or test files
-- Keep local secret-bearing files in ignored paths only
+---
 
 ## Current Status 🚧
 
 What is current:
 
 - sliding-window observation masking is implemented and usable now
-- masking is implemented for normal pressure, and optional emergency truncation is available when an emergency threshold is configured
+- masking is implemented for normal pressure, and optional emergency truncation is available when an emergency threshold
+  is configured
 - pinned messages are implemented and survive both compaction tiers
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available
-- runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`, `PrepareAsync(...)`, `RecordModelResponse(...)`, and `RecordToolResult(...)`
+- runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`,
+  `PrepareAsync(...)`, `RecordModelResponse(...)`, and `RecordToolResult(...)`
 - compaction observer callbacks are available through `ICompactionObserver`
 
 What remains planned:
