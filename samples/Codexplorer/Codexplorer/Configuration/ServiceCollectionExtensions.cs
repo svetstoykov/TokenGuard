@@ -1,4 +1,5 @@
 using Codexplorer.Agent;
+using Codexplorer.ConsoleRendering;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -75,6 +76,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IWorkspaceManager, WorkspaceManager>();
         services.TryAddSingleton<IToolRegistry, ToolRegistry>();
         services.TryAddSingleton<ISessionLoggerFactory, SessionLoggerFactory>();
+        services.TryAddSingleton<SessionRenderer>();
         services.TryAddSingleton<IExplorerAgent, ExplorerAgent>();
 
         return services;

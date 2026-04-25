@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Codexplorer.Configuration;
+using Codexplorer.ConsoleRendering;
 using Codexplorer.Sessions;
 using Codexplorer.Tools;
 using OpenAI;
@@ -22,7 +23,7 @@ namespace Codexplorer.Agent;
 /// tool calls serially inside the current workspace, records every relevant event to the session transcript, and turns
 /// terminal outcomes into stable result records for the caller.
 /// </remarks>
-public sealed class ExplorerAgent : IExplorerAgent
+internal sealed class ExplorerAgent : IExplorerAgent
 {
     private static readonly Uri OpenRouterEndpoint = new("https://openrouter.ai/api/v1");
 
@@ -32,6 +33,7 @@ public sealed class ExplorerAgent : IExplorerAgent
     private readonly IToolRegistry _toolRegistry;
     private readonly CodexplorerOptions _options;
     private readonly IReadOnlyList<ChatTool> _chatTools;
+    private readonly SessionRenderer _sessionRenderer;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ExplorerAgent"/> class.
@@ -44,16 +46,19 @@ public sealed class ExplorerAgent : IExplorerAgent
         IConversationContextFactory conversationContextFactory,
         IToolRegistry toolRegistry,
         ISessionLoggerFactory sessionLoggerFactory,
+        SessionRenderer sessionRenderer,
         IOptions<CodexplorerOptions> options)
     {
         ArgumentNullException.ThrowIfNull(conversationContextFactory);
         ArgumentNullException.ThrowIfNull(toolRegistry);
         ArgumentNullException.ThrowIfNull(sessionLoggerFactory);
+        ArgumentNullException.ThrowIfNull(sessionRenderer);
         ArgumentNullException.ThrowIfNull(options);
 
         this._conversationContextFactory = conversationContextFactory;
         this._toolRegistry = toolRegistry;
         this._sessionLoggerFactory = sessionLoggerFactory;
+        this._sessionRenderer = sessionRenderer;
         this._options = options.Value;
         var openRouterOptions = this._options.OpenRouter
             ?? throw new InvalidOperationException("Codexplorer OpenRouter options are not configured.");
@@ -82,6 +87,7 @@ public sealed class ExplorerAgent : IExplorerAgent
 
         ISessionLogger? sessionLogger = null;
         IConversationContext? conversationContext = null;
+        Task? rendererTask = null;
         var totalTurns = 0;
         var totalTokens = 0;
         string? lastAssistantText = null;
@@ -93,6 +99,7 @@ public sealed class ExplorerAgent : IExplorerAgent
         try
         {
             sessionLogger = this._sessionLoggerFactory.BeginSession(workspace, userQuery);
+            rendererTask = this._sessionRenderer.RenderAsync(sessionLogger, agentOptions.MaxTurns, CancellationToken.None);
             conversationContext = this._conversationContextFactory.Create();
 
             conversationContext.SetSystemPrompt(SystemPrompt.Text);
@@ -240,6 +247,11 @@ public sealed class ExplorerAgent : IExplorerAgent
             if (sessionLogger is not null)
             {
                 await sessionLogger.DisposeAsync().ConfigureAwait(false);
+            }
+
+            if (rendererTask is not null)
+            {
+                await rendererTask.ConfigureAwait(false);
             }
         }
     }
