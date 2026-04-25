@@ -51,7 +51,8 @@ public sealed class ConversationContextTests
         counter.Set(engine.History[0], 0);
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().BeSameAs(engine.History);
@@ -74,7 +75,8 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("original");
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         strategy.CompactCalls.Should().Be(1);
@@ -104,7 +106,8 @@ public sealed class ConversationContextTests
         var user1 = engine.History[1];
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         strategy.LastInput.Should().ContainSingle().Which.Should().BeSameAs(user1);
@@ -134,7 +137,8 @@ public sealed class ConversationContextTests
         counter.Set(user1, 100);
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().HaveCount(2);
@@ -236,7 +240,8 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("user");
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         strategy.CompactCalls.Should().Be(1);
@@ -244,6 +249,56 @@ public sealed class ConversationContextTests
         strategy.LastBudget.AvailableTokens.Should().Be(960);
         prepared[0].IsPinned.Should().BeTrue();
         AssertText(prepared[0], "sys-new");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenCalledTwiceWithoutHistoryChange_DoesNotAdvanceTurnForSubsequentMessages()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        engine.AddUserMessage("user");
+        var userMessage = engine.History[0];
+
+        // Act
+        _ = await engine.PrepareAsync();
+        _ = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new TextContent("model")]);
+        engine.RecordToolResult("tool-1", "weather", "sunny");
+
+        var modelMessage = engine.History[1];
+        var toolMessage = engine.History[2];
+
+        // Assert
+        userMessage.Turn.Should().Be(0);
+        modelMessage.Turn.Should().Be(1);
+        toolMessage.Turn.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SetSystemPrompt_WhenReplacingExistingPrompt_AdvancesTurnAfterNextPrepare()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        engine.SetSystemPrompt("sys-old");
+
+        // Act
+        _ = await engine.PrepareAsync();
+
+        engine.SetSystemPrompt("sys-new");
+        _ = await engine.PrepareAsync();
+
+        engine.AddUserMessage("after-replace");
+
+        var systemMessage = engine.History[0];
+        var userMessage = engine.History[1];
+
+        // Assert
+        AssertText(systemMessage, "sys-new");
+        systemMessage.Turn.Should().Be(0);
+        userMessage.Turn.Should().Be(2);
     }
 
     [Fact]
@@ -280,7 +335,8 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("u4");
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         strategy.LastInput.Should().HaveCount(3);
@@ -294,13 +350,14 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenPinnedMessagesExceedEmergencyThreshold_ThrowsDiagnosticException()
+    public async Task PrepareAsync_WhenPinnedMessagesExceedAvailableBudget_ThrowsDiagnosticException()
     {
         // Arrange
-        var budget = new ContextBudget(1_000, 0.5, 0.9);
+        // AvailableTokens = 1000 (no reserved). Pinned total = 1100 > 1000 → throws.
+        var budget = new ContextBudget(1_000, 0.5);
         var counter = new TrackingTokenCounter();
-        counter.SetByText("pin-a", 500);
-        counter.SetByText("pin-b", 450);
+        counter.SetByText("pin-a", 600);
+        counter.SetByText("pin-b", 500);
         var engine = new ConversationContext(budget, counter, new TrackingCompactionStrategy());
 
         engine.AddPinnedMessage(MessageRole.System, "pin-a");
@@ -311,8 +368,8 @@ public sealed class ConversationContextTests
 
         // Assert
         var ex = await act.Should().ThrowAsync<PinnedTokenBudgetExceededException>();
-        ex.Which.PinnedTokenTotal.Should().Be(950);
-        ex.Which.EmergencyTriggerTokens.Should().Be(900);
+        ex.Which.PinnedTokenTotal.Should().Be(1_100);
+        ex.Which.AvailableTokens.Should().Be(1_000);
     }
 
     [Fact]
@@ -333,7 +390,8 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("u2");
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         strategy.CompactCalls.Should().Be(1);
@@ -346,29 +404,78 @@ public sealed class ConversationContextTests
     public async Task PrepareAsync_WhenEmergencyTruncationRuns_PinnedMessagesAreNeverDropped()
     {
         // Arrange
+        // Budget: compactionTrigger=500, emergencyTrigger=900.
+        // u1 and u2 are added in separate turns (PrepareAsync is called between them) so they form
+        // independent drop units. Dropping u1 alone (300 tokens) brings the total from 1150 to 850,
+        // which falls below the emergency threshold, so u2 is preserved.
         var budget = new ContextBudget(1_000, 0.5, 0.9);
         var counter = new TrackingTokenCounter();
-        counter.SetByText("pin-oldest", 200);
+        counter.SetByText("pin-oldest", 100);
         counter.SetByText("u1", 300);
         counter.SetByText("u2", 300);
         counter.SetByText("pin-middle", 150);
-        counter.SetByText("latest", 200);
+        counter.SetByText("latest", 300);
 
         var strategy = new TrackingCompactionStrategy();
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddPinnedMessage(MessageRole.System, "pin-oldest");
+        _ = await engine.PrepareAsync(); // advance turn; total=100, no compaction
+
         engine.AddUserMessage("u1");
+        _ = await engine.PrepareAsync(); // advance turn; total=400, no compaction
+
         engine.AddUserMessage("u2");
         engine.AddPinnedMessage(MessageRole.User, "pin-middle");
         engine.AddUserMessage("latest");
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync(); // total=1150 > emergencyTrigger(900)
+        var prepared = result.Messages;
 
         // Assert
         prepared.Select(GetText).Should().Equal("pin-oldest", "u2", "pin-middle", "latest");
         prepared.Should().OnlyContain(message => message.IsPinned || GetText(message) == "u2" || GetText(message) == "latest");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationDropsATurn_RemovesAllMessagesFromThatTurnAtomically()
+    {
+        // Arrange
+        var budget = new ContextBudget(1_000, 0.5, 0.9);
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("old-user", 100);
+        counter.SetByText("old-model", 100);
+        counter.SetByText("latest", 850);
+
+        var engine = new ConversationContext(budget, counter, new TrackingCompactionStrategy());
+
+        engine.AddUserMessage("old-user");
+        engine.RecordModelResponse([new TextContent("old-model")]);
+        engine.RecordToolResult("tool-1", "weather", "done");
+
+        _ = await engine.PrepareAsync();
+
+        engine.AddUserMessage("latest");
+
+        var oldUserMessage = engine.History[0];
+        var oldModelMessage = engine.History[1];
+        var oldToolMessage = engine.History[2];
+        var latestMessage = engine.History[3];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        oldUserMessage.Turn.Should().Be(0);
+        oldModelMessage.Turn.Should().Be(0);
+        oldToolMessage.Turn.Should().Be(0);
+        latestMessage.Turn.Should().Be(1);
+        prepared.Should().ContainSingle().Which.Should().BeSameAs(latestMessage);
+        prepared.Should().NotContain(oldUserMessage);
+        prepared.Should().NotContain(oldModelMessage);
+        prepared.Should().NotContain(oldToolMessage);
     }
 
     [Fact]
@@ -389,7 +496,8 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("latest");
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Select(GetText).Should().Equal("pin-oldest", "latest");
@@ -409,14 +517,14 @@ public sealed class ConversationContextTests
         counter.Set(message, 1);
 
         // Act
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         // Assert
         counter.GetCountCalls(message).Should().Be(1);
     }
 
     [Fact]
-    public async Task RecordModelResponse_WithProviderInputTokens_AppliesAnchorCorrectionOnNextPrepareAsync()
+    public async Task RecordModelResponse_WithProviderInputTzokens_AppliesAnchorCorrectionOnNextPrepareAsync()
     {
         // Arrange
         var counter = new TrackingTokenCounter();
@@ -426,13 +534,13 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("hello");
         counter.Set(engine.History[0], 0);
 
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         engine.RecordModelResponse([new TextContent("reply")], providerInputTokens: 800);
         counter.Set(engine.History[1], 0);
 
         // Act
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         // Assert
         strategy.CompactCalls.Should().Be(1);
@@ -449,13 +557,14 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("hello");
         counter.Set(engine.History[0], 100);
 
-        _ = await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
 
         engine.RecordModelResponse([new TextContent("reply")], providerInputTokens: 25);
         counter.Set(engine.History[1], 50);
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().BeSameAs(engine.History);
@@ -473,23 +582,26 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("u1");
         counter.Set(engine.History[0], 100);
 
-        _ = await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
 
         engine.RecordModelResponse([new TextContent("m1")], providerInputTokens: 80);
         counter.Set(engine.History[1], 50);
 
-        var firstPrepared = await engine.PrepareAsync();
+        var firstResult = await engine.PrepareAsync();
+        var firstPrepared = firstResult.Messages;
 
         engine.RecordModelResponse([new TextContent("m2")], providerInputTokens: 90);
         counter.Set(engine.History[2], 20);
 
-        var secondPrepared = await engine.PrepareAsync();
+        var secondResult = await engine.PrepareAsync();
+        var secondPrepared = secondResult.Messages;
 
         engine.RecordModelResponse([new TextContent("m3")], providerInputTokens: 95);
         counter.Set(engine.History[3], 10);
 
         // Act
-        var thirdPrepared = await engine.PrepareAsync();
+        var thirdResult = await engine.PrepareAsync();
+        var thirdPrepared = thirdResult.Messages;
 
         // Assert
         firstPrepared.Should().BeSameAs(engine.History);
@@ -515,7 +627,7 @@ public sealed class ConversationContextTests
         counter.Set(second, 0);
 
         // Act
-        _ = await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
 
         // Assert
         counter.GetCountCalls(first).Should().Be(1);
@@ -537,10 +649,10 @@ public sealed class ConversationContextTests
 
         engine.AddUserMessage("original");
 
-        _ = await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
 
         // Act
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         // Assert
         counter.GetCountCalls(compacted).Should().Be(1);
@@ -621,7 +733,7 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("original");
 
         // Act
-        _ = await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
 
         // Assert
         observer.Events.Should().HaveCount(1);
@@ -657,7 +769,8 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("original");
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert — emergency truncation drops olderMsg; only newerMsg remains
         prepared.Should().ContainSingle().Which.Should().BeSameAs(newerMsg);
@@ -692,7 +805,7 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("u2");
 
         // Act
-        _ = await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
 
         // Assert — emergency truncation drops u1; observer is notified even though strategy did not apply
         observer.Events.Should().HaveCount(1);
@@ -726,7 +839,8 @@ public sealed class ConversationContextTests
         var newerMsg  = engine.History.Last(m => m.Role == MessageRole.User);
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert — system message is preserved; older user message is dropped; newer (floor) stays
         prepared.Should().HaveCount(2);
@@ -758,7 +872,8 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("original");
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert — prepared list is exactly what the strategy returned, no messages removed
         prepared.Should().HaveCount(2);
@@ -792,7 +907,8 @@ public sealed class ConversationContextTests
         var latestUser = engine.History[^1];
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().HaveCount(2);
@@ -835,7 +951,8 @@ public sealed class ConversationContextTests
         var systemMessage = engine.History[0];
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().HaveCount(2);
@@ -858,7 +975,7 @@ public sealed class ConversationContextTests
         counter.Set(engine.History[0], 0);
 
         // Act
-        _ = await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
 
         // Assert
         observer.Events.Should().BeEmpty();
@@ -896,7 +1013,7 @@ public sealed class ConversationContextTests
 
         // Turn 1 — no compaction; establish a large pre-compaction anchor (+200).
         engine.AddUserMessage("u1");
-        _ = await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
         // total = 300, _lastPreparedTotal = 300
 
         engine.RecordModelResponse([new TextContent("m1")], providerInputTokens: 500);
@@ -904,7 +1021,7 @@ public sealed class ConversationContextTests
 
         // Turn 2 — total = 300 + 0 + 200 + 200(correction) = 700 → compaction triggered.
         engine.AddUserMessage("u2");
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
         // CompactCalls = 1; strategy returns pass-through (WasApplied=false).
         // finalTokens = 500.
         // CORRECT: _lastPreparedTotal = 500,       _anchorCorrection = 0
@@ -917,7 +1034,7 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("u3");
 
         // Act
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         // Assert
         // CORRECT: total = 500 + 20 = 520 ≥ 500 → compaction runs, CompactCalls = 2.
@@ -928,6 +1045,119 @@ public sealed class ConversationContextTests
     {
         action();
         return Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OutcomeReady_WhenBelowCompactionThreshold()
+    {
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        counter.SetByText("hello", 100);
+        engine.AddUserMessage("hello");
+
+        var result = await engine.PrepareAsync();
+
+        result.Outcome.Should().Be(PrepareOutcome.Ready);
+        result.TokensBeforeCompaction.Should().Be(100);
+        result.TokensAfterCompaction.Should().Be(100);
+        result.MessagesCompacted.Should().Be(0);
+        result.DegradationReason.Should().BeNull();
+        result.Messages.Should().BeSameAs(engine.History);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OutcomeCompacted_WhenStrategyReducesWithinBudget()
+    {
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 900);
+        counter.Set(compacted, 400);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 400, 1, "TestStrategy", true));
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        engine.AddUserMessage("original");
+
+        var result = await engine.PrepareAsync();
+
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.TokensBeforeCompaction.Should().Be(900);
+        result.TokensAfterCompaction.Should().Be(400);
+        result.MessagesCompacted.Should().Be(1);
+        result.DegradationReason.Should().BeNull();
+        result.Messages.Should().ContainSingle().Which.Should().BeSameAs(compacted);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OutcomeDegraded_WhenCompactionStillExceedsBudget()
+    {
+        var compacted = ContextMessage.FromText(MessageRole.Model, "still-too-large");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 900);
+        counter.Set(compacted, 1050);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1050, 1, "TestStrategy", true));
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        engine.AddUserMessage("original");
+
+        var result = await engine.PrepareAsync();
+
+        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.TokensBeforeCompaction.Should().Be(900);
+        result.TokensAfterCompaction.Should().Be(1050);
+        result.MessagesCompacted.Should().Be(1);
+        result.DegradationReason.Should().NotBeNull();
+        result.DegradationReason.Should().Contain("Compaction reduced content");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OutcomeContextExhausted_WhenSingleMessageExceedsBudget()
+    {
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        counter.SetByText("huge", 1500);
+        engine.AddUserMessage("huge");
+
+        var result = await engine.PrepareAsync();
+
+        result.Outcome.Should().Be(PrepareOutcome.ContextExhausted);
+        result.TokensBeforeCompaction.Should().Be(1500);
+        result.TokensAfterCompaction.Should().Be(1500);
+        result.MessagesCompacted.Should().Be(0);
+        result.DegradationReason.Should().NotBeNull();
+        result.DegradationReason.Should().Contain("exceeds the budget");
+        result.Messages.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_OutcomeDegraded_WithPinnedMessages_WhenTruncationInsufficient()
+    {
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted-still-large");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("sys", 100);
+        counter.SetByText("original", 850);
+        counter.Set(compacted, 1050);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 850, 1050, 1, "TestStrategy", true));
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        engine.SetSystemPrompt("sys");
+        engine.AddUserMessage("original");
+
+        var result = await engine.PrepareAsync();
+
+        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.TokensBeforeCompaction.Should().Be(950);
+        result.MessagesCompacted.Should().BeGreaterThanOrEqualTo(1);
+        result.DegradationReason.Should().NotBeNull();
     }
 
     private static string GetText(ContextMessage message)
@@ -1035,7 +1265,7 @@ public sealed class ConversationContextTests
             if (this._counts.TryGetValue(contextMessage, out var cached))
                 return cached;
 
-            var firstText = contextMessage.Segments.OfType<TokenGuard.Core.Models.Content.TextContent>().FirstOrDefault()?.Content;
+            var firstText = contextMessage.Segments.OfType<TextContent>().FirstOrDefault()?.Content;
             if (firstText != null && this._countsByText.TryGetValue(firstText, out var byText))
                 return byText;
 
@@ -1051,13 +1281,7 @@ public sealed class ConversationContextTests
         {
             ArgumentNullException.ThrowIfNull(messages);
 
-            var total = 0;
-            foreach (var message in messages)
-            {
-                total += this.Count(message);
-            }
-
-            return total;
+            return messages.Sum(this.Count);
         }
     }
 

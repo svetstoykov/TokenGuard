@@ -54,6 +54,12 @@ public sealed class ConversationContext : IConversationContext
 
     private int _pinnedTokenTotal;
 
+    // Turn counter incremented on each PrepareAsync call where the history has changed since the last prepare.
+    // Messages stamped with the same turn number form an atomic drop unit during emergency truncation.
+    private int _currentTurn;
+    private int _historyVersion;
+    private int _lastPreparedVersion;
+
     private bool _disposed;
 
     /// <summary>
@@ -288,17 +294,18 @@ public sealed class ConversationContext : IConversationContext
     /// </summary>
     /// <param name="cancellationToken">A token that can cancel asynchronous compaction before the prepared list is produced.</param>
     /// <returns>
-    /// A task that resolves to the full history when it fits within the configured budget, or to a
-    /// compacted message list when compaction is required.
+    /// A task that resolves to a <see cref="PrepareResult"/> containing the prepared messages
+    /// and metadata describing what happened during preparation.
     /// </returns>
     /// <remarks>
     /// <para>
     /// This is the main read operation of the context. Await it immediately before every provider
-    /// request. The returned list is the list that should be sent to the model.
+    /// request. Use <see cref="PrepareResult.Messages"/> for the list that should be sent to the model.
     /// </para>
     /// <para>
     /// If the estimated token total is below the compaction trigger, the current history is
-    /// returned directly. If the trigger is reached, the configured <see cref="ICompactionStrategy"/>
+    /// returned directly with <see cref="PrepareResult.Outcome"/> set to <see cref="Enums.PrepareOutcome.Ready"/>.
+    /// If the trigger is reached, the configured <see cref="ICompactionStrategy"/>
     /// is awaited to produce a smaller list.
     /// </para>
     /// <para>
@@ -311,29 +318,36 @@ public sealed class ConversationContext : IConversationContext
     /// representation of that history should be sent next.
     /// </para>
     /// </remarks>
-    public async Task<IReadOnlyList<ContextMessage>> PrepareAsync(CancellationToken cancellationToken = default)
+    public async Task<PrepareResult> PrepareAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (this._pinnedTokenTotal > this._budget.EmergencyTriggerTokens)
+        if (this._historyVersion != this._lastPreparedVersion)
         {
-            throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.EmergencyTriggerTokens);
+            this._currentTurn++;
+            this._lastPreparedVersion = this._historyVersion;
+        }
+
+        if (this._pinnedTokenTotal > this._budget.AvailableTokens)
+        {
+            throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.AvailableTokens);
         }
 
         IReadOnlyList<ContextMessage> messages = this._history;
-        var total = this.Sum(messages) + this._anchorCorrection;
+        var totalBeforeCompaction = this.Sum(messages) + this._anchorCorrection;
 
-        if (total < this._budget.CompactionTriggerTokens)
+        if (totalBeforeCompaction < this._budget.CompactionTriggerTokens)
         {
-            this._lastPreparedTotal = total;
-            return messages;
+            this._lastPreparedTotal = totalBeforeCompaction;
+            return new PrepareResult(
+                messages,
+                PrepareOutcome.Ready,
+                totalBeforeCompaction,
+                totalBeforeCompaction,
+                messagesCompacted: 0);
         }
-
-        var trigger = total >= this._budget.EmergencyTriggerTokens
-            ? CompactionTrigger.Emergency
-            : CompactionTrigger.Normal;
-
+        
         var pinnedSlots = new List<(int Index, ContextMessage Message)>();
         List<ContextMessage>? compactableMessages = null;
 
@@ -367,9 +381,10 @@ public sealed class ConversationContext : IConversationContext
 
         var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
         var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
-
+        
         var final = emergencyApplied ? truncated! : prepared;
         var finalTokens = this.Sum(final);
+        var messagesCompacted = compacted.MessagesAffected + (emergencyApplied ? prepared.Count - final.Count : 0);
 
         if (emergencyApplied)
         {
@@ -385,13 +400,43 @@ public sealed class ConversationContext : IConversationContext
         }
         else if (compacted.WasApplied)
         {
-            this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, trigger, this._budget));
+            this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, CompactionTrigger.Normal, this._budget));
         }
 
         this._lastPreparedTotal = finalTokens;
         this._anchorCorrection = 0;
 
-        return final;
+        var outcome = this.DetermineOutcome(finalTokens, messagesCompacted);
+        var degradationReason = outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted
+            ? this.BuildDegradationReason(outcome, finalTokens, messagesCompacted, pinnedSlots.Count > 0)
+            : null;
+
+        return new PrepareResult(
+            final,
+            outcome,
+            totalBeforeCompaction,
+            finalTokens,
+            messagesCompacted,
+            degradationReason);
+    }
+
+    private PrepareOutcome DetermineOutcome(int finalTokens, int messagesCompacted)
+    {
+        if (finalTokens <= this._budget.MaxTokens)
+        {
+            return messagesCompacted > 0 ? PrepareOutcome.Compacted : PrepareOutcome.Ready;
+        }
+
+        return messagesCompacted == 0
+            ? PrepareOutcome.ContextExhausted
+            : PrepareOutcome.Degraded;
+    }
+
+    private string BuildDegradationReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted, bool hasPinned)
+    {
+        return outcome == PrepareOutcome.ContextExhausted 
+            ? $"A single message or structural content exceeds the budget ({finalTokens} tokens > {this._budget.MaxTokens} max). Compaction is impossible." 
+            : $"Compaction reduced content but still exceeds budget ({finalTokens} tokens > {this._budget.MaxTokens} max). {messagesCompacted} messages were compacted but insufficient.";
     }
 
     /// <summary>
@@ -419,9 +464,14 @@ public sealed class ConversationContext : IConversationContext
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The method identifies eligible drop candidates by excluding pinned messages, which are never removed. The newest
-    /// unpinned message is always preserved as an irreducible floor, so the returned list is never empty, and the latest
-    /// active turn remains visible to the model.
+    /// The method returns immediately with no-op when <see cref="ContextBudget.EmergencyThreshold"/> is
+    /// <see langword="null"/>, because emergency truncation is opt-in. Configure it on the budget only when
+    /// hard message-dropping under extreme token pressure is acceptable for the target use case.
+    /// </para>
+    /// <para>
+    /// When enabled, the method identifies eligible drop candidates by excluding pinned messages, which are never
+    /// removed. The newest unpinned message is always preserved as an irreducible floor, so the returned list is never
+    /// empty, and the latest active turn remains visible to the model.
     /// </para>
     /// <para>
     /// Candidates are removed oldest first. The loop stops as soon as the running token total
@@ -443,12 +493,20 @@ public sealed class ConversationContext : IConversationContext
     /// </param>
     /// <returns>
     /// <see langword="true"/> when truncation was applied and <paramref name="truncated"/> contains
-    /// the reduced list; <see langword="false"/> when <paramref name="prepared"/> is already within
-    /// budget or no eligible candidates exist.
+    /// the reduced list; <see langword="false"/> when emergency truncation is disabled, when
+    /// <paramref name="prepared"/> is already within budget, or when no eligible candidates exist.
     /// </returns>
     private bool TryApplyEmergencyTruncation(IReadOnlyList<ContextMessage> prepared, int currentTotal, out IReadOnlyList<ContextMessage>? truncated)
     {
-        if (currentTotal <= this._budget.EmergencyTriggerTokens)
+        if (!this._budget.EmergencyTriggerTokens.HasValue)
+        {
+            truncated = null;
+            return false;
+        }
+
+        var emergencyLimit = this._budget.EmergencyTriggerTokens.Value;
+
+        if (currentTotal <= emergencyLimit)
         {
             truncated = null;
             return false;
@@ -463,34 +521,29 @@ public sealed class ConversationContext : IConversationContext
             return false;
         }
 
-        // Collect drop candidates: unpinned messages that appear before the preserved floor,
-        // oldest first.
-        var candidates = new List<(int Index, int Tokens)>();
-        for (var i = 0; i < preservedFloorStartIndex; i++)
-        {
-            var msg = prepared[i];
-            if (msg.IsPinned)
-                continue;
+        // Collect drop candidates as atomic turn groups (model message + its tool results) so
+        // a tool result is never left without its preceding model turn, which would produce an
+        // invalid conversation structure rejected by providers.
+        var turnGroups = BuildTurnGroups(prepared, preservedFloorStartIndex);
 
-            candidates.Add((i, msg.TokenCount ?? 0));
-        }
-
-        if (candidates.Count == 0)
+        if (turnGroups.Count == 0)
         {
             truncated = null;
             return false;
         }
 
-        // Drop oldest-first until the budget is satisfied or candidates are exhausted.
+        // Drop whole turn groups oldest-first until the budget is satisfied or groups are exhausted.
         var dropIndices = new HashSet<int>();
         var total = currentTotal;
-        foreach (var (index, tokens) in candidates)
+        foreach (var (groupIndices, groupTokens) in turnGroups)
         {
-            if (total <= this._budget.EmergencyTriggerTokens)
+            if (total <= emergencyLimit)
                 break;
 
-            dropIndices.Add(index);
-            total -= tokens;
+            foreach (var idx in groupIndices)
+                dropIndices.Add(idx);
+
+            total -= groupTokens;
         }
 
         if (dropIndices.Count == 0)
@@ -501,6 +554,38 @@ public sealed class ConversationContext : IConversationContext
 
         truncated = prepared.Where((_, i) => !dropIndices.Contains(i)).ToList();
         return true;
+    }
+
+    private static IReadOnlyList<(IReadOnlyList<int> Indices, int Tokens)> BuildTurnGroups(IReadOnlyList<ContextMessage> prepared, int limit)
+    {
+        var groups = new List<(IReadOnlyList<int> Indices, int Tokens)>();
+        var i = 0;
+
+        while (i < limit)
+        {
+            var msg = prepared[i];
+            if (msg.IsPinned)
+            {
+                i++;
+                continue;
+            }
+
+            var turn = msg.Turn;
+            var messageIndexes = new List<int> { i };
+            var messageGroupTokens = msg.TokenCount ?? 0;
+            i++;
+
+            while (i < limit && !prepared[i].IsPinned && prepared[i].Turn == turn)
+            {
+                messageIndexes.Add(i);
+                messageGroupTokens += prepared[i].TokenCount ?? 0;
+                i++;
+            }
+
+            groups.Add((messageIndexes, messageGroupTokens));
+        }
+
+        return groups;
     }
 
     private int FindPreservedFloorStartIndex(IReadOnlyList<ContextMessage> prepared)
@@ -543,6 +628,8 @@ public sealed class ConversationContext : IConversationContext
 
     private void AddMessage(ContextMessage message, int? index = null)
     {
+        message.Turn = this._currentTurn;
+
         if (index.HasValue)
         {
             this._history.Insert(index.Value, message);
@@ -551,6 +638,8 @@ public sealed class ConversationContext : IConversationContext
         {
             this._history.Add(message);
         }
+
+        this._historyVersion++;
 
         var tokenCount = this.EnsureCounted(message);
 
@@ -569,6 +658,7 @@ public sealed class ConversationContext : IConversationContext
         }
 
         this._history[index] = message;
+        this._historyVersion++;
 
         var tokenCount = this.EnsureCounted(message);
         if (message.IsPinned)

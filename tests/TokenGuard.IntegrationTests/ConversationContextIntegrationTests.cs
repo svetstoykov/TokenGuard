@@ -5,9 +5,8 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Strategies;
-using TokenGuard.Core.TokenCounting;
-
-namespace TokenGuard.IntegrationTests;
+using TokenGuard.Core.TokenCounting;        
+ namespace TokenGuard.IntegrationTests;
 
 public sealed class ConversationContextIntegrationTests
 {
@@ -35,7 +34,8 @@ public sealed class ConversationContextIntegrationTests
         var last = engine.History[^1];
 
         // Act
-        var compactedMessages = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var compactedMessages = result.Messages;
 
         // Assert
         compactedMessages.Should().NotBeSameAs(engine.History,
@@ -73,7 +73,7 @@ public sealed class ConversationContextIntegrationTests
         engine.RecordToolResult("call_123", "analyze_logs", new string('A', 4000));
         engine.RecordModelResponse([new TextContent("The logs show that the system was running normally, but there was a spike in memory usage at 3 AM.")]);
         engine.AddUserMessage("Can you check the database logs around 3 AM?");
-        await engine.PrepareAsync();
+        var _ = await engine.PrepareAsync();
 
         int reportedInputTokens = 300;
 
@@ -82,7 +82,8 @@ public sealed class ConversationContextIntegrationTests
             [new ToolUseContent("call_456", "check_db", "{\"time\":\"03:00\"}")],
             providerInputTokens: reportedInputTokens);
 
-        var finalPrepared = await engine.PrepareAsync();
+        var finalResult = await engine.PrepareAsync();
+        var finalPrepared = finalResult.Messages;
 
         // Assert
         finalPrepared.Should().NotBeSameAs(engine.History,
@@ -108,7 +109,8 @@ public sealed class ConversationContextIntegrationTests
             because: "the first turn alone should still fit within the compaction threshold");
 
         // Act
-        var prep1 = await engine.PrepareAsync();
+        var prep1Result = await engine.PrepareAsync();
+        var prep1 = prep1Result.Messages;
         prep1.Should().Equal(engine.History,
             because: "preparing an under-budget conversation should preserve the original message sequence without compaction");
         prep1.Should().OnlyContain(message => message.State == CompactionState.Original,
@@ -121,17 +123,19 @@ public sealed class ConversationContextIntegrationTests
         engine.RecordToolResult("call_2", "delete_files", new string('D', 1200));
         engine.RecordModelResponse([new TextContent("Deleted all 10 files.")]);
 
-        var prep2 = await engine.PrepareAsync();
+        var prep2Result = await engine.PrepareAsync();
+        var prep2 = prep2Result.Messages;
         prep2.Should().NotBeSameAs(engine.History,
             because: "preparing an over-budget conversation should return a compacted projection");
 
         var maskedCount = prep2.Count(m => m.State == CompactionState.Masked);
         maskedCount.Should().Be(1,
-            because: "the guaranteed protected tail should keep the recent oversized tool result intact while masking older tool output outside the window");
+            because: "the guaranteed pro   tected tail should keep the recent oversized tool result intact while masking older tool output outside the window");
 
         engine.AddUserMessage("Thanks, what's next?");
 
-        var prep3 = await engine.PrepareAsync();
+        var prep3Result = await engine.PrepareAsync();
+        var prep3 = prep3Result.Messages;
         prep3.Should().NotBeSameAs(engine.History,
             because: "the conversation should still require compaction after the third user turn");
 
@@ -164,7 +168,8 @@ public sealed class ConversationContextIntegrationTests
         var latestModel = engine.History[^1];
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().NotBeSameAs(engine.History,
@@ -175,7 +180,7 @@ public sealed class ConversationContextIntegrationTests
         prepared.Should().OnlyContain(message =>
                 ReferenceEquals(message, systemMessage) || ReferenceEquals(message, latestUser) || ReferenceEquals(message, latestModel),
             because: "only the system prompt and newest user-model tail should survive the emergency floor");
-        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens!.Value,
             because: "the preserved floor can legitimately remain over budget when it cannot be reduced further");
     }
 
@@ -195,7 +200,8 @@ public sealed class ConversationContextIntegrationTests
         var latestModel = engine.History[1];
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().HaveCount(2);
@@ -203,7 +209,7 @@ public sealed class ConversationContextIntegrationTests
         prepared.Should().BeEquivalentTo(engine.History,
             options => options.WithStrictOrdering(),
             "there is nothing older than the floor to truncate");
-        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens!.Value,
             because: "the preserved floor may still exceed the emergency threshold");
     }
 
@@ -224,14 +230,15 @@ public sealed class ConversationContextIntegrationTests
         var latestUser = engine.History[^1];
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().HaveCount(2);
         prepared.Should().ContainInOrder(systemMessage, latestUser);
         prepared.Should().NotContain(engine.History[1],
             because: "older non-system messages should be dropped before the preserved floor");
-        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens!.Value,
             because: "the last user message may still leave the conversation over the emergency threshold");
     }
 
@@ -252,14 +259,145 @@ public sealed class ConversationContextIntegrationTests
         var expectedPrepared = engine.History.ToArray();
 
         // Act
-        var prepared = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
 
         // Assert
         prepared.Should().BeEquivalentTo(expectedPrepared,
             options => options.WithStrictOrdering(),
             "messages before the preserved floor are system messages only and are never eligible for emergency truncation");
         prepared.Should().OnlyContain(message => message.Role == MessageRole.System || ReferenceEquals(message, latestUser));
-        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens,
+        counter.Count(prepared).Should().BeGreaterThan(budget.EmergencyTriggerTokens!.Value,
             because: "the unchanged preserved floor plus system messages can remain over the emergency threshold");
     }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationDropsModelTurn_AlsoDropsAssociatedToolResult()
+    {
+        // Arrange
+        // Token math (ceil(chars/4)+4 per message):
+        //   model_1 = ToolUseContent("call_1","analyze",largeArgs[86 chars]) → ceil(86/4)+4 = 26 T
+        //   tool_1  = ToolResultContent("call_1","analyze",2000 chars)        → ceil(2006/4)+4 = 506 T original → masked to ~16 T
+        //   model_2 = TextContent(184 chars)                                  → ceil(184/4)+4 = 50 T
+        //   user    = "Continue the process please." (28 chars)               → ceil(28/4)+4 = 11 T  [protected tail]
+        //   model_3 = TextContent(636 chars)                                  → ceil(636/4)+4 = 163 T [protected tail]
+        //
+        // compaction trigger = floor(500 × 0.50) = 250 T
+        // emergency trigger  = floor(500 × 0.52) = 260 T
+        //
+        // original total ≈ 756 T → compaction fires; SlidingWindow masks tool_1 → total ≈ 266 T → emergency fires
+        //
+        // old (buggy): drop model_1 alone (~26 T) → 266-26 = 240 ≤ 260 → stop — tool_1_masked at index 0 is orphaned → HTTP 400
+        // new (fixed): drop {model_1, tool_1_masked} together (~42 T) → 266-42 = 224 ≤ 260 → stop — no orphan
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.50, emergencyThreshold: 0.52);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.10));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        var largeArgs = $"{{\"query\": \"{new string('A', 70)}\"}}";
+        engine.RecordModelResponse([new ToolUseContent("call_1", "analyze", largeArgs)]);
+        engine.RecordToolResult("call_1", "analyze", new string('X', 2000));
+        engine.RecordModelResponse([new TextContent(new string('M', 184))]);
+        engine.AddUserMessage("Continue the process please.");
+        engine.RecordModelResponse([new TextContent(new string('N', 636))]);
+
+        var turn1Model = engine.History[0];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        for (var i = 0; i < prepared.Count; i++)
+        {
+            if (prepared[i].Role != MessageRole.Tool) continue;
+            i.Should().BeGreaterThan(0,
+                because: "a Tool message must never be the first message in the prepared list");
+            prepared[i - 1].Role.Should().Be(MessageRole.Model,
+                because: "every tool result must be immediately preceded by its originating model turn");
+        }
+
+        prepared.Should().NotContain(m => ReferenceEquals(m, turn1Model),
+            because: "the model turn that issued tool call_1 is outside the protected window and must be removed by emergency truncation");
+
+        prepared.Should().NotContain(m =>
+                m.Role == MessageRole.Tool &&
+                m.Segments.OfType<ToolResultContent>().Any(r => r.ToolCallId == "call_1"),
+            because: "the tool result paired with the dropped model turn must be removed atomically — leaving it orphaned produces a malformed message sequence that providers reject with HTTP 400");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyThresholdIsNotConfigured_DoesNotDropMessagesAfterCompaction()
+    {
+        // Arrange
+        // No emergency threshold — emergency truncation must not run even when the strategy result is over budget.
+        // compactionTrigger = floor(500 × 0.60) = 300 T. SlidingWindow keeps only the newest turn, so most history
+        // is masked. The masked result still exceeds what an emergency threshold would have been, but because no
+        // threshold is configured the runtime must not drop any further messages.
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt(new string('S', 1200));
+        engine.AddUserMessage(new string('A', 1400));
+        engine.RecordModelResponse([new ToolUseContent("call_1", "read_logs", "{}")]);
+        engine.RecordToolResult("call_1", "read_logs", new string('B', 2500));
+        engine.AddUserMessage(new string('C', 1600));
+        engine.RecordModelResponse([new TextContent(new string('D', 1600))]);
+
+        var systemMessage = engine.History[0];
+        var latestUser = engine.History[^2];
+        var latestModel = engine.History[^1];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        prepared.Should().Contain(m => ReferenceEquals(m, systemMessage),
+            because: "the pinned system prompt must always survive compaction");
+        prepared.Should().Contain(m => ReferenceEquals(m, latestUser),
+            because: "the newest user turn must survive compaction");
+        prepared.Should().Contain(m => ReferenceEquals(m, latestModel),
+            because: "the newest model turn must survive compaction");
+        result.Outcome.Should().NotBe(PrepareOutcome.Ready,
+            because: "the conversation required compaction");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyThresholdIsConfigured_DropsOldestMessagesWhenStrategyResultStillExceedsThreshold()
+    {
+        // Arrange
+        // Same scenario as the no-emergency test above, but with emergencyThreshold: 0.75 added.
+        // The strategy result exceeds the emergency threshold, so the runtime must drop oldest turn groups.
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt(new string('S', 1200));
+        engine.AddUserMessage(new string('A', 1400));
+        engine.RecordModelResponse([new ToolUseContent("call_1", "read_logs", "{}")]);
+        engine.RecordToolResult("call_1", "read_logs", new string('B', 2500));
+        engine.AddUserMessage(new string('C', 1600));
+        engine.RecordModelResponse([new TextContent(new string('D', 1600))]);
+
+        var systemMessage = engine.History[0];
+        var latestUser = engine.History[^2];
+        var latestModel = engine.History[^1];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        prepared.Should().ContainInOrder(systemMessage, latestUser, latestModel);
+        prepared.Should().HaveCount(3,
+            because: "emergency truncation must remove all older non-system messages before the preserved tail");
+        prepared.Should().OnlyContain(m =>
+                ReferenceEquals(m, systemMessage) || ReferenceEquals(m, latestUser) || ReferenceEquals(m, latestModel),
+            because: "only the pinned system prompt and the newest user-model turn should survive the emergency pass");
+    }
 }
+ 

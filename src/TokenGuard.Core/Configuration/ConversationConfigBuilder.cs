@@ -38,7 +38,7 @@ public sealed class ConversationConfigBuilder
     ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
     ///     the resulting configuration uses the library default profile: 100,000 tokens, a 0.80 compaction
-    ///     threshold, a 0.95 emergency threshold, 0 reserved tokens, <see cref="EstimatedTokenCounter"/>,
+    ///     threshold, no emergency truncation, 0 reserved tokens, <see cref="EstimatedTokenCounter"/>,
     ///     and <see cref="SlidingWindowStrategy"/>.
     /// </remarks>
     /// <param name="maxTokens">
@@ -81,13 +81,19 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
-    ///     Sets the fraction of available tokens at which emergency compaction starts.
+    ///     Sets the fraction of available tokens at which emergency truncation starts.
     /// </summary>
     /// <remarks>
-    ///     When this value is not configured, the library default value from <see cref="ContextBudget.For(int)"/>
-    ///     is used, which is 0.95 for the configured maximum token count.
+    ///     <para>
+    ///         When not configured, emergency truncation is disabled and the resulting budget has a
+    ///         <see langword="null"/> <see cref="ContextBudget.EmergencyThreshold"/>.
+    ///     </para>
+    ///     <para>
+    ///         Emergency truncation is destructive: it drops whole turn groups oldest-first until the context fits or
+    ///         nothing further can be removed. Enable it only when that behavior is acceptable for the target use case.
+    ///     </para>
     /// </remarks>
-    /// <param name="emergencyThreshold">The emergency compaction trigger threshold.</param>
+    /// <param name="emergencyThreshold">The emergency truncation trigger threshold.</param>
     /// <returns>The current builder instance.</returns>
     public ConversationConfigBuilder WithEmergencyThreshold(double emergencyThreshold)
     {
@@ -159,9 +165,9 @@ public sealed class ConversationConfigBuilder
     /// </summary>
     /// <remarks>
     ///     <para>
-    ///         Any budget values not explicitly configured on the builder are merged with the library defaults
+    ///         Budget values not explicitly configured on the builder are merged with the library defaults
     ///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count: 0.80 compaction,
-    ///         0.95 emergency, and 0 reserved tokens.
+    ///         no emergency truncation, and 0 reserved tokens.
     ///     </para>
     ///     <para>
     ///         If no token counter or compaction strategy has been configured, this method uses
@@ -186,7 +192,7 @@ public sealed class ConversationConfigBuilder
         var budget = new ContextBudget(
             this._maxTokens.Value,
             this._compactionThreshold ?? defaults.CompactionThreshold,
-            this._emergencyThreshold ?? defaults.EmergencyThreshold,
+            this._emergencyThreshold,
             this._reservedTokens ?? defaults.ReservedTokens);
 
         var counter = this._tokenCounter ?? new EstimatedTokenCounter();
@@ -203,7 +209,7 @@ public sealed class ConversationConfigBuilder
     ///     <para>
     ///         This method applies exactly the same defaulting logic as <see cref="Build"/>: any budget
     ///         values not explicitly configured are merged with the library defaults from
-    ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction, 0.95 emergency, and 0 reserved tokens,
+    ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction, no emergency truncation, and 0 reserved tokens,
     ///         and missing counter or strategy choices fall back to
     ///         <see cref="TokenCounting.EstimatedTokenCounter"/> and <see cref="Strategies.SlidingWindowStrategy"/>,
     ///         respectively.

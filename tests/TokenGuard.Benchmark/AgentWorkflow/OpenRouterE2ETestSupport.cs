@@ -42,7 +42,7 @@ public static class OpenRouterE2ETestSupport
     /// </summary>
     public static ChatCompletionOptions CreateChatOptions(IEnumerable<ITool> tools)
     {
-        var chatOptions = new ChatCompletionOptions();
+        var chatOptions = new ChatCompletionOptions { Temperature = 0f };
 
         foreach (var tool in tools)
         {

@@ -10,7 +10,7 @@ public static class ProviderRegistry
 {
     private static readonly ProviderDefinition[] Providers =
     [
-        new(ProviderKind.OpenRouter, "OpenRouter", "qwen/qwen3.6-plus", "https://openrouter.ai/api/v1"),
+        new(ProviderKind.OpenRouter, "OpenRouter", "openai/gpt-5.4-nano", "https://openrouter.ai/api/v1"),
         new(ProviderKind.Anthropic, "Anthropic", "claude-3-haiku-20240307", null),
     ];
 

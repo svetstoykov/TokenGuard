@@ -7,7 +7,7 @@ namespace TokenGuard.Core.Defaults;
 /// Defines the library's default conversation-context profile.
 /// </summary>
 /// <remarks>
-/// The default profile uses 100,000 max tokens, 0.80 compaction, 0.95 emergency, and 0 reserved tokens.
+/// The default profile uses 100,000 max tokens, 0.80 compaction, no emergency truncation, and 0 reserved tokens.
 /// Higher-level APIs such as <see cref="ConversationConfigBuilder"/>,
 /// <see cref="Extensions.ServiceCollectionExtensions"/>, and the built-in
 /// <see cref="Abstractions.IConversationContextFactory"/> rely on these values when no custom budget is supplied.
@@ -23,11 +23,6 @@ internal static class ConversationDefaults
     /// Gets the library default compaction threshold.
     /// </summary>
     internal const double CompactionThreshold = 0.80;
-
-    /// <summary>
-    /// Gets the library default emergency threshold.
-    /// </summary>
-    internal const double EmergencyThreshold = 0.95;
 
     /// <summary>
     /// Gets the library default reserved token count.

@@ -17,6 +17,13 @@ namespace TokenGuard.Core.Models;
 /// keeps the same compaction behavior portable across models with different context sizes while still exposing the
 /// derived integer trigger values used by the runtime.
 /// </para>
+/// <para>
+/// Emergency truncation is opt-in. When <see cref="EmergencyThreshold"/> is <see langword="null"/> — the default — the
+/// runtime never applies the emergency pass. Configure it only when hard message-dropping under extreme pressure is
+/// acceptable, because the pass removes whole turn groups oldest-first and cannot be reversed. Without it, a conversation
+/// that the configured compaction strategy cannot bring within budget will surface a degraded or exhausted
+/// <see cref="Enums.PrepareOutcome"/> instead.
+/// </para>
 /// </remarks>
 public readonly record struct ContextBudget
 {
@@ -30,12 +37,15 @@ public readonly record struct ContextBudget
     /// </remarks>
     /// <param name="maxTokens">The total token capacity of the target model context window.</param>
     /// <param name="compactionThreshold">The fraction of <see cref="AvailableTokens"/> at which normal compaction begins.</param>
-    /// <param name="emergencyThreshold">The fraction of <see cref="AvailableTokens"/> at which emergency compaction begins.</param>
+    /// <param name="emergencyThreshold">
+    /// The fraction of <see cref="AvailableTokens"/> at which emergency truncation begins, or
+    /// <see langword="null"/> to disable emergency truncation entirely. Defaults to <see langword="null"/>.
+    /// </param>
     /// <param name="reservedTokens">The token space held back for non-message content.</param>
     public ContextBudget(
         int maxTokens,
         double compactionThreshold = ConversationDefaults.CompactionThreshold,
-        double emergencyThreshold = ConversationDefaults.EmergencyThreshold,
+        double? emergencyThreshold = null,
         int reservedTokens = ConversationDefaults.ReservedTokens)
     {
         this.MaxTokens = ValidateMaxTokens(maxTokens, nameof(maxTokens));
@@ -55,9 +65,23 @@ public readonly record struct ContextBudget
     public double CompactionThreshold { get; }
 
     /// <summary>
-    /// Gets the fraction of <see cref="AvailableTokens"/> at which emergency compaction starts.
+    /// Gets the fraction of <see cref="AvailableTokens"/> at which emergency truncation starts, or
+    /// <see langword="null"/> when emergency truncation is disabled.
     /// </summary>
-    public double EmergencyThreshold { get; }
+    /// <remarks>
+    /// <para>
+    /// Emergency truncation is destructive: it drops whole turn groups oldest-first until the context fits within the
+    /// threshold or nothing further can be removed. Configure this value only when that behavior is acceptable for the
+    /// target use case.
+    /// </para>
+    /// <para>
+    /// When <see langword="null"/>, the runtime skips the emergency pass entirely after the primary compaction strategy
+    /// runs. A conversation that still exceeds the budget at that point surfaces as
+    /// <see cref="Enums.PrepareOutcome.Degraded"/> or <see cref="Enums.PrepareOutcome.ContextExhausted"/> instead of
+    /// having messages silently dropped.
+    /// </para>
+    /// </remarks>
+    public double? EmergencyThreshold { get; }
 
     /// <summary>
     /// Gets the token space reserved for content not represented in message history.
@@ -75,9 +99,12 @@ public readonly record struct ContextBudget
     public int CompactionTriggerTokens => (int)Math.Floor(this.AvailableTokens * this.CompactionThreshold);
 
     /// <summary>
-    /// Gets the integer token count at which emergency compaction should trigger.
+    /// Gets the integer token count at which emergency truncation should trigger, or <see langword="null"/> when
+    /// <see cref="EmergencyThreshold"/> is not configured.
     /// </summary>
-    public int EmergencyTriggerTokens => (int)Math.Floor(this.AvailableTokens * this.EmergencyThreshold);
+    public int? EmergencyTriggerTokens => this.EmergencyThreshold.HasValue
+        ? (int)Math.Floor(this.AvailableTokens * this.EmergencyThreshold.Value)
+        : null;
 
     /// <summary>
     /// Creates a <see cref="ContextBudget"/> that uses the library's default threshold policy.
@@ -85,10 +112,10 @@ public readonly record struct ContextBudget
     /// <remarks>
     /// This helper is used by <see cref="ConversationConfigBuilder"/> and by callers that want a sensible budget for a
     /// known model window without choosing compaction thresholds explicitly. The library default threshold policy is
-    /// 0.80 compaction, 0.95 emergency, and 0 reserved tokens.
+    /// 0.80 compaction, no emergency truncation, and 0 reserved tokens.
     /// </remarks>
     /// <param name="maxTokens">The total token capacity of the target model context window.</param>
-    /// <returns>A <see cref="ContextBudget"/> configured with 0.80 compaction, 0.95 emergency, and 0 reserved tokens.</returns>
+    /// <returns>A <see cref="ContextBudget"/> configured with 0.80 compaction, no emergency truncation, and 0 reserved tokens.</returns>
     public static ContextBudget For(int maxTokens)
     {
         return ConversationDefaults.CreateBudget(maxTokens);
@@ -104,14 +131,14 @@ public readonly record struct ContextBudget
         return value;
     }
 
-    private static double ValidateCompactionThreshold(double value, double emergency, string paramName)
+    private static double ValidateCompactionThreshold(double value, double? emergency, string paramName)
     {
-        if (value <= 0.0 || value > 1.0)
+        if (value is <= 0.0 or > 1.0)
         {
             throw new ArgumentOutOfRangeException(paramName, "CompactionThreshold must be in the range (0.0, 1.0].");
         }
 
-        if (value >= emergency)
+        if (emergency.HasValue && value >= emergency.Value)
         {
             throw new ArgumentOutOfRangeException(paramName, "CompactionThreshold must be less than EmergencyThreshold.");
         }
@@ -119,14 +146,17 @@ public readonly record struct ContextBudget
         return value;
     }
 
-    private static double ValidateEmergencyThreshold(double value, double compaction, string paramName)
+    private static double? ValidateEmergencyThreshold(double? value, double compaction, string paramName)
     {
-        if (value <= 0.0 || value > 1.0)
+        if (!value.HasValue)
+            return null;
+
+        if (value.Value is <= 0.0 or > 1.0)
         {
             throw new ArgumentOutOfRangeException(paramName, "EmergencyThreshold must be in the range (0.0, 1.0].");
         }
 
-        if (compaction >= value)
+        if (compaction >= value.Value)
         {
             throw new ArgumentOutOfRangeException(paramName, "EmergencyThreshold must be greater than CompactionThreshold.");
         }
