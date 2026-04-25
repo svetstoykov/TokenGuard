@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Codexplorer.Sessions;
 using Codexplorer.Tools;
 using Codexplorer.Workspace;
 
@@ -60,6 +61,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IGitCloner, LibGit2Cloner>();
         services.TryAddSingleton<IWorkspaceManager, WorkspaceManager>();
         services.TryAddSingleton<IToolRegistry, ToolRegistry>();
+        services.TryAddSingleton<ISessionLoggerFactory, SessionLoggerFactory>();
 
         return services;
     }
