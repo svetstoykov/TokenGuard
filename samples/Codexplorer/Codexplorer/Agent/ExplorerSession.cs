@@ -123,20 +123,30 @@ internal sealed class ExplorerSession : IExplorerSession
                 if (prepareResult.Outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted)
                 {
                     var reason = prepareResult.DegradationReason
-                        ?? (prepareResult.Outcome == PrepareOutcome.ContextExhausted
-                            ? "Context budget exhausted after compaction; a prepared request could no longer fit."
-                            : "Context budget degraded after compaction; the prepared request may exceed provider limits.");
+                                 ?? (prepareResult.Outcome == PrepareOutcome.ContextExhausted
+                                     ? "Context budget exhausted after compaction; a prepared request could no longer fit."
+                                     : "Context budget degraded after compaction; the prepared request may exceed provider limits.");
 
-                    await this._sessionLogger.AppendAsync(
-                            new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex, "Degraded", reason),
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-                    await this.EndSessionAsync($"Degraded: {reason}", CancellationToken.None).ConfigureAwait(false);
+                    if (prepareResult.Outcome == PrepareOutcome.Degraded)
+                    {
+                        await this._sessionLogger.AppendAsync(
+                                new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex, "DegradedWarning", reason),
+                                CancellationToken.None)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await this._sessionLogger.AppendAsync(
+                                new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex, "ContextExhausted", reason),
+                                CancellationToken.None)
+                            .ConfigureAwait(false);
+                        await this.EndSessionAsync($"ContextExhausted: {reason}", CancellationToken.None).ConfigureAwait(false);
 
-                    return new AgentExchangeDegraded(
-                        reason,
-                        lastAssistantTextThisExchange ?? this._lastAssistantText,
-                        this._totalTurns - turnsAtExchangeStart);
+                        return new AgentExchangeDegraded(
+                            reason,
+                            lastAssistantTextThisExchange ?? this._lastAssistantText,
+                            this._totalTurns - turnsAtExchangeStart);
+                    }
                 }
 
                 await this._sessionLogger.AppendAsync(
@@ -145,10 +155,10 @@ internal sealed class ExplorerSession : IExplorerSession
                     .ConfigureAwait(false);
 
                 var completion = (await this._chatClient.CompleteChatAsync(
-                        prepareResult.Messages.ForOpenAI(),
-                        ExplorerAgent.CreateChatCompletionOptions(this._chatTools, this._modelOptions.MaxOutputTokens),
-                        CancellationToken.None)
-                    .ConfigureAwait(false))
+                            prepareResult.Messages.ForOpenAI(),
+                            ExplorerAgent.CreateChatCompletionOptions(this._chatTools, this._modelOptions.MaxOutputTokens),
+                            CancellationToken.None)
+                        .ConfigureAwait(false))
                     .Value;
 
                 var assistantText = string.Join(

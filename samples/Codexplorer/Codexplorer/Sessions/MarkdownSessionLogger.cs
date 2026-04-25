@@ -18,10 +18,10 @@ namespace Codexplorer.Sessions;
 /// </remarks>
 public sealed class MarkdownSessionLogger : ISessionLogger
 {
-    private const int ToolResultContentCap = 4000;
-    private const int DefaultEventContentCap = 12000;
-    private const int FinalAnswerContentCap = 8000;
-    private const int ExceptionContentCap = 16000;
+    private const int ToolResultContentCap = 2000;
+    private const int DefaultEventContentCap = 6000;
+    private const int FinalAnswerContentCap = 4000;
+    private const int ExceptionContentCap = 10000;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -407,7 +407,7 @@ public sealed class MarkdownSessionLogger : ISessionLogger
                 type = nameof(ToolResultContent),
                 toolResult.ToolCallId,
                 toolResult.ToolName,
-                content = toolResult.Content
+                content = TruncateContent(toolResult.Content, ToolResultContentCap)
             },
             TextContent text => new
             {
