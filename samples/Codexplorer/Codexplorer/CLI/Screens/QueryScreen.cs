@@ -44,12 +44,12 @@ internal sealed class QueryScreen : IScreen
             this._console.MarkupLine($"[green]Repo:[/] {Markup.Escape(this._workspace.OwnerRepo)}");
             this._console.MarkupLine($"[grey]{Markup.Escape(this._workspace.LocalPath)}[/]");
 
-            var userQuery = this._console.Prompt(
-                new TextPrompt<string>("Question")
-                    .PromptStyle("green")
-                    .Validate(static value => string.IsNullOrWhiteSpace(value)
-                        ? ValidationResult.Error("[red]A question is required.[/]")
-                        : ValidationResult.Success()));
+            var userQuery = NavigationPrompts.PromptTextOrBack(this._console, "Question", "the main menu");
+
+            if (userQuery is null)
+            {
+                return new GoToMenu();
+            }
 
             AgentRunResult result;
             var runCancellationSource = this._cancellationCoordinator.BeginAgentRun();
@@ -57,7 +57,7 @@ internal sealed class QueryScreen : IScreen
             try
             {
                 result = await this._explorerAgent
-                    .RunAsync(this._workspace, userQuery.Trim(), runCancellationSource.Token)
+                    .RunAsync(this._workspace, userQuery, runCancellationSource.Token)
                     .ConfigureAwait(false);
             }
             finally
@@ -113,15 +113,15 @@ internal sealed class QueryScreen : IScreen
             return new GoToMenu();
         }
 
-        var selectedWorkspace = this._console.Prompt(
-            new SelectionPrompt<WorkspaceModel>()
-                .Title("Pick a different repo")
-                .PageSize(10)
-                .UseConverter(static workspace => $"{Markup.Escape(workspace.OwnerRepo)} [grey]({Markup.Escape(workspace.LocalPath)})[/]")
-                .AddChoices(otherWorkspaces));
+        var selectedWorkspace = NavigationPrompts.PromptSelectionOrBack(
+            this._console,
+            "Pick a different repo",
+            otherWorkspaces,
+            static workspace => $"{Markup.Escape(workspace.OwnerRepo)} [grey]({Markup.Escape(workspace.LocalPath)})[/]",
+            "Back to this repo");
 
         await Task.CompletedTask.ConfigureAwait(false);
-        return new GoToQuery(selectedWorkspace);
+        return selectedWorkspace is null ? new GoToQuery(this._workspace) : new GoToQuery(selectedWorkspace);
     }
 
     private static string CreatePostRunTitle(AgentRunResult result)

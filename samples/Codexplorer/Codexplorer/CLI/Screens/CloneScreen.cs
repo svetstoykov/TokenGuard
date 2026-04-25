@@ -20,12 +20,12 @@ internal sealed class CloneScreen : IScreen
     {
         this._console.Clear();
 
-        var githubUrl = this._console.Prompt(
-            new TextPrompt<string>("GitHub URL")
-                .PromptStyle("green")
-                .Validate(static value => string.IsNullOrWhiteSpace(value)
-                    ? ValidationResult.Error("[red]A GitHub URL is required.[/]")
-                    : ValidationResult.Success()));
+        var githubUrl = NavigationPrompts.PromptTextOrBack(this._console, "GitHub URL", "the main menu");
+
+        if (githubUrl is null)
+        {
+            return new GoToMenu();
+        }
 
         try
         {
@@ -39,7 +39,7 @@ internal sealed class CloneScreen : IScreen
                     "[green]Cloning repository... please wait.[/]",
                     async _ =>
                     {
-                        workspace = await this._workspaceManager.CloneAsync(githubUrl.Trim(), ct: ct).ConfigureAwait(false);
+                        workspace = await this._workspaceManager.CloneAsync(githubUrl, ct: ct).ConfigureAwait(false);
                     })
                 .ConfigureAwait(false);
 

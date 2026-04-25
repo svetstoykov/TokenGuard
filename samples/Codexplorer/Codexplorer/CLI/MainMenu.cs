@@ -101,15 +101,15 @@ internal sealed class MainMenu
             return new GoToMenu();
         }
 
-        var selectedWorkspace = this._console.Prompt(
-            new SelectionPrompt<Workspace.Workspace>()
-                .Title("Pick a repo")
-                .PageSize(10)
-                .UseConverter(static workspace => $"{Markup.Escape(workspace.OwnerRepo)} [grey]({Markup.Escape(workspace.LocalPath)})[/]")
-                .AddChoices(workspaces));
+        var selectedWorkspace = NavigationPrompts.PromptSelectionOrBack(
+            this._console,
+            "Pick a repo",
+            workspaces,
+            static workspace => $"{Markup.Escape(workspace.OwnerRepo)} [grey]({Markup.Escape(workspace.LocalPath)})[/]",
+            "Back to main menu");
 
         await Task.CompletedTask.ConfigureAwait(false);
-        return new GoToQuery(selectedWorkspace);
+        return selectedWorkspace is null ? new GoToMenu() : new GoToQuery(selectedWorkspace);
     }
 
     private async Task<ScreenTransition> SelectLogFileAsync()
@@ -140,15 +140,15 @@ internal sealed class MainMenu
             return new GoToMenu();
         }
 
-        var selectedLogFile = this._console.Prompt(
-            new SelectionPrompt<string>()
-                .Title("Pick a session log")
-                .PageSize(10)
-                .UseConverter(static path => Markup.Escape(Path.GetFileName(path)))
-                .AddChoices(logFiles));
+        var selectedLogFile = NavigationPrompts.PromptSelectionOrBack(
+            this._console,
+            "Pick a session log",
+            logFiles,
+            static path => Markup.Escape(Path.GetFileName(path)),
+            "Back to main menu");
 
         await Task.CompletedTask.ConfigureAwait(false);
-        return new GoToLogViewer(selectedLogFile);
+        return selectedLogFile is null ? new GoToMenu() : new GoToLogViewer(selectedLogFile);
     }
 
     private TScreen CreateScreen<TScreen>(params object[] arguments)

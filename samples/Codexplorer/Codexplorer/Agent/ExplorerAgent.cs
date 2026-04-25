@@ -40,6 +40,7 @@ internal sealed class ExplorerAgent : IExplorerAgent
     /// <param name="conversationContextFactory">Factory for fresh TokenGuard conversation contexts.</param>
     /// <param name="toolRegistry">Registry for workspace-scoped tools.</param>
     /// <param name="sessionLoggerFactory">Factory for per-query session transcripts.</param>
+    /// <param name="sessionRenderer">Session renderer for generating human-readable output.</param>
     /// <param name="options">The validated Codexplorer options snapshot.</param>
     public ExplorerAgent(
         IConversationContextFactory conversationContextFactory,
