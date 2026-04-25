@@ -408,7 +408,7 @@ public sealed class ConversationContext : IConversationContext
 
         var outcome = this.DetermineOutcome(finalTokens, messagesCompacted);
         var degradationReason = outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted
-            ? this.BuildDegradationReason(outcome, finalTokens, messagesCompacted, pinnedSlots.Count > 0)
+            ? this.BuildDegradationReason(outcome, finalTokens, messagesCompacted)
             : null;
 
         return new PrepareResult(
@@ -432,7 +432,7 @@ public sealed class ConversationContext : IConversationContext
             : PrepareOutcome.Degraded;
     }
 
-    private string BuildDegradationReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted, bool hasPinned)
+    private string BuildDegradationReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted)
     {
         return outcome == PrepareOutcome.ContextExhausted 
             ? $"A single message or structural content exceeds the budget ({finalTokens} tokens > {this._budget.MaxTokens} max). Compaction is impossible." 
