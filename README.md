@@ -2,7 +2,7 @@
 
 TokenGuard stops your LLM agent from blowing up its context window.
 
-It watches token growth, masks old tool output when chat gets too large, and falls back to emergency truncation before your loop crashes.
+It watches token growth, masks old tool output when chat gets too large, and can fall back to emergency truncation before your loop crashes.
 
 - Keeps long-running agent loops inside token budget
 - Hides stale tool output instead of making you hand-roll truncation
@@ -45,9 +45,11 @@ using var conversationContext = serviceProvider
     .Create();
 ```
 
+`WithEmergencyThreshold(...)` is optional. If you omit it, TokenGuard stops after masking-based compaction and does not activate the emergency truncation phase. That can be acceptable for tightly constrained scenarios, but configuring it is strongly recommended because after enough pressure builds up, masking alone can no longer reclaim space and TokenGuard must start dropping older eligible messages to keep the loop moving.
+
 ### Core loop
 
-Call `PrepareAsync()` before each provider request. It decides whether next outbound payload can use full recorded history, apply masking-based compaction, or fall back to emergency truncation. It does not rewrite `History` in place.
+Call `PrepareAsync()` before each provider request. It decides whether next outbound payload can use full recorded history, apply masking-based compaction, or, when configured, fall back to emergency truncation. It does not rewrite `History` in place.
 
 ```csharp
 using TokenGuard.Extensions.OpenAI;
@@ -91,19 +93,19 @@ TokenGuard manages conversation state inside an LLM loop so application code sta
 - Tracks conversation growth across user, model, system, pinned, and tool messages
 - Prepares next outbound payload with `PrepareAsync()`
 - Applies masking when configured compaction threshold is reached
-- Falls back to oldest-first emergency truncation when prepared payload still exceeds emergency threshold
+- Can fall back to oldest-first emergency truncation when prepared payload still exceeds emergency threshold
 - Preserves pinned messages at their original positions during both masking and truncation
 - Accepts provider-reported input token counts to improve later estimates
 - Emits compaction observer events for monitoring and diagnostics
 
 ## Compaction Model
 
-TokenGuard now uses a practical two-tier compaction flow designed for tool-heavy agent loops:
+TokenGuard now uses a practical compaction flow designed for tool-heavy agent loops:
 
 1. **Tier 1 - Observation masking**: configured compaction strategy shrinks history by masking older tool results while keeping recent turns intact.
-2. **Tier 2 - Emergency truncation**: if masked payload still exceeds emergency threshold, TokenGuard drops oldest eligible unpinned messages first while preserving pinned messages and newest active tail.
+2. **Tier 2 - Emergency truncation (optional but recommended)**: if you configure an emergency threshold and masked payload still exceeds it, TokenGuard drops oldest eligible unpinned messages first while preserving pinned messages and newest active tail.
 
-This gives normal runs a cheap, structure-preserving compaction path and keeps an emergency escape hatch for oversized conversations that still do not fit after masking.
+This gives normal runs a cheap, structure-preserving compaction path and, when enabled, keeps an emergency escape hatch for oversized conversations that still do not fit after masking. If you do not configure an emergency threshold, TokenGuard will not drop messages automatically once masking stops being effective.
 
 ### Pinned messages
 
@@ -129,6 +131,7 @@ TokenGuard stays provider-agnostic in core, then offers adapter helpers for comm
 - `src/TokenGuard.Extensions.OpenAI` - OpenAI message conversion helpers and integration points
 - `src/TokenGuard.Extensions.Anthropic` - Anthropic message conversion helpers and integration points
 - `samples/TokenGuard.Samples.Console` - interactive sample app with OpenAI and Anthropic agent loops
+- `samples/Codexplorer` - interactive repository explorer that showcases TokenGuard token budgeting and live compaction pressure in a longer-running agent session
 - `tests/TokenGuard.Tests` - unit tests
 - `tests/TokenGuard.IntegrationTests` - integration tests for cross-component behavior
 - `tests/TokenGuard.E2E` - live end-to-end tests with real model loops and tool execution
@@ -136,15 +139,14 @@ TokenGuard stays provider-agnostic in core, then offers adapter helpers for comm
 
 ## Samples 🧪
 
-After quick-start snippets, best full reference is `samples/TokenGuard.Samples.Console`.
+After quick-start snippets, best full references are `samples/TokenGuard.Samples.Console` and `samples/Codexplorer`.
 
-Sample app includes:
+Sample projects include:
 
-- `Complete OpenAI loop`
-- `Minimal OpenAI loop`
-- `Minimal Anthropic loop`
+- `samples/TokenGuard.Samples.Console` - complete OpenAI loop, minimal OpenAI loop, and minimal Anthropic loop
+- `samples/Codexplorer` - interactive repository agent that showcases TokenGuard budget-aware context preparation, masking, and emergency degradation behavior in a real terminal workflow
 
-Run it with:
+Run the console sample with:
 
 ```bash
 dotnet run --project samples/TokenGuard.Samples.Console
@@ -165,6 +167,15 @@ dotnet run --project samples/TokenGuard.Samples.Console
 ```
 
 Sample task input is read from `samples/TokenGuard.Samples.Console/Tasks/001-context-burn-task.txt`.
+
+Run Codexplorer with:
+
+```bash
+cd samples/Codexplorer
+dotnet run --project ./src/Codexplorer.csproj
+```
+
+Codexplorer is documented in `samples/Codexplorer/README.md`.
 
 ## Requirements
 
@@ -235,7 +246,7 @@ Test checks process environment first and then falls back to `tests/TokenGuard.E
 What is current:
 
 - sliding-window observation masking is implemented and usable now
-- two-tier behavior is implemented: masking under normal pressure, truncation under emergency pressure
+- masking is implemented for normal pressure, and optional emergency truncation is available when an emergency threshold is configured
 - pinned messages are implemented and survive both compaction tiers
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available

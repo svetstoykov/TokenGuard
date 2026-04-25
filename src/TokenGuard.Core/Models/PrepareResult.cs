@@ -30,7 +30,7 @@ public sealed record PrepareResult
     /// <param name="tokensAfterCompaction">The token total of <paramref name="messages"/> after all compaction and truncation.</param>
     /// <param name="messagesCompacted">The count of messages removed or replaced during this call.</param>
     /// <param name="degradationReason">A descriptive reason when the outcome is degraded or exhausted; null otherwise.</param>
-    /// <param name="emergencyMessagesDropped">
+    /// <param name="messagesDropped">
     /// The number of messages dropped by emergency truncation. This excludes messages replaced by the normal compaction
     /// strategy and is zero when emergency truncation did not remove any messages.
     /// </param>
@@ -41,7 +41,7 @@ public sealed record PrepareResult
         int tokensAfterCompaction,
         int messagesCompacted,
         string? degradationReason = null,
-        int emergencyMessagesDropped = 0)
+        int messagesDropped = 0)
     {
         this.Messages = messages ?? throw new ArgumentNullException(nameof(messages));
         this.Outcome = outcome;
@@ -49,7 +49,7 @@ public sealed record PrepareResult
         this.TokensAfterCompaction = tokensAfterCompaction;
         this.MessagesCompacted = messagesCompacted;
         this.DegradationReason = degradationReason;
-        this.EmergencyMessagesDropped = emergencyMessagesDropped;
+        this.MessagesDropped = messagesDropped;
     }
 
     /// <summary>
@@ -96,5 +96,5 @@ public sealed record PrepareResult
     /// removed by the configured compaction strategy, which remain part of <see cref="MessagesCompacted"/>. A value of
     /// zero means emergency truncation did not remove any messages during this preparation call.
     /// </remarks>
-    public int EmergencyMessagesDropped { get; }
+    public int MessagesDropped { get; }
 }
