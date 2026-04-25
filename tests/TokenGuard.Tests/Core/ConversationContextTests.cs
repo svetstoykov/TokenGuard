@@ -557,7 +557,7 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("hello");
         counter.Set(engine.History[0], 100);
 
-        var _ = await engine.PrepareAsync();
+        _ = await engine.PrepareAsync();
 
         engine.RecordModelResponse([new TextContent("reply")], providerInputTokens: 25);
         counter.Set(engine.History[1], 50);
@@ -582,7 +582,7 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("u1");
         counter.Set(engine.History[0], 100);
 
-        var _ = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
 
         engine.RecordModelResponse([new TextContent("m1")], providerInputTokens: 80);
         counter.Set(engine.History[1], 50);
@@ -627,7 +627,7 @@ public sealed class ConversationContextTests
         counter.Set(second, 0);
 
         // Act
-        var _ = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
 
         // Assert
         counter.GetCountCalls(first).Should().Be(1);
@@ -649,7 +649,7 @@ public sealed class ConversationContextTests
 
         engine.AddUserMessage("original");
 
-        var _ = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
 
         // Act
         await engine.PrepareAsync();
@@ -733,7 +733,7 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("original");
 
         // Act
-        var _ = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
 
         // Assert
         observer.Events.Should().HaveCount(1);
@@ -741,10 +741,13 @@ public sealed class ConversationContextTests
         evt.Result.TokensBefore.Should().Be(800);
         evt.Result.TokensAfter.Should().Be(100);
         evt.Result.MessagesAffected.Should().Be(3);
+        evt.Result.EmergencyMessagesDropped.Should().Be(0);
+
+        result.EmergencyMessagesDropped.Should().Be(0);
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenEmergencyTruncationDropsMessages_ReportsCombinedMetricsWithEmergencyTrigger()
+    public async Task PrepareAsync_WhenEmergencyTruncationDropsMessages_ReportsExplicitStageDiagnostics()
     {
         // Arrange
         // Budget: compactionTrigger=500, emergencyTrigger=900
@@ -781,12 +784,15 @@ public sealed class ConversationContextTests
         evt.Result.WasApplied.Should().BeTrue();
         evt.Result.TokensBefore.Should().Be(600);
         evt.Result.TokensAfter.Should().Be(500);
-        // MessagesAffected = 2 masked by strategy + 1 dropped by emergency
         evt.Result.MessagesAffected.Should().Be(3);
+        evt.Result.EmergencyMessagesDropped.Should().Be(1);
+
+        result.MessagesCompacted.Should().Be(3);
+        result.EmergencyMessagesDropped.Should().Be(1);
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenStrategyNotAppliedButEmergencyTruncationRuns_ObserverEventShowsWasAppliedTrue()
+    public async Task PrepareAsync_WhenStrategyNotAppliedButEmergencyTruncationRuns_ReportsStrategyPassThroughAndEmergencyDropDetails()
     {
         // Arrange
         // Budget: compactionTrigger=500, emergencyTrigger=900
@@ -805,13 +811,17 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("u2");
 
         // Act
-        var _ = await engine.PrepareAsync();
+        var result = await engine.PrepareAsync();
 
         // Assert — emergency truncation drops u1; observer is notified even though strategy did not apply
         observer.Events.Should().HaveCount(1);
         var evt = observer.Events[0];
         evt.Trigger.Should().Be(CompactionTrigger.Emergency);
         evt.Result.WasApplied.Should().BeTrue();
+        evt.Result.EmergencyMessagesDropped.Should().Be(1);
+
+        result.EmergencyMessagesDropped.Should().Be(1);
+        result.MessagesCompacted.Should().Be(1);
     }
 
     [Fact]
@@ -881,6 +891,8 @@ public sealed class ConversationContextTests
         prepared[1].Should().BeSameAs(compacted2);
         observer.Events.Should().HaveCount(1);
         observer.Events[0].Trigger.Should().Be(CompactionTrigger.Normal);
+        observer.Events[0].Result.EmergencyMessagesDropped.Should().Be(0);
+        result.EmergencyMessagesDropped.Should().Be(0);
     }
 
     [Fact]
@@ -914,6 +926,8 @@ public sealed class ConversationContextTests
         prepared.Should().HaveCount(2);
         prepared.Should().ContainInOrder(systemMessage, latestUser);
         prepared.Sum(message => message.TokenCount ?? 0).Should().Be(1100);
+        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.EmergencyMessagesDropped.Should().Be(2);
     }
 
     [Fact]
@@ -1082,6 +1096,7 @@ public sealed class ConversationContextTests
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
         result.TokensAfterCompaction.Should().Be(950);
         result.DegradationReason.Should().BeNull();
+        result.EmergencyMessagesDropped.Should().Be(1);
         result.Messages.Should().Equal(keepMiddle, keepLatest);
     }
 
@@ -1108,6 +1123,7 @@ public sealed class ConversationContextTests
         result.TokensAfterCompaction.Should().Be(100);
         result.MessagesCompacted.Should().Be(0);
         result.DegradationReason.Should().BeNull();
+        result.EmergencyMessagesDropped.Should().Be(0);
         result.Messages.Should().BeSameAs(engine.History);
     }
 
@@ -1132,6 +1148,7 @@ public sealed class ConversationContextTests
         result.TokensAfterCompaction.Should().Be(400);
         result.MessagesCompacted.Should().Be(1);
         result.DegradationReason.Should().BeNull();
+        result.EmergencyMessagesDropped.Should().Be(0);
         result.Messages.Should().ContainSingle().Which.Should().BeSameAs(compacted);
     }
 
@@ -1157,6 +1174,7 @@ public sealed class ConversationContextTests
         result.MessagesCompacted.Should().Be(1);
         result.DegradationReason.Should().NotBeNull();
         result.DegradationReason.Should().Contain("Compaction reduced content");
+        result.EmergencyMessagesDropped.Should().Be(0);
     }
 
     [Fact]
@@ -1177,6 +1195,7 @@ public sealed class ConversationContextTests
         result.MessagesCompacted.Should().Be(0);
         result.DegradationReason.Should().NotBeNull();
         result.DegradationReason.Should().Contain("exceeds the budget");
+        result.EmergencyMessagesDropped.Should().Be(0);
         result.Messages.Should().ContainSingle();
     }
 

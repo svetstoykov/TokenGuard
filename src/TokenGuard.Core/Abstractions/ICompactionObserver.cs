@@ -12,8 +12,8 @@ namespace TokenGuard.Core.Abstractions;
 /// </para>
 /// <para>
 /// <see cref="OnCompaction"/> is called synchronously on the thread that invoked
-/// <c>ConversationContext.PrepareAsync</c>, immediately after the compaction strategy returns and only when
-/// <see cref="CompactionResult.WasApplied"/> is <see langword="true"/>. Implementations should be fast.
+/// <c>ConversationContext.PrepareAsync</c>, immediately after a compaction cycle changes the prepared history.
+/// That change can come from strategy compaction, emergency truncation, or both. Implementations should be fast.
 /// If async work is required, queue it internally rather than blocking the caller.
 /// </para>
 /// </remarks>

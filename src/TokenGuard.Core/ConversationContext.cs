@@ -381,22 +381,23 @@ public sealed class ConversationContext : IConversationContext
 
         var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
         var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
-        
+
         var final = emergencyApplied ? truncated! : prepared;
         var estimatedFinalTokens = this.Sum(final);
         var finalTokens = estimatedFinalTokens + this._anchorCorrection;
-        var messagesCompacted = compacted.MessagesAffected + (emergencyApplied ? prepared.Count - final.Count : 0);
+        var emergencyMessagesDropped = emergencyApplied ? prepared.Count - final.Count : 0;
+        var messagesCompacted = compacted.MessagesAffected + emergencyMessagesDropped;
 
         if (emergencyApplied)
         {
-            var droppedCount = prepared.Count - final.Count;
             var mergedResult = new CompactionResult(
                 final,
                 compacted.TokensBefore,
                 finalTokens,
-                compacted.MessagesAffected + droppedCount,
+                messagesCompacted,
                 compacted.StrategyName,
-                WasApplied: true);
+                wasApplied: true,
+                emergencyMessagesDropped);
             this._observer?.OnCompaction(new CompactionEvent(mergedResult, DateTimeOffset.UtcNow, CompactionTrigger.Emergency, this._budget));
         }
         else if (compacted.WasApplied)
@@ -418,7 +419,8 @@ public sealed class ConversationContext : IConversationContext
             totalBeforeCompaction,
             finalTokens,
             messagesCompacted,
-            degradationReason);
+            degradationReason,
+            emergencyMessagesDropped);
     }
 
     /// <summary>

@@ -30,13 +30,18 @@ public sealed record PrepareResult
     /// <param name="tokensAfterCompaction">The token total of <paramref name="messages"/> after all compaction and truncation.</param>
     /// <param name="messagesCompacted">The count of messages removed or replaced during this call.</param>
     /// <param name="degradationReason">A descriptive reason when the outcome is degraded or exhausted; null otherwise.</param>
+    /// <param name="emergencyMessagesDropped">
+    /// The number of messages dropped by emergency truncation. This excludes messages replaced by the normal compaction
+    /// strategy and is zero when emergency truncation did not remove any messages.
+    /// </param>
     public PrepareResult(
         IReadOnlyList<ContextMessage> messages,
         PrepareOutcome outcome,
         int tokensBeforeCompaction,
         int tokensAfterCompaction,
         int messagesCompacted,
-        string? degradationReason = null)
+        string? degradationReason = null,
+        int emergencyMessagesDropped = 0)
     {
         this.Messages = messages ?? throw new ArgumentNullException(nameof(messages));
         this.Outcome = outcome;
@@ -44,6 +49,7 @@ public sealed record PrepareResult
         this.TokensAfterCompaction = tokensAfterCompaction;
         this.MessagesCompacted = messagesCompacted;
         this.DegradationReason = degradationReason;
+        this.EmergencyMessagesDropped = emergencyMessagesDropped;
     }
 
     /// <summary>
@@ -57,18 +63,21 @@ public sealed record PrepareResult
     public PrepareOutcome Outcome { get; }
 
     /// <summary>
-    /// Gets the token total when <see cref="Abstractions.IConversationContext.PrepareAsync"/> was called, before any strategy ran.
+    /// Gets the aggregate anchor-adjusted token total when <see cref="Abstractions.IConversationContext.PrepareAsync"/>
+    /// was called, before any strategy compaction or emergency truncation ran.
     /// Equal to <see cref="TokensAfterCompaction"/> when <see cref="Outcome"/> is <see cref="PrepareOutcome.Ready"/>.
     /// </summary>
     public int TokensBeforeCompaction { get; }
 
     /// <summary>
-    /// Gets the token total of <see cref="Messages"/> after all compaction and truncation.
+    /// Gets the aggregate anchor-adjusted token total of <see cref="Messages"/> after all strategy compaction and
+    /// emergency truncation completed.
     /// </summary>
     public int TokensAfterCompaction { get; }
 
     /// <summary>
-    /// Gets the count of messages removed or replaced during this call.
+    /// Gets the aggregate count of messages replaced by strategy compaction or dropped by emergency truncation during
+    /// this call.
     /// Zero when <see cref="Outcome"/> is <see cref="PrepareOutcome.Ready"/>.
     /// </summary>
     public int MessagesCompacted { get; }
@@ -78,4 +87,14 @@ public sealed record PrepareResult
     /// <see cref="PrepareOutcome.ContextExhausted"/>; null otherwise.
     /// </summary>
     public string? DegradationReason { get; }
+
+    /// <summary>
+    /// Gets the number of messages dropped by emergency truncation.
+    /// </summary>
+    /// <remarks>
+    /// This count includes only messages removed by the emergency stage. It does not include messages replaced or
+    /// removed by the configured compaction strategy, which remain part of <see cref="MessagesCompacted"/>. A value of
+    /// zero means emergency truncation did not remove any messages during this preparation call.
+    /// </remarks>
+    public int EmergencyMessagesDropped { get; }
 }
