@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Options;
 
-namespace Codexplorer.App.Configuration;
+namespace Codexplorer.Configuration;
 
 internal sealed class CodexplorerOptionsValidator : IValidateOptions<CodexplorerOptions>
 {

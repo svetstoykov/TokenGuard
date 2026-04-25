@@ -1,4 +1,4 @@
-namespace Codexplorer.App.Configuration;
+namespace Codexplorer.Configuration;
 
 /// <summary>
 /// Represents startup configuration bound from the <c>Codexplorer</c> section.

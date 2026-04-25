@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
-namespace Codexplorer.App.Configuration;
+namespace Codexplorer.Configuration;
 
 /// <summary>
 /// Registers Codexplorer configuration binding and startup validation services.

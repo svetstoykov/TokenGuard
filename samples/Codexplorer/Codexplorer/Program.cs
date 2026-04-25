@@ -1,4 +1,4 @@
-﻿using Codexplorer.App.Configuration;
+﻿using Codexplorer.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -12,7 +12,7 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 using TokenGuard.Extensions.OpenAI;
 
-namespace Codexplorer.App;
+namespace Codexplorer;
 
 internal sealed class Program
 {
