@@ -5,9 +5,8 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Strategies;
-using TokenGuard.Core.TokenCounting;
-
-namespace TokenGuard.IntegrationTests;
+using TokenGuard.Core.TokenCounting;        
+ namespace TokenGuard.IntegrationTests;
 
 public sealed class ConversationContextIntegrationTests
 {
@@ -131,7 +130,7 @@ public sealed class ConversationContextIntegrationTests
 
         var maskedCount = prep2.Count(m => m.State == CompactionState.Masked);
         maskedCount.Should().Be(1,
-            because: "the guaranteed protected tail should keep the recent oversized tool result intact while masking older tool output outside the window");
+            because: "the guaranteed pro   tected tail should keep the recent oversized tool result intact while masking older tool output outside the window");
 
         engine.AddUserMessage("Thanks, what's next?");
 
@@ -401,3 +400,4 @@ public sealed class ConversationContextIntegrationTests
             because: "only the pinned system prompt and the newest user-model turn should survive the emergency pass");
     }
 }
+ 

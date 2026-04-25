@@ -556,9 +556,7 @@ public sealed class ConversationContext : IConversationContext
         return true;
     }
 
-    private static IReadOnlyList<(IReadOnlyList<int> Indices, int Tokens)> BuildTurnGroups(
-        IReadOnlyList<ContextMessage> prepared,
-        int limit)
+    private static IReadOnlyList<(IReadOnlyList<int> Indices, int Tokens)> BuildTurnGroups(IReadOnlyList<ContextMessage> prepared, int limit)
     {
         var groups = new List<(IReadOnlyList<int> Indices, int Tokens)>();
         var i = 0;
@@ -573,18 +571,18 @@ public sealed class ConversationContext : IConversationContext
             }
 
             var turn = msg.Turn;
-            var groupIndices = new List<int> { i };
-            var groupTokens = msg.TokenCount ?? 0;
+            var messageIndexes = new List<int> { i };
+            var messageGroupTokens = msg.TokenCount ?? 0;
             i++;
 
             while (i < limit && !prepared[i].IsPinned && prepared[i].Turn == turn)
             {
-                groupIndices.Add(i);
-                groupTokens += prepared[i].TokenCount ?? 0;
+                messageIndexes.Add(i);
+                messageGroupTokens += prepared[i].TokenCount ?? 0;
                 i++;
             }
 
-            groups.Add((groupIndices, groupTokens));
+            groups.Add((messageIndexes, messageGroupTokens));
         }
 
         return groups;
