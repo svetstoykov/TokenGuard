@@ -178,5 +178,5 @@ public interface IConversationContext : IDisposable
     /// representation of that history should be sent next.
     /// </para>
     /// </remarks>
-    Task<Models.PrepareResult> PrepareAsync(CancellationToken cancellationToken = default);
+    Task<PrepareResult> PrepareAsync(CancellationToken cancellationToken = default);
 }

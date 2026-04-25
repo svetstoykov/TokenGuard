@@ -252,6 +252,56 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenCalledTwiceWithoutHistoryChange_DoesNotAdvanceTurnForSubsequentMessages()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        engine.AddUserMessage("user");
+        var userMessage = engine.History[0];
+
+        // Act
+        _ = await engine.PrepareAsync();
+        _ = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new TextContent("model")]);
+        engine.RecordToolResult("tool-1", "weather", "sunny");
+
+        var modelMessage = engine.History[1];
+        var toolMessage = engine.History[2];
+
+        // Assert
+        userMessage.Turn.Should().Be(0);
+        modelMessage.Turn.Should().Be(1);
+        toolMessage.Turn.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SetSystemPrompt_WhenReplacingExistingPrompt_AdvancesTurnAfterNextPrepare()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        engine.SetSystemPrompt("sys-old");
+
+        // Act
+        _ = await engine.PrepareAsync();
+
+        engine.SetSystemPrompt("sys-new");
+        _ = await engine.PrepareAsync();
+
+        engine.AddUserMessage("after-replace");
+
+        var systemMessage = engine.History[0];
+        var userMessage = engine.History[1];
+
+        // Assert
+        AssertText(systemMessage, "sys-new");
+        systemMessage.Turn.Should().Be(0);
+        userMessage.Turn.Should().Be(2);
+    }
+
+    [Fact]
     public async Task PrepareAsync_WhenPinnedMessagesExist_PartitionsForStrategyAndAdjustsReservedBudget()
     {
         // Arrange
@@ -389,6 +439,46 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationDropsATurn_RemovesAllMessagesFromThatTurnAtomically()
+    {
+        // Arrange
+        var budget = new ContextBudget(1_000, 0.5, 0.9);
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("old-user", 100);
+        counter.SetByText("old-model", 100);
+        counter.SetByText("latest", 850);
+
+        var engine = new ConversationContext(budget, counter, new TrackingCompactionStrategy());
+
+        engine.AddUserMessage("old-user");
+        engine.RecordModelResponse([new TextContent("old-model")]);
+        engine.RecordToolResult("tool-1", "weather", "done");
+
+        _ = await engine.PrepareAsync();
+
+        engine.AddUserMessage("latest");
+
+        var oldUserMessage = engine.History[0];
+        var oldModelMessage = engine.History[1];
+        var oldToolMessage = engine.History[2];
+        var latestMessage = engine.History[3];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        oldUserMessage.Turn.Should().Be(0);
+        oldModelMessage.Turn.Should().Be(0);
+        oldToolMessage.Turn.Should().Be(0);
+        latestMessage.Turn.Should().Be(1);
+        prepared.Should().ContainSingle().Which.Should().BeSameAs(latestMessage);
+        prepared.Should().NotContain(oldUserMessage);
+        prepared.Should().NotContain(oldModelMessage);
+        prepared.Should().NotContain(oldToolMessage);
+    }
+
+    [Fact]
     public async Task PrepareAsync_WhenOldestMessageIsPinnedAndOverBudget_PreservesOldestPinnedMessage()
     {
         // Arrange
@@ -427,14 +517,14 @@ public sealed class ConversationContextTests
         counter.Set(message, 1);
 
         // Act
-        var result = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         // Assert
         counter.GetCountCalls(message).Should().Be(1);
     }
 
     [Fact]
-    public async Task RecordModelResponse_WithProviderInputTokens_AppliesAnchorCorrectionOnNextPrepareAsync()
+    public async Task RecordModelResponse_WithProviderInputTzokens_AppliesAnchorCorrectionOnNextPrepareAsync()
     {
         // Arrange
         var counter = new TrackingTokenCounter();
@@ -444,13 +534,13 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("hello");
         counter.Set(engine.History[0], 0);
 
-        var _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         engine.RecordModelResponse([new TextContent("reply")], providerInputTokens: 800);
         counter.Set(engine.History[1], 0);
 
         // Act
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         // Assert
         strategy.CompactCalls.Should().Be(1);
@@ -562,7 +652,7 @@ public sealed class ConversationContextTests
         var _ = await engine.PrepareAsync();
 
         // Act
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         // Assert
         counter.GetCountCalls(compacted).Should().Be(1);
@@ -931,7 +1021,7 @@ public sealed class ConversationContextTests
 
         // Turn 2 — total = 300 + 0 + 200 + 200(correction) = 700 → compaction triggered.
         engine.AddUserMessage("u2");
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
         // CompactCalls = 1; strategy returns pass-through (WasApplied=false).
         // finalTokens = 500.
         // CORRECT: _lastPreparedTotal = 500,       _anchorCorrection = 0
@@ -944,7 +1034,7 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("u3");
 
         // Act
-        _ = await engine.PrepareAsync();
+        await engine.PrepareAsync();
 
         // Assert
         // CORRECT: total = 500 + 20 = 520 ≥ 500 → compaction runs, CompactCalls = 2.
@@ -1175,7 +1265,7 @@ public sealed class ConversationContextTests
             if (this._counts.TryGetValue(contextMessage, out var cached))
                 return cached;
 
-            var firstText = contextMessage.Segments.OfType<TokenGuard.Core.Models.Content.TextContent>().FirstOrDefault()?.Content;
+            var firstText = contextMessage.Segments.OfType<TextContent>().FirstOrDefault()?.Content;
             if (firstText != null && this._countsByText.TryGetValue(firstText, out var byText))
                 return byText;
 
@@ -1191,13 +1281,7 @@ public sealed class ConversationContextTests
         {
             ArgumentNullException.ThrowIfNull(messages);
 
-            var total = 0;
-            foreach (var message in messages)
-            {
-                total += this.Count(message);
-            }
-
-            return total;
+            return messages.Sum(this.Count);
         }
     }
 
