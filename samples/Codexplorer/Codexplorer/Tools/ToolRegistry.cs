@@ -8,8 +8,8 @@ namespace Codexplorer.Tools;
 /// Routes tool execution and exposes cached tool schemas.
 /// </summary>
 /// <remarks>
-/// This registry is intentionally small and static: Codexplorer only exposes six read-only workspace
-/// tools, so one in-memory map keeps schema publication and execution dispatch deterministic.
+/// This registry is intentionally small and static: Codexplorer only exposes a small fixed set of
+/// workspace tools, so one in-memory map keeps schema publication and execution dispatch deterministic.
 /// </remarks>
 public sealed class ToolRegistry : IToolRegistry
 {
@@ -25,7 +25,9 @@ public sealed class ToolRegistry : IToolRegistry
         new ReadRangeTool(),
         new GrepTool(),
         new FindFilesTool(),
-        new FileTreeTool()
+        new FileTreeTool(),
+        new CreateFileTool(),
+        new WriteTextTool()
     ];
 
     private static readonly IReadOnlyDictionary<string, IWorkspaceTool> ToolsByName = Tools

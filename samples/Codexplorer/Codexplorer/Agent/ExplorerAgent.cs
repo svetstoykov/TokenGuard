@@ -38,7 +38,7 @@ internal sealed class ExplorerAgent : IExplorerAgent
     /// Initializes a new instance of the <see cref="ExplorerAgent"/> class.
     /// </summary>
     /// <param name="conversationContextFactory">Factory for fresh TokenGuard conversation contexts.</param>
-    /// <param name="toolRegistry">Registry for workspace-scoped read-only tools.</param>
+    /// <param name="toolRegistry">Registry for workspace-scoped tools.</param>
     /// <param name="sessionLoggerFactory">Factory for per-query session transcripts.</param>
     /// <param name="options">The validated Codexplorer options snapshot.</param>
     public ExplorerAgent(
@@ -98,16 +98,18 @@ internal sealed class ExplorerAgent : IExplorerAgent
                     return await CancelAsync(sessionLogger, lastAssistantText, totalTurns, turnIndex).ConfigureAwait(false);
                 }
 
-                var prepareResult = await conversationContext.PrepareAsync().ConfigureAwait(false);
+                var prepareResult = await conversationContext.PrepareAsync(ct).ConfigureAwait(false);
                 await sessionLogger.AppendAsync(
                         new PreparedContextEvent(DateTime.UtcNow, turnIndex, prepareResult),
                         CancellationToken.None)
                     .ConfigureAwait(false);
 
-                if (prepareResult.Outcome == PrepareOutcome.ContextExhausted)
+                if (prepareResult.Outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted)
                 {
                     var reason = prepareResult.DegradationReason
-                        ?? "Context budget exhausted after compaction; a prepared request could no longer fit.";
+                        ?? (prepareResult.Outcome == PrepareOutcome.ContextExhausted
+                            ? "Context budget exhausted after compaction; a prepared request could no longer fit."
+                            : "Context budget degraded after compaction; the prepared request may exceed provider limits.");
 
                     await sessionLogger.EndAsync(
                             new SessionEndedEvent(DateTime.UtcNow, totalTurns, totalTokens, $"Degraded: {reason}"),

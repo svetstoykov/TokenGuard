@@ -4,7 +4,7 @@ using WorkspaceModel = Codexplorer.Workspace.Workspace;
 namespace Codexplorer.Tools;
 
 /// <summary>
-/// Exposes cached tool schemas and executes workspace-scoped read-only tools by name.
+/// Exposes cached tool schemas and executes workspace-scoped tools by name.
 /// </summary>
 /// <remarks>
 /// This abstraction keeps tool discovery and tool dispatch behind one boundary so the agent loop can

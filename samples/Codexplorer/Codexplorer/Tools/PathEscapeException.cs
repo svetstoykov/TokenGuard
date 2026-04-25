@@ -4,7 +4,7 @@ namespace Codexplorer.Tools;
 /// Represents an attempt to access a path outside the workspace root.
 /// </summary>
 /// <remarks>
-/// This exception protects Codexplorer's read-only tools from directory traversal, absolute path
+/// This exception protects Codexplorer's workspace tools from directory traversal, absolute path
 /// access, and symlink hops that would otherwise expose files outside the cloned repository.
 /// </remarks>
 public sealed class PathEscapeException : Exception
