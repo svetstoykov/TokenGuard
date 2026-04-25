@@ -173,6 +173,8 @@ They count against the budget so their cost is always accounted for.
 
 ## How compaction works
 
+Want architecture detail and trade-offs? Read [How TokenGuard Thinks About Context](docs/deep-dive/context-management.md).
+
 Two ordered tiers:
 
 **1. Observation masking.** The sliding-window strategy walks backwards through history and masks tool results outside
