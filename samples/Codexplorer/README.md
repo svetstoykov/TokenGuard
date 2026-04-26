@@ -15,7 +15,7 @@ It is built as standalone sample inside TokenGuard repo and shows off two things
 | --- | --- |
 | Clone repos | Clone GitHub repos from HTTPS or SSH URLs into local workspaces |
 | Ask repo questions | Hold multi-turn conversation about one cloned repo |
-| Explore with tools | Agent can map tree, list folders, find files, grep, and read focused file ranges |
+| Explore with tools | Agent can map tree, list folders, find files, grep, search public web results, read focused file ranges, and fetch readable text from public web pages |
 | Create and edit notes | Agent can create files and update text inside its `.codexplorer/` scratch space |
 | Stay inside budget | TokenGuard manages session context and compacts message history as token pressure grows |
 | See live compaction | Terminal shows prepare results, token counts, compacted messages, degradation warnings, and final answer as run happens |
@@ -48,7 +48,7 @@ Each user message goes through this shape:
 | 2. `PrepareAsync(...)` runs | TokenGuard measures token load and prepares outbound context |
 | 3. Compaction may happen | Older messages can be compacted to fit budget |
 | 4. State is surfaced live | Terminal shows prepare result, token counts, warnings, degradation |
-| 5. Model responds / calls tools | Agent explores repo with `file_tree`, `grep`, `read_range`, and more |
+| 5. Model responds / calls tools | Agent explores repo with `file_tree`, `grep`, `web_search`, `read_range`, `web_fetch`, and more |
 | 6. Session continues | Same TokenGuard context carries forward into next turn |
 
 Core prepare-to-LLM step:
@@ -82,7 +82,7 @@ dotnet build ./src/Codexplorer.csproj
 dotnet run --project ./src/Codexplorer.csproj
 ```
 
-## Setup
+## Configuration
 
 ### Requirements
 
@@ -99,12 +99,23 @@ Create `src/appsettings.Development.json`:
   "Codexplorer": {
     "OpenRouter": {
       "ApiKey": "your-openrouter-api-key"
+    },
+    "BraveSearch": {
+      "ApiKey": "optional-brave-search-api-key"
     }
   }
 }
 ```
 
 `appsettings.Development.json` is already ignored by repo `.gitignore`, so local secrets stay out of source control.
+
+You can also provide the Brave Search key through environment variable instead of configuration:
+
+```bash
+export BRAVE_SEARCH_API_KEY="your-brave-search-api-key"
+```
+
+If `BRAVE_SEARCH_API_KEY` is missing and `Codexplorer:BraveSearch:ApiKey` is empty, Codexplorer still starts, logs a warning at startup, and `web_search` returns a readable error string when called.
 
 ### Optional: override defaults
 
@@ -201,7 +212,7 @@ During run, terminal shows:
 - token pressure against configured budget
 - how many tokens existed before and after compaction
 - whether preparation stayed healthy, degraded, or hit context exhaustion
-- tool calls like `file_tree`, `grep`, `read_range`, `create_file`, and `write_text`
+- tool calls like `file_tree`, `grep`, `web_search`, `read_range`, `web_fetch`, `create_file`, and `write_text`
 - final answer
 
 If TokenGuard has to compact or truncate aggressively, Codexplorer surfaces that in real time instead of hiding it behind silent message dropping.
@@ -224,9 +235,15 @@ Codexplorer is more than chat box. Agent can inspect repo and keep working notes
 | `list_directory` | Inspect one folder |
 | `find_files` | Match filenames by glob |
 | `grep` | Search content with regex |
+| `web_search` | Search public web results through Brave Search. Optional `count` defaults to `5`, caps at `10`, and returns compact numbered title/URL/snippet entries |
 | `read_file` | Read smaller text files |
 | `read_range` | Read exact line windows from larger files |
+| `web_fetch` | Fetch readable plain text from one public URL. Optional `max_tokens` defaults to `4000`, caps at `12000`, and appends `[Content truncated at N tokens. Use a smaller range or request a specific section.]` when truncated |
 | `create_file` / `write_text` | Create and edit UTF-8 text files under `.codexplorer/` scratch space |
+
+`web_search` is for finding candidate public URLs quickly. Use it to discover promising sources, then call `web_fetch` on the best URLs to read actual page content.
+
+`web_fetch` is for publicly accessible, non-JavaScript-gated pages. It extracts readable text for the model, returns JSON or plain text bodies directly, and reports PDFs or binary responses explicitly instead of dumping raw bytes or raw HTML.
 
 ## Where things go
 
