@@ -1,5 +1,6 @@
-using System.Text;
+using System.Net.Http;
 using System.Text.Json;
+using TokenGuard.Core.Abstractions;
 using WorkspaceModel = Codexplorer.Workspace.Workspace;
 
 namespace Codexplorer.Tools;
@@ -8,8 +9,9 @@ namespace Codexplorer.Tools;
 /// Routes tool execution and exposes cached tool schemas.
 /// </summary>
 /// <remarks>
-/// This registry is intentionally small and static: Codexplorer only exposes a small fixed set of
-/// workspace tools, so one in-memory map keeps schema publication and execution dispatch deterministic.
+/// This registry is intentionally small and static: Codexplorer only exposes a fixed tool set, and
+/// this type owns that list directly so schema publication and execution dispatch stay centralized in
+/// one place even when individual tools need DI-managed collaborators.
 /// </remarks>
 public sealed class ToolRegistry : IToolRegistry
 {
@@ -24,18 +26,36 @@ public sealed class ToolRegistry : IToolRegistry
     /// <summary>
     /// Initializes a new instance of the <see cref="ToolRegistry"/> class.
     /// </summary>
-    /// <param name="tools">The registered tool instances exposed to the agent.</param>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="tools"/> is <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when no tools are registered or tool names collide.</exception>
-    internal ToolRegistry(IEnumerable<IWorkspaceTool> tools)
+    /// <param name="httpClientFactory">Factory used by web-backed tools.</param>
+    /// <param name="tokenCounter">Token counter used by token-aware tools.</param>
+    /// <param name="braveSearchSettings">Resolved Brave Search settings for <see cref="WebSearchTool"/>.</param>
+    /// <exception cref="ArgumentNullException">
+    /// Thrown when <paramref name="httpClientFactory"/>, <paramref name="tokenCounter"/>, or
+    /// <paramref name="braveSearchSettings"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">Thrown when tool names collide.</exception>
+    public ToolRegistry(
+        IHttpClientFactory httpClientFactory,
+        ITokenCounter tokenCounter,
+        BraveSearchSettings braveSearchSettings)
     {
-        ArgumentNullException.ThrowIfNull(tools);
+        ArgumentNullException.ThrowIfNull(httpClientFactory);
+        ArgumentNullException.ThrowIfNull(tokenCounter);
+        ArgumentNullException.ThrowIfNull(braveSearchSettings);
 
-        var toolList = tools.ToArray();
-        if (toolList.Length == 0)
-        {
-            throw new InvalidOperationException("At least one workspace tool must be registered.");
-        }
+        IWorkspaceTool[] toolList =
+        [
+            new ListDirectoryTool(),
+            new ReadFileTool(),
+            new ReadRangeTool(),
+            new GrepTool(),
+            new FindFilesTool(),
+            new FileTreeTool(),
+            new WebSearchTool(httpClientFactory, braveSearchSettings),
+            new WebFetchTool(httpClientFactory, tokenCounter),
+            new CreateFileTool(),
+            new WriteTextTool()
+        ];
 
         var duplicateName = toolList
             .GroupBy(tool => tool.Name, StringComparer.Ordinal)
@@ -72,88 +92,5 @@ public sealed class ToolRegistry : IToolRegistry
     {
         var parameters = arguments.Deserialize<TParameters>(ArgumentSerializerOptions);
         return parameters ?? throw new JsonException($"Failed to deserialize tool arguments for {typeof(TParameters).Name}.");
-    }
-}
-
-internal interface IWorkspaceTool
-{
-    string Name { get; }
-
-    ToolSchema Schema { get; }
-
-    Task<string> ExecuteAsync(JsonElement arguments, WorkspaceModel workspace, CancellationToken ct);
-}
-
-internal static class ToolResultFormatting
-{
-    public static string TruncationMarker(int omittedCount, int cap, string unit)
-    {
-        return $"[... truncated: {omittedCount} more {unit}; cap {cap} {unit} hit ...]";
-    }
-
-    public static string ToWorkspaceRelativePath(WorkspaceModel workspace, string absolutePath)
-    {
-        var workspaceRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workspace.LocalPath));
-        var relativePath = Path.GetRelativePath(workspaceRoot, absolutePath);
-        return NormalizePath(relativePath);
-    }
-
-    public static string NormalizePath(string path)
-    {
-        var normalizedPath = path
-            .Replace('\\', '/')
-            .Replace(Path.DirectorySeparatorChar, '/');
-
-        return normalizedPath.StartsWith("./", StringComparison.Ordinal)
-            ? normalizedPath[2..]
-            : normalizedPath;
-    }
-}
-
-internal static class ToolFileHelpers
-{
-    public static async Task<bool> IsBinaryFileAsync(string path, CancellationToken ct)
-    {
-        const int probeLength = 4096;
-        var buffer = new byte[probeLength];
-
-        await using var stream = new FileStream(
-            path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.ReadWrite,
-            bufferSize: probeLength,
-            useAsync: true);
-
-        var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, probeLength), ct).ConfigureAwait(false);
-
-        for (var index = 0; index < bytesRead; index++)
-        {
-            if (buffer[index] == 0)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    public static string BuildTextResult(IReadOnlyList<string> lines, int totalLineCount, int cap)
-    {
-        if (lines.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        if (totalLineCount <= cap)
-        {
-            return string.Join(Environment.NewLine, lines);
-        }
-
-        var builder = new StringBuilder();
-        builder.AppendJoin(Environment.NewLine, lines);
-        builder.AppendLine();
-        builder.Append(ToolResultFormatting.TruncationMarker(totalLineCount - lines.Count, cap, "lines"));
-        return builder.ToString();
     }
 }

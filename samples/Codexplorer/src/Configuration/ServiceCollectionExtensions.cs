@@ -103,17 +103,6 @@ public static class ServiceCollectionExtensions
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         });
 
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, ListDirectoryTool>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, ReadFileTool>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, ReadRangeTool>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, GrepTool>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, FindFilesTool>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, FileTreeTool>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, WebSearchTool>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, WebFetchTool>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, CreateFileTool>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, WriteTextTool>());
-
         services.TryAddSingleton<IGitCloner, LibGit2Cloner>();
         services.TryAddSingleton<IWorkspaceManager, WorkspaceManager>();
         services.TryAddSingleton<IToolRegistry, ToolRegistry>();
