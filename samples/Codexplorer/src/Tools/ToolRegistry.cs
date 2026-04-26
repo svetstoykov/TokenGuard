@@ -18,27 +18,41 @@ public sealed class ToolRegistry : IToolRegistry
         PropertyNameCaseInsensitive = true
     };
 
-    private static readonly IReadOnlyList<IWorkspaceTool> Tools =
-    [
-        new ListDirectoryTool(),
-        new ReadFileTool(),
-        new ReadRangeTool(),
-        new GrepTool(),
-        new FindFilesTool(),
-        new FileTreeTool(),
-        new CreateFileTool(),
-        new WriteTextTool()
-    ];
+    private readonly IReadOnlyDictionary<string, IWorkspaceTool> _toolsByName;
+    private readonly IReadOnlyList<ToolSchema> _schemas;
 
-    private static readonly IReadOnlyDictionary<string, IWorkspaceTool> ToolsByName = Tools
-        .ToDictionary(tool => tool.Name, StringComparer.Ordinal);
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ToolRegistry"/> class.
+    /// </summary>
+    /// <param name="tools">The registered tool instances exposed to the agent.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="tools"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when no tools are registered or tool names collide.</exception>
+    internal ToolRegistry(IEnumerable<IWorkspaceTool> tools)
+    {
+        ArgumentNullException.ThrowIfNull(tools);
 
-    private static readonly IReadOnlyList<ToolSchema> Schemas = Tools
-        .Select(tool => tool.Schema)
-        .ToArray();
+        var toolList = tools.ToArray();
+        if (toolList.Length == 0)
+        {
+            throw new InvalidOperationException("At least one workspace tool must be registered.");
+        }
+
+        var duplicateName = toolList
+            .GroupBy(tool => tool.Name, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1)?
+            .Key;
+
+        if (duplicateName is not null)
+        {
+            throw new InvalidOperationException($"Tool name '{duplicateName}' is registered more than once.");
+        }
+
+        this._toolsByName = toolList.ToDictionary(tool => tool.Name, StringComparer.Ordinal);
+        this._schemas = toolList.Select(tool => tool.Schema).ToArray();
+    }
 
     /// <inheritdoc />
-    public IReadOnlyList<ToolSchema> GetSchemas() => Schemas;
+    public IReadOnlyList<ToolSchema> GetSchemas() => this._schemas;
 
     /// <inheritdoc />
     public Task<string> ExecuteAsync(string toolName, JsonElement arguments, WorkspaceModel workspace, CancellationToken ct)
@@ -46,7 +60,7 @@ public sealed class ToolRegistry : IToolRegistry
         ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
         ArgumentNullException.ThrowIfNull(workspace);
 
-        if (!ToolsByName.TryGetValue(toolName, out var tool))
+        if (!this._toolsByName.TryGetValue(toolName, out var tool))
         {
             throw new UnknownToolException(toolName);
         }

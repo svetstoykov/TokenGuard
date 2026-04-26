@@ -105,6 +105,7 @@ public static class SystemPrompt
         Reading:
           - Use `read_range` for large files — focus on the section that is relevant to the question.
           - Use `read_file` only when the full file is small or its entirety is genuinely needed.
+          - Use `web_fetch` when you already have a public HTTP or HTTPS URL and need readable page text from docs, READMEs, issue threads, articles, or reference pages. Set `max_tokens` when you need a tighter cap on fetched content.
           - Avoid re-reading files you have already read in the same session unless you need a different range.
 
         Scratch files:

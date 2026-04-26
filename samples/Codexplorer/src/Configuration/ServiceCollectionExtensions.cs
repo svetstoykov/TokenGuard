@@ -6,8 +6,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Codexplorer.Sessions;
 using Codexplorer.Tools;
+using System.Net;
+using TokenGuard.Core.Abstractions;
 using Codexplorer.Workspace;
 using TokenGuard.Core.Extensions;
+using TokenGuard.Core.TokenCounting;
 
 namespace Codexplorer.Configuration;
 
@@ -54,8 +57,11 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
+        var tokenCounter = new EstimatedTokenCounter();
+
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<CodexplorerOptions>, CodexplorerOptionsValidator>());
+        services.TryAdd(ServiceDescriptor.Singleton<ITokenCounter>(tokenCounter));
 
         services.AddOptions<CodexplorerOptions>()
             .Bind(configuration.GetSection(CodexplorerOptions.SectionName))
@@ -69,8 +75,33 @@ public static class ServiceCollectionExtensions
             builder
                 .WithMaxTokens(budgetOptions.ContextWindowTokens)
                 .WithCompactionThreshold(budgetOptions.SoftThresholdRatio)
-                .WithEmergencyThreshold(budgetOptions.HardThresholdRatio);
+                .WithEmergencyThreshold(budgetOptions.HardThresholdRatio)
+                .WithTokenCounter(tokenCounter);
         });
+
+        services.AddHttpClient(WebFetchTool.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(WebFetchTool.TimeoutSeconds);
+                client.DefaultRequestHeaders.UserAgent.ParseAdd(WebFetchTool.BrowserUserAgent);
+                client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+                client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+            })
+            .ConfigurePrimaryHttpMessageHandler(static () => new HttpClientHandler
+            {
+                AllowAutoRedirect = false,
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli
+            });
+
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, ListDirectoryTool>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, ReadFileTool>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, ReadRangeTool>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, GrepTool>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, FindFilesTool>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, FileTreeTool>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, WebFetchTool>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, CreateFileTool>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, WriteTextTool>());
 
         services.TryAddSingleton<IGitCloner, LibGit2Cloner>();
         services.TryAddSingleton<IWorkspaceManager, WorkspaceManager>();
