@@ -52,6 +52,11 @@ public sealed record CodexplorerOptions
     /// Gets OpenRouter provider settings used for authenticated API calls.
     /// </summary>
     public OpenRouterOptions? OpenRouter { get; init; } = new();
+
+    /// <summary>
+    /// Gets Brave Search settings used by the optional <c>web_search</c> tool.
+    /// </summary>
+    public BraveSearchOptions? BraveSearch { get; init; } = new();
 }
 
 /// <summary>
@@ -183,6 +188,28 @@ public sealed record OpenRouterOptions
 {
     /// <summary>
     /// Gets OpenRouter API key used to authenticate requests.
+    /// </summary>
+    public string? ApiKey { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Represents Brave Search configuration for Codexplorer's optional web-search tool.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The Brave Search API key can come from either the bound configuration graph or the
+/// <c>BRAVE_SEARCH_API_KEY</c> environment variable. Unlike OpenRouter authentication, this setting is
+/// optional so Codexplorer can still start when web search is unavailable.
+/// </para>
+/// <para>
+/// The runtime service registration path resolves the final effective key and warns at startup when it
+/// is absent, while <see cref="WebSearchTool"/> returns a readable error string instead of throwing.
+/// </para>
+/// </remarks>
+public sealed record BraveSearchOptions
+{
+    /// <summary>
+    /// Gets Brave Search API key used to authenticate web search requests.
     /// </summary>
     public string? ApiKey { get; init; } = string.Empty;
 }

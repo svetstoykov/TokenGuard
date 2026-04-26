@@ -1,5 +1,6 @@
 using Codexplorer.CLI;
 using Codexplorer.Configuration;
+using Codexplorer.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -58,8 +59,15 @@ internal sealed class Program
     {
         var logger = services.GetRequiredService<ILogger<Program>>();
         var options = services.GetRequiredService<IOptions<CodexplorerOptions>>().Value;
+        var braveSearchSettings = services.GetRequiredService<BraveSearchSettings>();
 
         logger.LogDebug("Resolved Codexplorer configuration {@CodexplorerOptions}", CreateRedactedConfigurationSnapshot(options));
+
+        if (!braveSearchSettings.IsConfigured)
+        {
+            logger.LogWarning(
+                "BRAVE_SEARCH_API_KEY is not configured. web_search will return an error until a Brave Search API key is provided.");
+        }
     }
 
     private static object CreateRedactedConfigurationSnapshot(CodexplorerOptions options)
@@ -74,6 +82,10 @@ internal sealed class Program
             OpenRouter = new
             {
                 ApiKey = "***redacted***"
+            },
+            BraveSearch = new
+            {
+                ApiKey = string.IsNullOrWhiteSpace(options.BraveSearch?.ApiKey) ? "(not configured)" : "***redacted***"
             }
         };
     }

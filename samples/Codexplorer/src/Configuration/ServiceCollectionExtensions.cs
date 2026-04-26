@@ -58,10 +58,14 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configuration);
 
         var tokenCounter = new EstimatedTokenCounter();
+        var braveSearchSettings = new BraveSearchSettings(
+            configuration["BRAVE_SEARCH_API_KEY"]
+            ?? configuration[$"{CodexplorerOptions.SectionName}:BraveSearch:ApiKey"]);
 
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<CodexplorerOptions>, CodexplorerOptionsValidator>());
         services.TryAdd(ServiceDescriptor.Singleton<ITokenCounter>(tokenCounter));
+        services.TryAdd(ServiceDescriptor.Singleton(braveSearchSettings));
 
         services.AddOptions<CodexplorerOptions>()
             .Bind(configuration.GetSection(CodexplorerOptions.SectionName))
@@ -93,12 +97,19 @@ public static class ServiceCollectionExtensions
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli
             });
 
+        services.AddHttpClient(WebSearchTool.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(WebSearchTool.TimeoutSeconds);
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        });
+
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, ListDirectoryTool>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, ReadFileTool>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, ReadRangeTool>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, GrepTool>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, FindFilesTool>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, FileTreeTool>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, WebSearchTool>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, WebFetchTool>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, CreateFileTool>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IWorkspaceTool, WriteTextTool>());

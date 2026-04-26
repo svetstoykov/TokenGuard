@@ -100,6 +100,7 @@ public static class SystemPrompt
           - Use `file_tree` once near the start when you need a broad repository map. Do not call it repeatedly unless the structure has materially changed.
           - Use `list_directory` for focused folder inspection when you already know which area you want to explore.
           - Use `grep` or `find_files` for pinpointing symbols, literals, configuration keys, or any named reference. Always search before assuming.
+          - Use `web_search` when you need public web sources or documentation URLs outside the cloned repository. Then use `web_fetch` on the best URLs to read their contents.
           - Do not assume file contents. Read before claiming.
 
         Reading:
