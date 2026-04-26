@@ -49,11 +49,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 
         if (string.Equals(request.Command, "submit", StringComparison.OrdinalIgnoreCase))
         {
-            return Task.FromResult(
-                AutomationResponseEnvelope.ErrorResponse(
-                    request.RequestId,
-                    code: "not_implemented",
-                    message: "Command 'submit' is recognized but not implemented yet."));
+            return this.SubmitAsync(request, ct);
         }
 
         return Task.FromResult(
@@ -140,6 +136,37 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
             new CloseSessionResult(registration.SessionId, Status: "closed"));
     }
 
+    private async Task<AutomationResponseEnvelope> SubmitAsync(AutomationRequestEnvelope request, CancellationToken ct)
+    {
+        if (!TryGetRequiredStringPayloadProperty(request, "sessionId", out var sessionId, out var sessionErrorResponse))
+        {
+            return sessionErrorResponse!;
+        }
+
+        if (!TryGetRequiredStringPayloadProperty(request, "message", out var message, out var messageErrorResponse))
+        {
+            return messageErrorResponse!;
+        }
+
+        if (!this._sessionRegistry.TryGet(sessionId!, out var registration))
+        {
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId,
+                code: "session_not_found",
+                message: $"Session '{sessionId}' is not open.");
+        }
+
+        var exchangeResult = await registration!.Session.SubmitAsync(message!, ct).ConfigureAwait(false);
+        var submitResponse = CreateSubmitResult(registration, exchangeResult);
+
+        if (IsTerminalOutcome(exchangeResult))
+        {
+            await this.RemoveAndDisposeSessionAsync(registration.SessionId).ConfigureAwait(false);
+        }
+
+        return AutomationResponseEnvelope.SuccessResponse(request.RequestId!, submitResponse);
+    }
+
     private static bool TryGetRequiredStringPayloadProperty(
         AutomationRequestEnvelope request,
         string propertyName,
@@ -202,6 +229,117 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         throw new InvalidOperationException("Failed to register opened automation session.");
     }
 
+    private async Task RemoveAndDisposeSessionAsync(string sessionId)
+    {
+        if (!this._sessionRegistry.TryRemove(sessionId, out var registration))
+        {
+            return;
+        }
+
+        await registration!.Session.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private static SubmitResult CreateSubmitResult(AutomationSessionRegistration registration, AgentExchangeResult exchangeResult)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        ArgumentNullException.ThrowIfNull(exchangeResult);
+
+        return exchangeResult switch
+        {
+            AgentReplyReceived replyReceived => CreateSubmitResult(
+                registration,
+                outcome: "reply_received",
+                assistantText: replyReceived.ReplyText,
+                assistantTextIsPartial: false,
+                modelTurnsCompleted: replyReceived.ModelTurnsCompleted,
+                reportedTokensConsumed: replyReceived.ReportedTokensConsumed,
+                sessionOpen: true,
+                degradationReason: null,
+                failure: null),
+
+            AgentExchangeDegraded degraded => CreateSubmitResult(
+                registration,
+                outcome: "degraded",
+                assistantText: degraded.PartialText,
+                assistantTextIsPartial: !string.IsNullOrWhiteSpace(degraded.PartialText),
+                modelTurnsCompleted: degraded.ModelTurnsCompleted,
+                reportedTokensConsumed: null,
+                sessionOpen: false,
+                degradationReason: degraded.Reason,
+                failure: null),
+
+            AgentExchangeMaxTurnsReached maxTurnsReached => CreateSubmitResult(
+                registration,
+                outcome: "max_turns_reached",
+                assistantText: maxTurnsReached.PartialText,
+                assistantTextIsPartial: !string.IsNullOrWhiteSpace(maxTurnsReached.PartialText),
+                modelTurnsCompleted: maxTurnsReached.ModelTurnsCompleted,
+                reportedTokensConsumed: null,
+                sessionOpen: true,
+                degradationReason: null,
+                failure: null),
+
+            AgentExchangeCancelled cancelled => CreateSubmitResult(
+                registration,
+                outcome: "cancelled",
+                assistantText: cancelled.PartialText,
+                assistantTextIsPartial: !string.IsNullOrWhiteSpace(cancelled.PartialText),
+                modelTurnsCompleted: cancelled.ModelTurnsCompleted,
+                reportedTokensConsumed: null,
+                sessionOpen: false,
+                degradationReason: null,
+                failure: null),
+
+            AgentExchangeFailed failed => CreateSubmitResult(
+                registration,
+                outcome: "failed",
+                assistantText: null,
+                assistantTextIsPartial: false,
+                modelTurnsCompleted: failed.ModelTurnsCompleted,
+                reportedTokensConsumed: null,
+                sessionOpen: false,
+                degradationReason: null,
+                failure: new SubmitFailure(
+                    failed.Exception.GetType().FullName ?? failed.Exception.GetType().Name,
+                    failed.Exception.Message)),
+
+            _ => throw new InvalidOperationException($"Unsupported exchange result '{exchangeResult.GetType().Name}'.")
+        };
+    }
+
+    private static SubmitResult CreateSubmitResult(
+        AutomationSessionRegistration registration,
+        string outcome,
+        string? assistantText,
+        bool assistantTextIsPartial,
+        int modelTurnsCompleted,
+        int? reportedTokensConsumed,
+        bool sessionOpen,
+        string? degradationReason,
+        SubmitFailure? failure)
+    {
+        var asksRunner = AutomationRunnerQuestion.TryExtract(assistantText, out var runnerQuestion);
+
+        return new SubmitResult(
+            registration.SessionId,
+            outcome,
+            assistantText,
+            assistantTextIsPartial,
+            modelTurnsCompleted,
+            reportedTokensConsumed,
+            sessionOpen,
+            asksRunner,
+            runnerQuestion,
+            registration.LogFilePath,
+            degradationReason,
+            failure);
+    }
+
+    private static bool IsTerminalOutcome(AgentExchangeResult exchangeResult)
+    {
+        return exchangeResult is AgentExchangeDegraded or AgentExchangeCancelled or AgentExchangeFailed;
+    }
+
     private sealed record AutomationPingResult(string Status, int ProtocolVersion);
 
     private sealed record OpenSessionResult(
@@ -217,4 +355,20 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         long SizeBytes);
 
     private sealed record CloseSessionResult(string SessionId, string Status);
+
+    private sealed record SubmitResult(
+        string SessionId,
+        string Outcome,
+        string? AssistantText,
+        bool AssistantTextIsPartial,
+        int ModelTurnsCompleted,
+        int? ReportedTokensConsumed,
+        bool SessionOpen,
+        bool AsksRunner,
+        string? RunnerQuestion,
+        string LogFilePath,
+        string? DegradationReason,
+        SubmitFailure? Failure);
+
+    private sealed record SubmitFailure(string ExceptionType, string Message);
 }

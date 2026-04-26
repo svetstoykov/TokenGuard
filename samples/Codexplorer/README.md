@@ -99,7 +99,13 @@ Minimal smoke example:
 {"requestId":"1","success":true,"result":{"status":"ok","protocolVersion":1},"error":null}
 {"requestId":"2","command":"open_session","payload":{"workspacePath":"/absolute/path/to/workspace/dotnet-runtime"}}
 {"requestId":"2","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","workspace":{"name":"runtime","ownerRepo":"dotnet/runtime","localPath":"/absolute/path/to/workspace/dotnet-runtime","clonedAt":"2026-04-26T09:00:00.0000000Z","sizeBytes":123456789},"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-dotnet-runtime-interactive-repo-chat.md"},"error":null}
+{"requestId":"3","command":"submit","payload":{"sessionId":"session_0123456789abcdef0123456789abcdef","message":"Give me the main entry points for this repo."}}
+{"requestId":"3","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","outcome":"reply_received","assistantText":"The main entry points are ...","assistantTextIsPartial":false,"modelTurnsCompleted":2,"reportedTokensConsumed":1874,"sessionOpen":true,"asksRunner":false,"runnerQuestion":null,"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-dotnet-runtime-interactive-repo-chat.md","degradationReason":null,"failure":null},"error":null}
 ```
+
+If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
+
+`submit` returns one stable `outcome` value per exchange: `reply_received`, `degraded`, `max_turns_reached`, `cancelled`, or `failed`. Every response includes the active `sessionId`, `modelTurnsCompleted`, `logFilePath`, whether the session is still open, and any assistant text or partial text that was available for that exchange.
 
 ## Configuration
 

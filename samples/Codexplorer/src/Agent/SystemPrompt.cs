@@ -11,6 +11,11 @@ namespace Codexplorer.Agent;
 public static class SystemPrompt
 {
     /// <summary>
+    /// Gets the exact marker the assistant must use when it needs external clarification from the automation runner.
+    /// </summary>
+    public const string RunnerQuestionMarker = "QUESTION_FOR_RUNNER:";
+
+    /// <summary>
     /// Gets the baseline agent instructions used for every Codexplorer run.
     /// </summary>
     public static string Text =>
@@ -31,6 +36,8 @@ public static class SystemPrompt
           - "Do we need to support multi-tenancy?" — ask if nothing in the repo hints at it.
 
         Never ask about things you can figure out from the code. Never ask clarifying questions out of insecurity. When in doubt between two valid technical approaches, pick the better one and briefly note the trade-off you considered.
+
+        If you reach genuine external ambiguity that only the runner or user can resolve, ask for it with one explicit line that starts exactly with `QUESTION_FOR_RUNNER:` followed by one precise question. Use that marker only when you are actually blocked on missing external information.
 
         ────────────────────────────────────────────────────────────
         CODE QUALITY AND STYLE
