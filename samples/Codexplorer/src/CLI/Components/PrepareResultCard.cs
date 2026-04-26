@@ -19,6 +19,14 @@ internal static class PrepareResultCard
         table.AddRow(
             new Text("Messages compacted", theme.MutedStyle),
             new Text(evt.MessagesCompacted.ToString("N0"), theme.AccentStyle));
+
+        if (evt.MessagesDropped > 0)
+        {
+            table.AddRow(
+                new Text("Messages dropped", theme.MutedStyle),
+                new Text(evt.MessagesDropped.ToString("N0"), theme.WarnStyle));
+        }
+
         table.AddRow(
             new Text("Outcome", theme.MutedStyle),
             new Text(evt.Outcome, theme.AccentStyle));

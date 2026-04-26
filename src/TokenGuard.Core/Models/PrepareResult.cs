@@ -63,14 +63,14 @@ public sealed record PrepareResult
     public PrepareOutcome Outcome { get; }
 
     /// <summary>
-    /// Gets the aggregate anchor-adjusted token total when <see cref="Abstractions.IConversationContext.PrepareAsync"/>
+    /// Gets the aggregate token total when <see cref="Abstractions.IConversationContext.PrepareAsync"/>
     /// was called, before any strategy compaction or emergency truncation ran.
     /// Equal to <see cref="TokensAfterCompaction"/> when <see cref="Outcome"/> is <see cref="PrepareOutcome.Ready"/>.
     /// </summary>
     public int TokensBeforeCompaction { get; }
 
     /// <summary>
-    /// Gets the aggregate anchor-adjusted token total of <see cref="Messages"/> after all strategy compaction and
+    /// Gets the aggregate token total of <see cref="Messages"/> after all strategy compaction and
     /// emergency truncation completed.
     /// </summary>
     public int TokensAfterCompaction { get; }

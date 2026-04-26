@@ -18,10 +18,10 @@ namespace Codexplorer.Sessions;
 /// </remarks>
 public sealed class MarkdownSessionLogger : ISessionLogger
 {
-    private const int ToolResultContentCap = 2000;
-    private const int DefaultEventContentCap = 6000;
-    private const int FinalAnswerContentCap = 4000;
-    private const int ExceptionContentCap = 10000;
+    private const int ToolResultContentCap = 200;
+    private const int DefaultEventContentCap = 600;
+    private const int FinalAnswerContentCap = 400;
+    private const int ExceptionContentCap = 1000;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -237,6 +237,12 @@ public sealed class MarkdownSessionLogger : ISessionLogger
         builder.AppendLine($"- TokensAfterCompaction: {evt.TokensAfterCompaction}");
         builder.AppendLine($"- Outcome: {evt.Outcome}");
         builder.AppendLine($"- MessagesCompacted: {evt.MessagesCompacted}");
+
+        if (evt.MessagesDropped > 0)
+        {
+            builder.AppendLine($"- MessagesDropped: {evt.MessagesDropped}");
+        }
+
         builder.AppendLine($"- DegradationReason: {evt.DegradationReason ?? "n/a"}");
         return builder.ToString();
     }

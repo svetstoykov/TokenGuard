@@ -45,6 +45,7 @@ public sealed record UserPromptEvent(
 /// <param name="TokensAfterCompaction">The token total after compaction finished.</param>
 /// <param name="Outcome">The preparation outcome name.</param>
 /// <param name="MessagesCompacted">The number of messages compacted during preparation.</param>
+/// <param name="MessagesDropped">The number of messages dropped by emergency truncation during preparation.</param>
 /// <param name="DegradationReason">The degradation reason when present.</param>
 public sealed record PreparedContextEvent(
     DateTime TimestampUtc,
@@ -53,6 +54,7 @@ public sealed record PreparedContextEvent(
     int TokensAfterCompaction,
     string Outcome,
     int MessagesCompacted,
+    int MessagesDropped,
     string? DegradationReason) : SessionEvent(TimestampUtc)
 {
     /// <summary>
@@ -69,6 +71,7 @@ public sealed record PreparedContextEvent(
             result.TokensAfterCompaction,
             result.Outcome.ToString(),
             result.MessagesCompacted,
+            result.MessagesDropped,
             result.DegradationReason)
     {
     }
