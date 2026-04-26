@@ -82,6 +82,25 @@ dotnet build ./src/Codexplorer.csproj
 dotnet run --project ./src/Codexplorer.csproj
 ```
 
+### Automation mode
+
+Run headless stdio host with:
+
+```bash
+dotnet run --project ./src/Codexplorer.csproj -- --automation
+```
+
+Automation mode reads exactly one JSON request per stdin line and writes exactly one JSON response per stdout line. Human logs and warnings stay on stderr so parent process can parse stdout directly.
+
+Minimal smoke example:
+
+```text
+{"requestId":"1","command":"ping"}
+{"requestId":"1","success":true,"result":{"status":"ok","protocolVersion":1},"error":null}
+{"requestId":"2","command":"open_session","payload":{"repo":"dotnet/runtime"}}
+{"requestId":"2","success":false,"result":null,"error":{"code":"not_implemented","message":"Command 'open_session' is recognized but not implemented yet."}}
+```
+
 ## Configuration
 
 ### Requirements
