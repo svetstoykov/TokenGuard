@@ -61,24 +61,24 @@ The model is a fragile consumer. These aren't soft guidelines — they're hard A
 
 ```mermaid
 sequenceDiagram
-    participant User
+    participant App
     participant Model
     participant Tool
 
-    User->>Model: [system] + [user: "do task"]
+    App->>Model: System prompt + User message ("do task")
     Note over Model: Turn 1 — no tools yet
-    Model->>User: assistant (tool_calls: [{id: "call_001", fn: "read_file"}])
+    Model->>App: Model response (called read_file)
 
-    Note over User,Tool: ← This tool_call_id MUST be matched below
-    User->>Tool: execute read_file(args)
-    Tool->>User: result: "file contents..."
+    Note over App,Tool: ← This tool call MUST be answered below
+    App->>Tool: execute read_file(args)
+    Tool->>App: result: "file contents..."
 
-    User->>Model: [system] + [user] + [assistant/tool_calls] + [tool/call_001: "file contents"]
+    App->>Model: System prompt + User message + Model response (called read_file) + Tool result for read_file
     Note over Model: Turn 2 — model sees the file contents
-    Model->>User: assistant (text: "I found the issue")
+    Model->>App: Model response ("I found the issue")
 
-    User->>Model: [system] + [user] + [assist/tc] + [tool] + [assist/text] + [user: "continue"]
-    Note over Model: Turn 3 — full history re-sent
+    App->>Model: System prompt + User message + Model response (called read_file) + Tool result + Model response ("I found the issue") + User message ("continue")
+    Note over Model: Turn 3 — full history re-sent every turn
 ```
 
 This is the fundamental constraint that makes context management hard: **you can't just delete messages**. If you drop the tool result, the preceding assistant message still references its `tool_call_id`. The provider sees an orphaned tool call and returns a 400. The structural contract must be preserved even when you're trying to shrink the conversation.
@@ -95,17 +95,17 @@ TokenGuard maintains two distinct views of a conversation.
 
 ```mermaid
 flowchart TD
-    A[PrepareAsync called] --> B[Estimate total tokens\nSum history + anchor correction]
-    B --> C{Total < CompactionTriggerTokens?}
-    C -- Yes --> D[Return history directly\n_lastPreparedTotal = total]
+    A[PrepareAsync called] --> B[Count tokens in conversation]
+    B --> C{Under the compaction threshold?}
+    C -- Yes --> D[Return history directly]
     C -- No --> E[Determine trigger type\nNormal or Emergency]
     E --> F[Extract pinned messages\nfrom history]
-    F --> G[Build adjusted budget\nReservedTokens += pinnedTokenCost]
+    F --> G[Build adjusted budget\nadd pinned message cost to reserved]
     G --> H[strategy.CompactAsync\ncompactable messages, adjusted budget]
     H --> I[Reassemble pinned messages\nat original positions]
-    I --> J{emergencyApplied?}
-    J -- No --> K[Return compacted view\nReset _anchorCorrection to 0]
-    J -- Yes --> L[Apply oldest-first truncation\nuntil under EmergencyTriggerTokens]
+    I --> J{Was it an emergency?}
+    J -- No --> K[Return compacted view]
+    J -- Yes --> L[Apply oldest-first truncation\nuntil under emergency threshold]
     L --> K
 ```
 
@@ -158,11 +158,11 @@ This correction is stored and applied additively to every future `PrepareAsync` 
 
 ```mermaid
 graph LR
-    A[PrepareAsync\nestimate total] --> B[Send request\nto provider]
-    B --> C[Provider processes\nreturns actual token count]
-    C --> D[RecordModelResponse\nproviderInputTokens]
-    D --> E[Compute correction\nactual - lastPreparedTotal]
-    E --> F[Store _anchorCorrection]
+    A[Estimate token count\nbefore sending] --> B[Send request\nto provider]
+    B --> C[Provider returns\nactual token count]
+    C --> D[Record actual count\nvia RecordModelResponse]
+    D --> E[How far off was the estimate?]
+    E --> F[Remember the gap for next time]
     F --> A
 ```
 
@@ -182,12 +182,14 @@ The strategy walks backward from the newest message, building a "protected" tail
 
 ```mermaid
 flowchart TD
-    A[Start at newest message] --> B[Protect newest messages]
-    B --> C{Window big enough\nfor message count and token budget?}
-    C -- No --> B
-    C -- Yes --> D[Older region becomes compactable]
-    D --> E[Mask old tool results]
-    E --> F[Keep protected tail unchanged]
+    A[Start at newest message] --> B[Add message to protected window]
+    B --> C{Protected at least WindowSize messages?}
+    C -- No, floor not met --> B
+    C -- Yes, floor satisfied --> D{Protected tokens within budget fraction?}
+    D -- Yes, room remains --> B
+    D -- No, budget exhausted --> E[Boundary set — older messages are exposed]
+    E --> F[Mask tool results in exposed region]
+    F --> G[Return protected tail + masked exposed region]
 ```
 
 ### What Masking Does
