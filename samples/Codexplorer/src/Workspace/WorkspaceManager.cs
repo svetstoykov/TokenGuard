@@ -22,6 +22,9 @@ public sealed class WorkspaceManager : IWorkspaceManager
 
     private static readonly JsonSerializerOptions MetadataSerializerOptions = new(JsonSerializerDefaults.Web);
     private static readonly StringComparison HostComparison = StringComparison.OrdinalIgnoreCase;
+    private static readonly StringComparison PathComparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
 
     private readonly IGitCloner _gitCloner;
     private readonly ILogger<WorkspaceManager> _logger;
@@ -146,6 +149,27 @@ public sealed class WorkspaceManager : IWorkspaceManager
 
         return this.ListExisting()
             .FirstOrDefault(workspace => string.Equals(workspace.OwnerRepo, ownerRepo, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <inheritdoc />
+    public Workspace? FindByLocalPath(string absoluteLocalPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(absoluteLocalPath);
+
+        if (!Path.IsPathRooted(absoluteLocalPath))
+        {
+            throw new ArgumentException("Workspace path must be an absolute local path.", nameof(absoluteLocalPath));
+        }
+
+        var normalizedPath = Path.GetFullPath(absoluteLocalPath);
+
+        if (!Directory.Exists(normalizedPath))
+        {
+            return null;
+        }
+
+        return this.ListExisting()
+            .FirstOrDefault(workspace => string.Equals(Path.GetFullPath(workspace.LocalPath), normalizedPath, PathComparison));
     }
 
     private Workspace EnsureTrackedWorkspace(RepositoryReference repositoryReference, string destinationPath)

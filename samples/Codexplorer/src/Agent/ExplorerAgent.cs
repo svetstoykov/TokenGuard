@@ -76,7 +76,7 @@ internal sealed class ExplorerAgent : IExplorerAgent
         var conversationContext = this._conversationContextFactory.Create();
         var sessionLogger = this._sessionLoggerFactory.BeginSession(workspace, "Interactive repo chat");
         var rendererTask = this._sessionRenderer.RenderAsync(sessionLogger, CancellationToken.None);
-        var chatClient = CreateChatClient(this._options);
+        var chatClient = new Lazy<ChatClient>(() => CreateChatClient(this._options));
 
         conversationContext.SetSystemPrompt(SystemPrompt.Text);
 

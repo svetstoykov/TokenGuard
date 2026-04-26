@@ -33,4 +33,16 @@ public interface IWorkspaceManager
     /// <param name="ownerRepo">The repository identity in <c>{owner}/{repo}</c> form.</param>
     /// <returns>The matching <see cref="Workspace"/>, or <see langword="null"/> when none exists.</returns>
     Workspace? Find(string ownerRepo);
+
+    /// <summary>
+    /// Finds a tracked workspace by its absolute local filesystem path.
+    /// </summary>
+    /// <param name="absoluteLocalPath">The absolute local workspace path to resolve.</param>
+    /// <returns>The matching <see cref="Workspace"/>, or <see langword="null"/> when none exists.</returns>
+    /// <remarks>
+    /// Automation mode uses this lookup to target an already-cloned repository without reproducing the
+    /// interactive workspace picker flow. Relative paths are rejected so the protocol stays explicit and
+    /// transport-neutral.
+    /// </remarks>
+    Workspace? FindByLocalPath(string absoluteLocalPath);
 }

@@ -113,6 +113,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<CancellationCoordinator>();
         services.TryAddSingleton<MainMenu>();
         services.TryAddSingleton<IAutomationProtocolChannel, ConsoleAutomationProtocolChannel>();
+        services.TryAddSingleton<IAutomationSessionRegistry, AutomationSessionRegistry>();
         services.TryAddSingleton<IAutomationCommandDispatcher, AutomationCommandDispatcher>();
         services.TryAddSingleton<AutomationHost>();
 

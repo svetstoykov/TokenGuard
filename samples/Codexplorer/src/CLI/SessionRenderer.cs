@@ -15,6 +15,7 @@ internal sealed class SessionRenderer
 {
     private readonly CodexplorerTheme _theme;
     private readonly IAnsiConsole _console;
+    private readonly bool _enabled;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SessionRenderer"/> class.
@@ -24,10 +25,16 @@ internal sealed class SessionRenderer
     {
     }
 
-    internal SessionRenderer(IAnsiConsole console, CodexplorerTheme theme)
+    internal SessionRenderer(IAnsiConsole console, CodexplorerTheme theme, bool enabled = true)
     {
         this._console = console ?? throw new ArgumentNullException(nameof(console));
         this._theme = theme ?? throw new ArgumentNullException(nameof(theme));
+        this._enabled = enabled;
+    }
+
+    internal static SessionRenderer CreateDisabled()
+    {
+        return new SessionRenderer(AnsiConsole.Console, CodexplorerTheme.Default, enabled: false);
     }
 
     /// <summary>
@@ -38,6 +45,11 @@ internal sealed class SessionRenderer
     public async Task RenderAsync(ISessionLogger sessionLogger, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(sessionLogger);
+
+        if (!this._enabled)
+        {
+            return;
+        }
 
         var state = new RenderState(sessionLogger.LogFilePath);
 

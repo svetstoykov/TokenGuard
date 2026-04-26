@@ -4,6 +4,7 @@ using Codexplorer.Automation;
 using Codexplorer.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -23,6 +24,12 @@ internal sealed class Program
             builder.Configuration.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false);
 
             builder.Services.AddCodexplorerOptions(builder.Configuration);
+
+            if (startupOptions.AutomationMode)
+            {
+                builder.Services.Replace(ServiceDescriptor.Singleton(SessionRenderer.CreateDisabled()));
+            }
+
             builder.Services.AddSerilog((_, loggerConfiguration) => loggerConfiguration
                 .MinimumLevel.Information()
                 .WriteTo.Console(standardErrorFromLevel: startupOptions.AutomationMode ? LogEventLevel.Verbose : LogEventLevel.Fatal)

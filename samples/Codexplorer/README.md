@@ -97,8 +97,8 @@ Minimal smoke example:
 ```text
 {"requestId":"1","command":"ping"}
 {"requestId":"1","success":true,"result":{"status":"ok","protocolVersion":1},"error":null}
-{"requestId":"2","command":"open_session","payload":{"repo":"dotnet/runtime"}}
-{"requestId":"2","success":false,"result":null,"error":{"code":"not_implemented","message":"Command 'open_session' is recognized but not implemented yet."}}
+{"requestId":"2","command":"open_session","payload":{"workspacePath":"/absolute/path/to/workspace/dotnet-runtime"}}
+{"requestId":"2","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","workspace":{"name":"runtime","ownerRepo":"dotnet/runtime","localPath":"/absolute/path/to/workspace/dotnet-runtime","clonedAt":"2026-04-26T09:00:00.0000000Z","sizeBytes":123456789},"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-dotnet-runtime-interactive-repo-chat.md"},"error":null}
 ```
 
 ## Configuration

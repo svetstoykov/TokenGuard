@@ -6,20 +6,24 @@ internal sealed class AutomationHost : IAsyncDisposable
 {
     private readonly IAutomationProtocolChannel _channel;
     private readonly IAutomationCommandDispatcher _dispatcher;
+    private readonly IAutomationSessionRegistry _sessionRegistry;
     private readonly ILogger<AutomationHost> _logger;
     private bool _disposed;
 
     public AutomationHost(
         IAutomationProtocolChannel channel,
         IAutomationCommandDispatcher dispatcher,
+        IAutomationSessionRegistry sessionRegistry,
         ILogger<AutomationHost> logger)
     {
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(dispatcher);
+        ArgumentNullException.ThrowIfNull(sessionRegistry);
         ArgumentNullException.ThrowIfNull(logger);
 
         this._channel = channel;
         this._dispatcher = dispatcher;
+        this._sessionRegistry = sessionRegistry;
         this._logger = logger;
     }
 
@@ -100,6 +104,7 @@ internal sealed class AutomationHost : IAsyncDisposable
         }
 
         this._disposed = true;
+        await this._sessionRegistry.DisposeAsync().ConfigureAwait(false);
         await this._channel.DisposeAsync().ConfigureAwait(false);
     }
 }

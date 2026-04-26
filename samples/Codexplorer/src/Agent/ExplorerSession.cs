@@ -26,7 +26,7 @@ internal sealed class ExplorerSession : IExplorerSession
     private readonly ISessionLogger _sessionLogger;
     private readonly Task _rendererTask;
     private readonly IToolRegistry _toolRegistry;
-    private readonly ChatClient _chatClient;
+    private readonly Lazy<ChatClient> _chatClient;
     private readonly IReadOnlyList<ChatTool> _chatTools;
     private readonly AgentOptions _agentOptions;
     private readonly ModelOptions _modelOptions;
@@ -45,7 +45,7 @@ internal sealed class ExplorerSession : IExplorerSession
     /// <param name="sessionLogger">The session logger that persists the full transcript.</param>
     /// <param name="rendererTask">The live renderer task for the session event stream.</param>
     /// <param name="toolRegistry">The workspace tool registry.</param>
-    /// <param name="chatClient">The model client used for completions.</param>
+    /// <param name="chatClient">The deferred model client used for completions.</param>
     /// <param name="chatTools">The published tool definitions for model calls.</param>
     /// <param name="agentOptions">The configured agent options.</param>
     /// <param name="modelOptions">The configured model options.</param>
@@ -55,7 +55,7 @@ internal sealed class ExplorerSession : IExplorerSession
         ISessionLogger sessionLogger,
         Task rendererTask,
         IToolRegistry toolRegistry,
-        ChatClient chatClient,
+        Lazy<ChatClient> chatClient,
         IReadOnlyList<ChatTool> chatTools,
         AgentOptions agentOptions,
         ModelOptions modelOptions)
@@ -154,7 +154,7 @@ internal sealed class ExplorerSession : IExplorerSession
                         CancellationToken.None)
                     .ConfigureAwait(false);
 
-                var completion = (await this._chatClient.CompleteChatAsync(
+                var completion = (await this._chatClient.Value.CompleteChatAsync(
                             prepareResult.Messages.ForOpenAI(),
                             ExplorerAgent.CreateChatCompletionOptions(this._chatTools, this._modelOptions.MaxOutputTokens),
                             CancellationToken.None)
