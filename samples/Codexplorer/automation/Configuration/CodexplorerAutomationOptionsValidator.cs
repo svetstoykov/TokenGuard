@@ -1,9 +1,18 @@
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Configuration;
 
 namespace Codexplorer.Automation.Configuration;
 
 internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<CodexplorerAutomationOptions>
 {
+    private readonly IConfiguration _configuration;
+
+    public CodexplorerAutomationOptionsValidator(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        this._configuration = configuration;
+    }
+
     public ValidateOptionsResult Validate(string? name, CodexplorerAutomationOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -38,38 +47,111 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
             }
         }
 
-        if (options.WorkspacePaths.Count == 0)
+        if (options.Tasks.Count == 0)
         {
-            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:WorkspacePaths' must contain at least one workspace path.");
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:Tasks' must contain at least one task definition.");
         }
         else
         {
-            var uniqueWorkspacePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var uniqueTaskIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var workspacePath in options.WorkspacePaths)
+            for (var index = 0; index < options.Tasks.Count; index++)
             {
-                if (string.IsNullOrWhiteSpace(workspacePath))
+                var task = options.Tasks[index];
+                var taskPrefix = $"{CodexplorerAutomationOptions.SectionName}:Tasks:{index}";
+
+                if (task is null)
                 {
-                    failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:WorkspacePaths' cannot contain empty values.");
+                    failures.Add($"Configuration field '{taskPrefix}' must be an object.");
                     continue;
                 }
 
-                var resolvedWorkspacePath = AutomationPathResolver.ResolveFromCurrentDirectory(workspacePath);
-                if (!Directory.Exists(resolvedWorkspacePath))
+                if (string.IsNullOrWhiteSpace(task.TaskId))
                 {
-                    failures.Add($"Configured workspace path '{resolvedWorkspacePath}' does not exist.");
-                    continue;
+                    failures.Add($"Configuration field '{taskPrefix}:TaskId' is required.");
+                }
+                else if (!uniqueTaskIds.Add(task.TaskId))
+                {
+                    failures.Add($"Configuration field '{taskPrefix}:TaskId' must be unique. Duplicate value '{task.TaskId}' was found.");
                 }
 
-                if (!uniqueWorkspacePaths.Add(resolvedWorkspacePath))
+                if (string.IsNullOrWhiteSpace(task.WorkspacePath))
                 {
-                    failures.Add($"Configured workspace path '{resolvedWorkspacePath}' is duplicated.");
+                    failures.Add($"Configuration field '{taskPrefix}:WorkspacePath' is required.");
+                }
+                else
+                {
+                    var resolvedWorkspacePath = AutomationPathResolver.ResolveFromCurrentDirectory(task.WorkspacePath);
+                    if (!Directory.Exists(resolvedWorkspacePath))
+                    {
+                        failures.Add($"Configured workspace path '{resolvedWorkspacePath}' does not exist for task '{task.TaskId ?? $"index-{index}"}'.");
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(task.InitialPrompt))
+                {
+                    failures.Add($"Configuration field '{taskPrefix}:InitialPrompt' is required.");
                 }
             }
+        }
+
+        ValidateBudgetProfile(options.TurnBudgets.Small, $"{CodexplorerAutomationOptions.SectionName}:TurnBudgets:Small", failures);
+        ValidateBudgetProfile(options.TurnBudgets.Medium, $"{CodexplorerAutomationOptions.SectionName}:TurnBudgets:Medium", failures);
+        ValidateBudgetProfile(options.TurnBudgets.Large, $"{CodexplorerAutomationOptions.SectionName}:TurnBudgets:Large", failures);
+
+        var helperAiOptions = options.HelperAi ?? new AutomationHelperAiOptions();
+        if (string.IsNullOrWhiteSpace(helperAiOptions.Endpoint)
+            || !Uri.TryCreate(helperAiOptions.Endpoint, UriKind.Absolute, out _))
+        {
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:Endpoint' must be a valid absolute URI.");
+        }
+
+        if (string.IsNullOrWhiteSpace(helperAiOptions.ModelName))
+        {
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:ModelName' is required.");
+        }
+
+        if (helperAiOptions.MaxOutputTokens <= 0)
+        {
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:MaxOutputTokens' must be greater than zero.");
+        }
+
+        if (helperAiOptions.Temperature < 0.0 || helperAiOptions.Temperature > 2.0)
+        {
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:Temperature' must be between 0.0 and 2.0.");
+        }
+
+        var effectiveApiKey = this._configuration["OPENROUTER_API_KEY"]
+            ?? this._configuration[$"{CodexplorerAutomationOptions.SectionName}:HelperAi:ApiKey"];
+        if (string.IsNullOrWhiteSpace(effectiveApiKey))
+        {
+            failures.Add(
+                $"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:ApiKey' or environment variable 'OPENROUTER_API_KEY' is required.");
         }
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void ValidateBudgetProfile(TurnBudgetProfile profile, string prefix, List<string> failures)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(failures);
+
+        if (profile.MaxTurns <= 0)
+        {
+            failures.Add($"Configuration field '{prefix}:MaxTurns' must be greater than zero.");
+        }
+
+        if (profile.WrapUpWindow <= 0)
+        {
+            failures.Add($"Configuration field '{prefix}:WrapUpWindow' must be greater than zero.");
+        }
+
+        if (profile.WrapUpWindow >= profile.MaxTurns)
+        {
+            failures.Add($"Configuration field '{prefix}:WrapUpWindow' must be smaller than '{prefix}:MaxTurns'.");
+        }
     }
 }

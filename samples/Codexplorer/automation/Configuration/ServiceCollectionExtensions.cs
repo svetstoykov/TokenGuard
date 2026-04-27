@@ -1,4 +1,5 @@
 using Codexplorer.Automation.Client;
+using Codexplorer.Automation.Runner;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -38,6 +39,7 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IAutomationProtocolTransport, ProcessAutomationProtocolTransport>();
         services.TryAddSingleton<ICodexplorerAutomationClient, CodexplorerAutomationClient>();
+        services.AddHttpClient<IRunnerHelperAi, OpenRouterRunnerHelperAi>();
         services.TryAddSingleton<AutomationRunner>();
 
         return services;

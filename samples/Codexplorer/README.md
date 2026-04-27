@@ -118,21 +118,58 @@ Create `automation/appsettings.Development.json`:
   "CodexplorerAutomation": {
     "CodexplorerExecutablePath": "../src/bin/Debug/net10.0/Codexplorer",
     "CodexplorerWorkingDirectory": "..",
-    "WorkspacePaths": [
-      "../workspace/dotnet-runtime"
-    ]
+    "Tasks": [
+      {
+        "TaskId": "tg-065-smoke",
+        "WorkspacePath": "../workspace/dotnet-runtime",
+        "TaskSize": "Medium",
+        "InitialPrompt": "Find the core hosting entry points for this repository and start implementing the requested change."
+      }
+    ],
+    "TurnBudgets": {
+      "Small": {
+        "MaxTurns": 24,
+        "WrapUpWindow": 4
+      },
+      "Medium": {
+        "MaxTurns": 48,
+        "WrapUpWindow": 8
+      },
+      "Large": {
+        "MaxTurns": 80,
+        "WrapUpWindow": 12
+      }
+    },
+    "HelperAi": {
+      "ModelName": "openai/gpt-5.4-mini",
+      "ApiKey": "your-openrouter-api-key"
+    }
   }
 }
 ```
 
-Then run it from the automation project directory:
+You can also provide helper credentials through environment variable instead of configuration:
+
+```bash
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+```
+
+Then run it from automation project directory:
 
 ```bash
 cd samples/Codexplorer/automation
 dotnet run
 ```
 
-The runner currently performs infrastructure smoke flow only: start Codexplorer, ping the protocol, open each configured workspace session, then close it again. Later tasks can layer batch submission and helper decision loops on top of the same client.
+Runner behavior now:
+
+- Opens one Codexplorer session per configured task and submits `InitialPrompt`
+- Tracks cumulative `modelTurnsCompleted` against configured small/medium/large task budgets
+- Sends helper-AI answers back into same session whenever `submit` returns `asksRunner: true`
+- Reserves wrap-up window before hard cap and sends a final stop prompt that constrains task-owned artifacts to `.codexplorer/tasks/<task-id>/`
+- Treats `degraded`, unsafe `max_turns_reached`, and `failed` outcomes as explicit stop conditions
+
+- Later task analytics can build on top of this bounded live loop without parsing markdown transcripts during execution
 
 ## Configuration
 
