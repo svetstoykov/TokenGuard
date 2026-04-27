@@ -18,7 +18,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.Anthr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer", "samples\Codexplorer\src\Codexplorer.csproj", "{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer.Automation", "samples\Codexplorer\automation\Codexplorer.Automation.csproj", "{48C7D707-B260-402C-AFE6-18B582A76759}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer.Automation", "samples\Codexplorer.Automation\src\Codexplorer.Automation.csproj", "{48C7D707-B260-402C-AFE6-18B582A76759}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
