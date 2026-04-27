@@ -78,7 +78,7 @@ That is main point of sample: **real interactive repo agent running on TokenGuar
 
 ```bash
 cd samples/Codexplorer
-dotnet build ./src/Codexplorer.csproj
+dotnet build ./Codexplorer.slnx
 dotnet run --project ./src/Codexplorer.csproj
 ```
 
@@ -106,6 +106,33 @@ Minimal smoke example:
 If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
 
 `submit` returns one stable `outcome` value per exchange: `reply_received`, `degraded`, `max_turns_reached`, `cancelled`, or `failed`. Every response includes the active `sessionId`, `modelTurnsCompleted`, `logFilePath`, whether the session is still open, and any assistant text or partial text that was available for that exchange.
+
+### Automation runner
+
+`Codexplorer.Automation` is a separate executable in the same sample-local solution. It launches Codexplorer with `--automation`, keeps stdout reserved for protocol traffic, logs child stderr separately, and exposes typed `open_session`, `submit`, and `close_session` client calls inside the runner codebase.
+
+Create `automation/appsettings.Development.json`:
+
+```json
+{
+  "CodexplorerAutomation": {
+    "CodexplorerExecutablePath": "../src/bin/Debug/net10.0/Codexplorer",
+    "CodexplorerWorkingDirectory": "..",
+    "WorkspacePaths": [
+      "../workspace/dotnet-runtime"
+    ]
+  }
+}
+```
+
+Then run it from the automation project directory:
+
+```bash
+cd samples/Codexplorer/automation
+dotnet run
+```
+
+The runner currently performs infrastructure smoke flow only: start Codexplorer, ping the protocol, open each configured workspace session, then close it again. Later tasks can layer batch submission and helper decision loops on top of the same client.
 
 ## Configuration
 

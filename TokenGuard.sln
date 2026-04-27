@@ -18,6 +18,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.Anthr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer", "samples\Codexplorer\src\Codexplorer.csproj", "{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer.Automation", "samples\Codexplorer\automation\Codexplorer.Automation.csproj", "{48C7D707-B260-402C-AFE6-18B582A76759}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -48,10 +50,15 @@ Global
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{48C7D707-B260-402C-AFE6-18B582A76759}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{48C7D707-B260-402C-AFE6-18B582A76759}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{48C7D707-B260-402C-AFE6-18B582A76759}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{48C7D707-B260-402C-AFE6-18B582A76759}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{D4E5F6A7-B8C9-0123-DEF0-234567890123} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
 		{C3D4E5F6-A7B8-9012-CDEF-123456789012} = {078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}
 		{C06B8C9D-44ED-41F6-900A-F6914AB19DCA} = {C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}
+		{48C7D707-B260-402C-AFE6-18B582A76759} = {C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}
 	EndGlobalSection
 EndGlobal
