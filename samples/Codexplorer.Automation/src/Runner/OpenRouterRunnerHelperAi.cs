@@ -1,43 +1,37 @@
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Codexplorer.Automation.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OpenAI;
+using OpenAI.Chat;
 
 namespace Codexplorer.Automation.Runner;
 
 internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
 {
-    private const string OpenRouterApiKeyEnvironmentVariable = "OPENROUTER_API_KEY";
-
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
-    private readonly HttpClient _httpClient;
+    private readonly ChatClient _chatClient;
     private readonly AutomationHelperAiOptions _options;
-    private readonly string _apiKey;
     private readonly ILogger<OpenRouterRunnerHelperAi> _logger;
 
     public OpenRouterRunnerHelperAi(
-        HttpClient httpClient,
         IOptions<CodexplorerAutomationOptions> options,
         IConfiguration configuration,
         ILogger<OpenRouterRunnerHelperAi> logger)
     {
-        ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(logger);
 
-        this._httpClient = httpClient;
         this._options = options.Value.HelperAi;
-        var configuredApiKey = configuration[OpenRouterApiKeyEnvironmentVariable]
-            ?? this._options.ApiKey;
-        this._apiKey = !string.IsNullOrWhiteSpace(configuredApiKey)
-            ? configuredApiKey
-            : throw new InvalidOperationException("Runner helper AI API key is not configured.");
+        
+        var apiKey = this._options.ApiKey ?? throw new InvalidOperationException("Runner helper AI API key is not configured.");
+        var modelName = this._options.ModelName ?? throw new InvalidOperationException("Runner helper AI model name is not configured.");
+        
+        this._chatClient = new OpenAIClient(
+                new System.ClientModel.ApiKeyCredential(apiKey),
+                new OpenAIClientOptions { Endpoint = new Uri(this._options.Endpoint ?? throw new InvalidOperationException("Runner helper AI endpoint is not configured.")) })
+            .GetChatClient(modelName);
+        
         this._logger = logger;
     }
 
@@ -52,32 +46,24 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
             request.TurnsConsumed,
             request.MaxTurns);
 
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, this._options.Endpoint);
-        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", this._apiKey);
-        httpRequest.Headers.Accept.ParseAdd("application/json");
-        httpRequest.Content = JsonContent.Create(
-            new OpenRouterChatRequest(
-                this._options.ModelName!,
+        var completion = (await this._chatClient.CompleteChatAsync(
                 [
-                    new OpenRouterMessage("system", HelperSystemPrompt),
-                    new OpenRouterMessage("user", CreateUserPrompt(request))
+                    new SystemChatMessage(HelperSystemPrompt),
+                    new UserChatMessage(CreateUserPrompt(request))
                 ],
-                this._options.MaxOutputTokens,
-                this._options.Temperature),
-            options: JsonOptions);
-
-        using var response = await this._httpClient.SendAsync(httpRequest, ct).ConfigureAwait(false);
-        var responseBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException(
-                $"Runner helper AI request failed with status {(int)response.StatusCode} {response.ReasonPhrase}. Response: {responseBody}");
-        }
-
-        var completion = JsonSerializer.Deserialize<OpenRouterChatResponse>(responseBody, JsonOptions)
-            ?? throw new InvalidOperationException("Runner helper AI returned an empty JSON payload.");
-        var answer = completion.Choices.FirstOrDefault()?.Message.Content?.Trim();
+                new ChatCompletionOptions
+                {
+                    MaxOutputTokenCount = this._options.MaxOutputTokens,
+                    Temperature = (float)this._options.Temperature
+                },
+                ct)
+            .ConfigureAwait(false)).Value;
+        var answer = string.Join(
+                Environment.NewLine,
+                completion.Content
+                    .Select(part => part.Text)
+                    .Where(static text => !string.IsNullOrWhiteSpace(text)))
+            .Trim();
 
         if (string.IsNullOrWhiteSpace(answer))
         {
@@ -129,16 +115,4 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
         You should at all times give an answer that allows the flow to continue forward, to the best of your effort.
         Never in doubt and never ask, questions. Simply anwser, always.
         """;
-
-    private sealed record OpenRouterChatRequest(
-        string Model,
-        IReadOnlyList<OpenRouterMessage> Messages,
-        [property: JsonPropertyName("max_tokens")] int MaxTokens,
-        double Temperature);
-
-    private sealed record OpenRouterMessage(string Role, string Content);
-
-    private sealed record OpenRouterChatResponse(IReadOnlyList<OpenRouterChoice> Choices);
-
-    private sealed record OpenRouterChoice(OpenRouterMessage Message);
 }

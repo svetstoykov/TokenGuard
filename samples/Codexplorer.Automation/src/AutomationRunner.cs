@@ -311,7 +311,7 @@ internal sealed class AutomationRunner
                 taskState.Task.TaskId,
                 taskState.TurnsConsumed,
                 taskState.Budget.MaxTurns);
-            return AutomationRunnerPrompts.CreateWrapUpPrompt(taskState.Task.TaskId!);
+            return AutomationRunnerPrompts.CreateWrapUpPrompt();
         }
 
         var continuationMessage = response.Outcome == "max_turns_reached"

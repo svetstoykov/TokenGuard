@@ -170,14 +170,7 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
         ArgumentException.ThrowIfNullOrWhiteSpace(taskPrefix);
         ArgumentNullException.ThrowIfNull(failures);
 
-        var taskArtifactDirectory = $".codexplorer/tasks/{task.TaskId}/";
-        if (!task.InitialPrompt!.Contains(taskArtifactDirectory, StringComparison.Ordinal))
-        {
-            failures.Add(
-                $"Configuration field '{taskPrefix}:InitialPrompt' must direct task-owned artifacts to '{taskArtifactDirectory}'.");
-        }
-
-        if (!task.InitialPrompt.Contains("Do not modify", StringComparison.OrdinalIgnoreCase)
+        if (!task.InitialPrompt!.Contains("Do not modify", StringComparison.OrdinalIgnoreCase)
             || !task.InitialPrompt.Contains("repository source", StringComparison.OrdinalIgnoreCase))
         {
             failures.Add(

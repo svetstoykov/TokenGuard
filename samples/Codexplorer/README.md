@@ -148,15 +148,15 @@ Shipped batch workflow:
 
 1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty queued tasks with task ID, title, `repositoryUrl`, initial prompt, and size class.
 2. Runner loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
-3. Each shipped task tells Codexplorer not to modify repository source files and to keep task-owned notes under `.codexplorer/tasks/<task-id>/`.
-4. Resulting task artifacts land inside the target workspace under `.codexplorer/tasks/<task-id>/`.
+3. Each shipped task tells Codexplorer not to modify repository source files and to keep task-owned notes under an `artifacts/` folder in its current workspace.
+4. Resulting task artifacts land inside the target workspace under that `artifacts/` folder.
 5. Codexplorer session transcripts still land in Codexplorer's normal session log location, which is reported in automation responses and written by Codexplorer itself.
 
 Automation paths are now resolved relative to each executable's own directory. The runner starts Codexplorer with the Codexplorer executable directory as its working directory, and Codexplorer resolves its relative workspace and log paths from that same executable directory.
 
 To inspect results after a batch:
 
-- Check `.codexplorer/tasks/` inside the target workspace for task-owned notes and drafts.
+- Check the `artifacts/` folder inside the target workspace for task-owned notes and drafts.
 - Check Codexplorer session transcripts under its configured session logs directory for the full conversation history.
 
 To run a different manifest, point `CodexplorerAutomation:ManifestPath` at another JSON file in `appsettings.Development.json`. The manifest format is:
@@ -169,7 +169,7 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
       "title": "Example title",
       "repositoryUrl": "https://github.com/cli/cli",
       "taskSize": "Medium",
-      "initialPrompt": "Write notes to `.codexplorer/tasks/example-task/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/example-task/`."
+      "initialPrompt": "Write notes under an `artifacts/` folder in your current workspace. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under an `artifacts/` folder in your current workspace."
     }
   ]
 }

@@ -86,7 +86,7 @@ internal sealed record TurnBudgetProfile
 
 internal sealed record AutomationHelperAiOptions
 {
-    public string? Endpoint { get; init; } = "https://openrouter.ai/api/v1/chat/completions";
+    public string? Endpoint { get; init; } = "https://openrouter.ai/api/v1";
 
     public string? ModelName { get; init; } = "openai/gpt-5.4-mini";
 

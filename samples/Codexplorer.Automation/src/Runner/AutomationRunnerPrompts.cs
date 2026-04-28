@@ -27,15 +27,13 @@ internal static class AutomationRunnerPrompts
             """;
     }
 
-    public static string CreateWrapUpPrompt(string taskId)
+    public static string CreateWrapUpPrompt()
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(taskId);
-
         return
             $"""
             Stop live work for now.
             Summarize concrete progress, unfinished work, blockers, and next recommended steps.
-            If you create task-owned notes or artifacts, write them only under `.codexplorer/tasks/{taskId}/` inside workspace.
+            If you create task-owned notes or artifacts, write them under an `artifacts/` folder in your current workspace.
             Do not write task-owned artifacts anywhere else.
             After summary, stop.
             """;
