@@ -52,12 +52,15 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
                 throw this.CreateExitedException("Codexplorer exited before the automation transport could start.");
             }
 
-            var executablePath = AutomationPathResolver.ResolveFromCurrentDirectory(this._options.CodexplorerExecutablePath);
-            var workingDirectory = AutomationPathResolver.ResolveFromCurrentDirectory(this._options.CodexplorerWorkingDirectory);
+            var executablePath = this._options.CodexplorerExecutablePath;
+            if (string.IsNullOrWhiteSpace(executablePath))
+            {
+                throw new CodexplorerAutomationTransportException("Codexplorer executable path is not configured.");
+            }
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = executablePath,
-                WorkingDirectory = workingDirectory,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

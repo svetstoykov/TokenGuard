@@ -19,7 +19,7 @@ internal sealed class AutomationTaskManifestLoader : IAutomationTaskManifestLoad
     {
         if (!string.IsNullOrWhiteSpace(this._options.ManifestPath))
         {
-            var resolvedManifestPath = AutomationPathResolver.ResolveFromCurrentDirectory(this._options.ManifestPath);
+            var resolvedManifestPath = Path.GetFullPath(this._options.ManifestPath, AppContext.BaseDirectory);
             using var stream = File.OpenRead(resolvedManifestPath);
             var manifest = JsonSerializer.Deserialize<AutomationTaskManifest>(stream, JsonOptions)
                 ?? throw new InvalidOperationException($"Automation manifest '{resolvedManifestPath}' could not be deserialized.");

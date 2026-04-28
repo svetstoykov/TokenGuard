@@ -20,7 +20,11 @@ internal sealed class Program
         try
         {
             var startupOptions = ParseStartupOptions(args);
-            var builder = Host.CreateApplicationBuilder(startupOptions.RemainingArgs);
+            var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
+            {
+                Args = startupOptions.RemainingArgs,
+                ContentRootPath = AppContext.BaseDirectory
+            });
             builder.Configuration.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false);
 
             builder.Services.AddCodexplorerOptions(builder.Configuration);

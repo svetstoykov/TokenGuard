@@ -4,9 +4,7 @@ internal sealed record CodexplorerAutomationOptions
 {
     public const string SectionName = "CodexplorerAutomation";
 
-    public string? CodexplorerExecutablePath { get; init; } = "../src/bin/Debug/net10.0/Codexplorer";
-
-    public string? CodexplorerWorkingDirectory { get; init; } = "..";
+    public string? CodexplorerExecutablePath { get; init; }
 
     public string? ManifestPath { get; init; } = "./tasks/initial-corpus.json";
 
@@ -33,8 +31,6 @@ internal sealed record AutomationTaskDefinition
     public string? TaskId { get; init; }
 
     public string? Title { get; init; }
-
-    public string? WorkspacePath { get; init; }
 
     public string? RepositoryUrl { get; init; }
 

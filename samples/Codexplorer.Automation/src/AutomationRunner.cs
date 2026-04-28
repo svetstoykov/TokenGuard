@@ -234,17 +234,9 @@ internal sealed class AutomationRunner
     {
         ArgumentNullException.ThrowIfNull(task);
 
-        if (!string.IsNullOrWhiteSpace(task.RepositoryUrl))
-        {
-            return new OpenSessionRequest
-            {
-                RepositoryUrl = task.RepositoryUrl
-            };
-        }
-
         return new OpenSessionRequest
         {
-            WorkspacePath = AutomationPathResolver.ResolveFromCurrentDirectory(task.WorkspacePath)
+            RepositoryUrl = task.RepositoryUrl
         };
     }
 

@@ -24,27 +24,17 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
         {
             failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:CodexplorerExecutablePath' is required.");
         }
-        else
+        else if (!Path.IsPathRooted(options.CodexplorerExecutablePath))
         {
-            var resolvedExecutablePath = AutomationPathResolver.ResolveFromCurrentDirectory(options.CodexplorerExecutablePath);
-            if (!File.Exists(resolvedExecutablePath))
-            {
-                failures.Add(
-                    $"Configured Codexplorer executable path '{resolvedExecutablePath}' does not exist.");
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(options.CodexplorerWorkingDirectory))
-        {
-            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:CodexplorerWorkingDirectory' is required.");
+            failures.Add(
+                $"Configuration field '{CodexplorerAutomationOptions.SectionName}:CodexplorerExecutablePath' must be an absolute path.");
         }
         else
         {
-            var resolvedWorkingDirectory = AutomationPathResolver.ResolveFromCurrentDirectory(options.CodexplorerWorkingDirectory);
-            if (!Directory.Exists(resolvedWorkingDirectory))
+            if (!File.Exists(options.CodexplorerExecutablePath))
             {
                 failures.Add(
-                    $"Configured Codexplorer working directory '{resolvedWorkingDirectory}' does not exist.");
+                    $"Configured Codexplorer executable path '{options.CodexplorerExecutablePath}' does not exist.");
             }
         }
 
@@ -86,7 +76,7 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
                     failures.Add($"Configuration field '{taskPrefix}:Title' is required.");
                 }
 
-                ValidateTaskTarget(task, taskPrefix, index, failures);
+                ValidateTaskTarget(task, taskPrefix, failures);
 
                 if (string.IsNullOrWhiteSpace(task.InitialPrompt))
                 {
@@ -150,16 +140,7 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
             return options.Tasks;
         }
 
-        string resolvedManifestPath;
-        try
-        {
-            resolvedManifestPath = AutomationPathResolver.ResolveFromCurrentDirectory(options.ManifestPath);
-        }
-        catch (InvalidOperationException ex)
-        {
-            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:ManifestPath' is invalid. {ex.Message}");
-            return [];
-        }
+        var resolvedManifestPath = Path.GetFullPath(options.ManifestPath, AppContext.BaseDirectory);
 
         if (!File.Exists(resolvedManifestPath))
         {
@@ -207,43 +188,17 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
     private static void ValidateTaskTarget(
         AutomationTaskDefinition task,
         string taskPrefix,
-        int index,
         List<string> failures)
     {
         ArgumentNullException.ThrowIfNull(task);
         ArgumentException.ThrowIfNullOrWhiteSpace(taskPrefix);
         ArgumentNullException.ThrowIfNull(failures);
 
-        var hasWorkspacePath = !string.IsNullOrWhiteSpace(task.WorkspacePath);
         var hasRepositoryUrl = !string.IsNullOrWhiteSpace(task.RepositoryUrl);
 
-        if (!hasWorkspacePath && !hasRepositoryUrl)
+        if (!hasRepositoryUrl)
         {
-            failures.Add($"Configuration field '{taskPrefix}:WorkspacePath' or '{taskPrefix}:RepositoryUrl' is required.");
-            return;
-        }
-
-        if (hasWorkspacePath && hasRepositoryUrl)
-        {
-            failures.Add($"Configuration fields '{taskPrefix}:WorkspacePath' and '{taskPrefix}:RepositoryUrl' are mutually exclusive.");
-            return;
-        }
-
-        if (hasWorkspacePath)
-        {
-            try
-            {
-                var resolvedWorkspacePath = AutomationPathResolver.ResolveFromCurrentDirectory(task.WorkspacePath!);
-                if (!Directory.Exists(resolvedWorkspacePath))
-                {
-                    failures.Add($"Configured workspace path '{resolvedWorkspacePath}' does not exist for task '{task.TaskId ?? $"index-{index}"}'.");
-                }
-            }
-            catch (InvalidOperationException ex)
-            {
-                failures.Add($"Configuration field '{taskPrefix}:WorkspacePath' is invalid. {ex.Message}");
-            }
-
+            failures.Add($"Configuration field '{taskPrefix}:RepositoryUrl' is required.");
             return;
         }
 

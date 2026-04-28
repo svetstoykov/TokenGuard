@@ -5,138 +5,138 @@
       "title": "Repository map",
       "repositoryUrl": "https://github.com/cli/cli",
       "taskSize": "Small",
-      "initialPrompt": "Map this already-cloned repository using Codexplorer tools first: start with `file_tree` or `list_directory`, then use `find_files`, `grep`, and focused `read_range` calls to verify main modules, entry points, and top-level responsibilities. Capture concise evidence-backed notes in `.codexplorer/tasks/batch-small-01-repo-map/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-small-01-repo-map/`."
+      "initialPrompt": "Map this repository using Codexplorer tools first: start with `file_tree` or `list_directory`, then use `find_files`, `grep`, and focused `read_range` calls to verify main modules, entry points, and top-level responsibilities. Capture concise evidence-backed notes in `.codexplorer/tasks/batch-small-01-repo-map/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-small-01-repo-map/`."
     },
     {
       "taskId": "batch-small-02-build-surface",
       "title": "Build and tooling surface",
-      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryUrl": "https://github.com/docker/compose",
       "taskSize": "Small",
       "initialPrompt": "Use Codexplorer repository tools to identify build entry points, package managers, CI hooks, and developer commands already present. Prefer `find_files`, `grep`, and focused reads over broad file dumps. Summarize likely build workflow and noteworthy tooling files in `.codexplorer/tasks/batch-small-02-build-surface/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-small-02-build-surface/`."
     },
     {
       "taskId": "batch-small-03-test-layout",
       "title": "Test layout scan",
-      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryUrl": "https://github.com/neovim/neovim",
       "taskSize": "Small",
       "initialPrompt": "Survey test layout with Codexplorer tools. Use directory listing, file search, and targeted reads to identify test projects or directories, major test categories, naming patterns, and any obvious gaps visible from repository structure. Write notes to `.codexplorer/tasks/batch-small-03-test-layout/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-small-03-test-layout/`."
     },
     {
       "taskId": "batch-small-04-config-scan",
       "title": "Configuration surface scan",
-      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryUrl": "https://github.com/pnpm/pnpm",
       "taskSize": "Small",
       "initialPrompt": "Find main runtime and developer configuration files with `find_files`, `grep`, and focused reads. Summarize what each file controls at a high level and call out which settings appear environment-specific, build-related, or runtime-related. Write result to `.codexplorer/tasks/batch-small-04-config-scan/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-small-04-config-scan/`."
     },
     {
       "taskId": "batch-small-05-dependency-inventory",
       "title": "Dependency inventory",
-      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryUrl": "https://github.com/tree-sitter/tree-sitter",
       "taskSize": "Small",
       "initialPrompt": "Inventory main external dependencies and frameworks used by this repository. Use Codexplorer search and focused file reads to inspect manifest files, project files, lock files, and central package definitions. Focus on direct dependencies that shape architecture or workflow. Write notes to `.codexplorer/tasks/batch-small-05-dependency-inventory/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-small-05-dependency-inventory/`."
     },
     {
       "taskId": "batch-small-06-doc-index",
       "title": "Documentation index",
-      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryUrl": "https://github.com/sharkdp/bat",
       "taskSize": "Small",
       "initialPrompt": "Locate main project documentation files with Codexplorer file search, then use focused reads to summarize what questions each document answers and which docs look authoritative vs supplemental. Write index to `.codexplorer/tasks/batch-small-06-doc-index/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-small-06-doc-index/`."
     },
     {
       "taskId": "batch-small-07-web-context",
       "title": "Public web context",
-      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryUrl": "https://github.com/gohugoio/hugo",
       "taskSize": "Small",
       "initialPrompt": "Use public web capabilities when useful: start from repository evidence, then use `web_search` and `web_fetch` to identify upstream docs, standards, related public references, or official repo pages that matter for this codebase. Capture a short evidence-backed list with links in `.codexplorer/tasks/batch-small-07-web-context/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-small-07-web-context/`."
     },
     {
       "taskId": "batch-medium-01-architecture-trace",
       "title": "Architecture trace",
-      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryUrl": "https://github.com/hashicorp/terraform",
       "taskSize": "Medium",
       "initialPrompt": "Trace primary architecture of this repository using Codexplorer exploration tools. Start broad with tree and file discovery, then narrow with grep and `read_range` to identify major layers, core abstractions, and control flow between them. Write a structured, evidence-backed trace to `.codexplorer/tasks/batch-medium-01-architecture-trace/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-medium-01-architecture-trace/`."
     },
     {
       "taskId": "batch-medium-02-request-flow",
       "title": "Representative request flow",
-      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryUrl": "https://github.com/tailscale/tailscale",
       "taskSize": "Medium",
       "initialPrompt": "Pick one representative runtime or user-visible flow and trace it end to end through this repository. Use `grep`, `find_files`, and focused reads to follow real entry points, key handoffs, and implementation boundaries. Write walkthrough to `.codexplorer/tasks/batch-medium-02-request-flow/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-medium-02-request-flow/`."
     },
     {
       "taskId": "batch-medium-03-error-handling",
       "title": "Error handling audit",
-      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryUrl": "https://github.com/denoland/deno",
       "taskSize": "Medium",
       "initialPrompt": "Audit how this repository handles errors, failures, retries, and surfaced diagnostics in its main execution paths. Use Codexplorer search to find exception handling, retry logic, failure results, and logging around error paths. Summarize consistent patterns and rough edges in `.codexplorer/tasks/batch-medium-03-error-handling/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-medium-03-error-handling/`."
     },
     {
       "taskId": "batch-medium-04-observability",
       "title": "Observability review",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/dotnet/aspire",
       "taskSize": "Medium",
       "initialPrompt": "Review logging, diagnostics, tracing, metrics hooks, and other observability surfaces already present in this repository. Use repository search and focused reads to find concrete instrumentation points, not guesses. Write findings to `.codexplorer/tasks/batch-medium-04-observability/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-medium-04-observability/`."
     },
     {
       "taskId": "batch-medium-05-performance-hotspots",
       "title": "Performance hotspot note",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/redis/redis",
       "taskSize": "Medium",
       "initialPrompt": "Look for likely performance hotspots or scaling risks visible from code structure, data flow, algorithm shape, and I/O patterns. Use Codexplorer search and focused reads to support each claim with repository evidence. Write practical note to `.codexplorer/tasks/batch-medium-05-performance-hotspots/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-medium-05-performance-hotspots/`."
     },
     {
       "taskId": "batch-medium-06-public-api-surface",
       "title": "Public API surface",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/tauri-apps/tauri",
       "taskSize": "Medium",
       "initialPrompt": "Summarize public API surface, extension points, and integration seams exposed by this repository. Use file discovery plus focused reads of public types, exported packages, or documented entry points. Write summary to `.codexplorer/tasks/batch-medium-06-public-api-surface/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-medium-06-public-api-surface/`."
     },
     {
       "taskId": "batch-medium-07-upstream-comparison",
       "title": "Upstream comparison note",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/qdrant/qdrant",
       "taskSize": "Medium",
       "initialPrompt": "Use repository evidence first, then use `web_search` and `web_fetch` to compare this project's current approach with one or two relevant upstream patterns, official docs, or public repositories. Keep comparison grounded in concrete source evidence. Write short comparison note to `.codexplorer/tasks/batch-medium-07-upstream-comparison/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-medium-07-upstream-comparison/`."
     },
     {
       "taskId": "batch-large-01-onboarding-guide",
       "title": "Onboarding guide draft",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/surrealdb/surrealdb",
       "taskSize": "Large",
       "initialPrompt": "Draft practical onboarding guide for engineer joining this repository. Build it from Codexplorer repo exploration: inspect structure, docs, commands, and major entry points, then synthesize guide with clear reading order and first-day commands. Write draft to `.codexplorer/tasks/batch-large-01-onboarding-guide/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-large-01-onboarding-guide/`."
     },
     {
       "taskId": "batch-large-02-improvement-backlog",
       "title": "Improvement backlog",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/pocketbase/pocketbase",
       "taskSize": "Large",
       "initialPrompt": "Produce prioritized improvement backlog based on repository structure, architecture, tooling, docs, and visible friction points. Use Codexplorer notes under task scratch space if you need intermediate synthesis, then write final backlog with rationale and implementation risk notes to `.codexplorer/tasks/batch-large-02-improvement-backlog/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-large-02-improvement-backlog/`."
     },
     {
       "taskId": "batch-large-03-risk-register",
       "title": "Technical risk register",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/helix-editor/helix",
       "taskSize": "Large",
       "initialPrompt": "Create technical risk register for this repository. Cover architecture, dependencies, maintainability, observability, operational concerns, and any assumptions that depend on external services or upstream systems. Use repository evidence and public web context only when it sharpens risk framing. Write register to `.codexplorer/tasks/batch-large-03-risk-register/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-large-03-risk-register/`."
     },
     {
       "taskId": "batch-large-04-integration-draft",
       "title": "Integration guide draft",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/docker/buildx",
       "taskSize": "Large",
       "initialPrompt": "Draft guide for integrating with this repository or adopting its main capabilities in another project. Base it on concrete repository evidence: public APIs, configuration points, extension seams, setup commands, and documented constraints. Write draft to `.codexplorer/tasks/batch-large-04-integration-draft/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-large-04-integration-draft/`."
     },
     {
       "taskId": "batch-large-05-modernization-note",
       "title": "Modernization note",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/astral-sh/ruff",
       "taskSize": "Large",
       "initialPrompt": "Identify modernization opportunities across architecture, dependencies, test strategy, docs, and developer workflow. Use Codexplorer tooling to gather concrete examples, and use public web context only when comparing against current upstream or ecosystem practice. Write practical modernization note to `.codexplorer/tasks/batch-large-05-modernization-note/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-large-05-modernization-note/`."
     },
     {
       "taskId": "batch-large-06-optimization-draft",
       "title": "Optimization draft",
-      "workspacePath": "${CODEXPLORER_WORKSPACE_PATH}",
+      "repositoryUrl": "https://github.com/jesseduffield/lazygit",
       "taskSize": "Large",
       "initialPrompt": "Prepare optimization draft focused on cost, performance, and maintenance trade-offs visible in this repository. Use repository exploration tools to ground each recommendation in code structure, workflow friction, or I/O patterns, and use scratch files if needed for intermediate notes before finalizing `.codexplorer/tasks/batch-large-06-optimization-draft/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/batch-large-06-optimization-draft/`."
     }

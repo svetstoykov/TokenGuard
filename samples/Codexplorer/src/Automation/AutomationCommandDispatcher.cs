@@ -91,65 +91,48 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         var hasWorkspacePath = !string.IsNullOrWhiteSpace(openSessionPayload.WorkspacePath);
         var hasRepositoryUrl = !string.IsNullOrWhiteSpace(openSessionPayload.RepositoryUrl);
 
-        if (hasWorkspacePath == hasRepositoryUrl)
+        if (hasWorkspacePath)
         {
             return AutomationResponseEnvelope.ErrorResponse(
                 request.RequestId,
                 code: "invalid_request",
-                message: "Payload must provide exactly one of 'workspacePath' or 'repositoryUrl'.");
+                message: "Payload property 'workspacePath' is not supported in automation mode. Provide 'repositoryUrl' only.");
+        }
+
+        if (!hasRepositoryUrl)
+        {
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId,
+                code: "invalid_request",
+                message: "Payload must provide 'repositoryUrl'.");
         }
 
         Codexplorer.Workspace.Workspace? workspace;
 
-        if (hasWorkspacePath)
+        try
         {
-            try
-            {
-                workspace = this._workspaceManager.FindByLocalPath(openSessionPayload.WorkspacePath!);
-            }
-            catch (ArgumentException ex)
-            {
-                return AutomationResponseEnvelope.ErrorResponse(
-                    request.RequestId,
-                    code: "invalid_request",
-                    message: ex.Message);
-            }
-
-            if (workspace is null)
-            {
-                return AutomationResponseEnvelope.ErrorResponse(
-                    request.RequestId,
-                    code: "workspace_not_found",
-                    message: $"No tracked workspace exists at '{Path.GetFullPath(openSessionPayload.WorkspacePath!)}'.");
-            }
+            workspace = await this._workspaceManager.CloneAsync(openSessionPayload.RepositoryUrl!, ct: ct).ConfigureAwait(false);
         }
-        else
+        catch (ArgumentException ex)
         {
-            try
-            {
-                workspace = await this._workspaceManager.CloneAsync(openSessionPayload.RepositoryUrl!, ct: ct).ConfigureAwait(false);
-            }
-            catch (ArgumentException ex)
-            {
-                return AutomationResponseEnvelope.ErrorResponse(
-                    request.RequestId,
-                    code: "invalid_request",
-                    message: ex.Message);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return AutomationResponseEnvelope.ErrorResponse(
-                    request.RequestId,
-                    code: "clone_failed",
-                    message: ex.Message);
-            }
-            catch (RepositoryTooLargeException ex)
-            {
-                return AutomationResponseEnvelope.ErrorResponse(
-                    request.RequestId,
-                    code: "clone_failed",
-                    message: ex.Message);
-            }
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId,
+                code: "invalid_request",
+                message: ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId,
+                code: "clone_failed",
+                message: ex.Message);
+        }
+        catch (RepositoryTooLargeException ex)
+        {
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId,
+                code: "clone_failed",
+                message: ex.Message);
         }
 
         var explorerSession = this._explorerAgent.StartSession(workspace!);

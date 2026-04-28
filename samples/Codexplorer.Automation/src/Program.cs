@@ -12,7 +12,11 @@ internal sealed class Program
     {
         try
         {
-            var builder = Host.CreateApplicationBuilder(args);
+            var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
+            {
+                Args = args,
+                ContentRootPath = AppContext.BaseDirectory
+            });
             builder.Configuration.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false);
             builder.Services.AddCodexplorerAutomation(builder.Configuration);
 

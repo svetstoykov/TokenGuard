@@ -121,8 +121,7 @@ Create `../Codexplorer.Automation/src/appsettings.Development.json`:
 ```json
 {
   "CodexplorerAutomation": {
-    "CodexplorerExecutablePath": "../src/bin/Debug/net10.0/Codexplorer",
-    "CodexplorerWorkingDirectory": "..",
+    "CodexplorerExecutablePath": "../../../../../Codexplorer/src/bin/Debug/net10.0/Codexplorer",
     "ManifestPath": "./tasks/initial-corpus.json",
     "HelperAi": {
       "ModelName": "openai/gpt-5.4-mini",
@@ -147,13 +146,13 @@ dotnet run
 
 Shipped batch workflow:
 
-1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty queued tasks with task ID, title, target `workspacePath` or `repositoryUrl`, initial prompt, and size class.
+1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty queued tasks with task ID, title, `repositoryUrl`, initial prompt, and size class.
 2. Runner loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
 3. Each shipped task tells Codexplorer not to modify repository source files and to keep task-owned notes under `.codexplorer/tasks/<task-id>/`.
 4. Resulting task artifacts land inside the target workspace under `.codexplorer/tasks/<task-id>/`.
 5. Codexplorer session transcripts still land in Codexplorer's normal session log location, which is reported in automation responses and written by Codexplorer itself.
 
-The shipped corpus now mixes direct public GitHub clone targets with normal local-workspace tasks, so custom manifests only need `CODEXPLORER_WORKSPACE_PATH` when they actually use `workspacePath`.
+Automation paths are now resolved relative to each executable's own directory. The runner starts Codexplorer with the Codexplorer executable directory as its working directory, and Codexplorer resolves its relative workspace and log paths from that same executable directory.
 
 To inspect results after a batch:
 
@@ -175,8 +174,6 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
   ]
 }
 ```
-
-`workspacePath` remains supported for already cloned tracked workspaces.
 
 ## Configuration
 
@@ -215,7 +212,7 @@ If `BRAVE_SEARCH_API_KEY` is missing and `Codexplorer:BraveSearch:ApiKey` is emp
 
 ### Optional: override defaults
 
-Shared defaults live in `src/appsettings.json`. You can override any of them in `src/appsettings.Development.json`.
+Shared defaults live in `src/appsettings.json`. You can override any of them in `src/appsettings.Development.json`. Relative paths in those files are resolved from Codexplorer's executable/output directory.
 
 Example:
 

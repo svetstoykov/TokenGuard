@@ -53,7 +53,7 @@ public sealed class WorkspaceManager : IWorkspaceManager
             ?? throw new InvalidOperationException("Codexplorer workspace options are not configured.");
         var workspaceRootDirectory = this._workspaceOptions.RootDirectory
             ?? throw new InvalidOperationException("Codexplorer workspace root directory is not configured.");
-        this._workspaceRootDirectory = Path.GetFullPath(workspaceRootDirectory);
+        this._workspaceRootDirectory = CodexplorerPathResolver.ResolveFromAppBaseDirectory(workspaceRootDirectory);
     }
 
     /// <inheritdoc />

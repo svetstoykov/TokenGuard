@@ -118,7 +118,7 @@ internal sealed class MainMenu
             ?? throw new InvalidOperationException("Codexplorer logging options are not configured.");
         var sessionLogsDirectory = loggingOptions.SessionLogsDirectory
             ?? throw new InvalidOperationException("Codexplorer session logs directory is not configured.");
-        var absoluteLogDirectory = Path.GetFullPath(sessionLogsDirectory);
+        var absoluteLogDirectory = CodexplorerPathResolver.ResolveFromAppBaseDirectory(sessionLogsDirectory);
 
         if (!Directory.Exists(absoluteLogDirectory))
         {
