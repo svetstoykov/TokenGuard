@@ -95,9 +95,10 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
             {request.RunnerQuestion}
 
             Turns consumed so far: {request.TurnsConsumed}
-            Total task turn budget: {request.MaxTurns}
-            Reserved wrap-up window: {request.WrapUpWindow}
+            Planned task turn budget: {request.MaxTurns}
+            Planned wrap-up window: {request.WrapUpWindow}
             Wrap-up already sent: {request.WrapUpSent}
+            Treat planning budget numbers as soft guidance, not a hard stop.
 
             Return one direct answer message that runner can submit back into same Codexplorer session.
             """;

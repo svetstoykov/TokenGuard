@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Serilog;
 using Serilog.Events;
+using Serilog.Sinks.SystemConsole.Themes;
 
 namespace Codexplorer;
 
@@ -36,7 +37,9 @@ internal sealed class Program
 
             builder.Services.AddSerilog((_, loggerConfiguration) => loggerConfiguration
                 .MinimumLevel.Information()
-                .WriteTo.Console(standardErrorFromLevel: startupOptions.AutomationMode ? LogEventLevel.Verbose : LogEventLevel.Fatal)
+                .WriteTo.Console(
+                    theme: AnsiConsoleTheme.Code,
+                    standardErrorFromLevel: startupOptions.AutomationMode ? LogEventLevel.Verbose : LogEventLevel.Fatal)
                 .WriteTo.File(
                     Path.Combine(AppContext.BaseDirectory, "logs", "codexplorer-.log"),
                     rollingInterval: RollingInterval.Day));

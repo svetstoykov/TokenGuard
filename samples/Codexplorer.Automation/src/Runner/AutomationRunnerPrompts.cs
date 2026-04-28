@@ -9,8 +9,9 @@ internal static class AutomationRunnerPrompts
             Continue working on current task.
             Keep making concrete progress.
             Do not stop for summary yet.
-            If you need genuine outside clarification, ask one precise question with `QUESTION_FOR_RUNNER:`.
-            Remaining task turn budget is approximately {turnsRemaining}.
+            Be willing to ask for clarification sooner when requirements are ambiguous, repository context is missing, or a risky assumption would change your approach.
+            When blocked by uncertainty, ask one precise question with `QUESTION_FOR_RUNNER:` instead of guessing.
+            Remaining planned turn budget is approximately {turnsRemaining}. Treat this as guidance, not a hard stop.
             """;
     }
 
@@ -22,8 +23,9 @@ internal static class AutomationRunnerPrompts
             You hit previous per-message turn cap before finishing reply.
             Do not repeat completed work.
             Keep moving task forward.
-            If you need genuine outside clarification, ask one precise question with `QUESTION_FOR_RUNNER:`.
-            Remaining task turn budget is approximately {turnsRemaining}.
+            Be more liberal about asking for clarification when the next step depends on intent, missing context, or a meaningful product decision.
+            When blocked by uncertainty, ask one precise question with `QUESTION_FOR_RUNNER:` instead of forcing progress through guesses.
+            Remaining planned turn budget is approximately {turnsRemaining}. Treat this as guidance, not a hard stop.
             """;
     }
 

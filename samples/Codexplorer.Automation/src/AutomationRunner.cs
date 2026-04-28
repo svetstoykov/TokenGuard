@@ -166,42 +166,10 @@ internal sealed class AutomationRunner
                             return TaskExecutionResult.Success(task.TaskId!);
                         }
 
-                        if (taskState.HardCapReached)
-                        {
-                            this._logger.LogWarning(
-                                "Task {TaskId} reached hard turn cap immediately after reply_received.",
-                                task.TaskId);
-                            if (sessionOpen)
-                            {
-                                await this.CloseSessionAsync(openedSession.SessionId, task.TaskId!, ct).ConfigureAwait(false);
-                                sessionOpen = false;
-                            }
-
-                            return TaskExecutionResult.Failure(task.TaskId!, "Task hit hard turn cap before wrap-up could be sent.");
-                        }
-
                         nextMessage = await this.BuildNextMessageAsync(taskState, response, ct).ConfigureAwait(false);
                         continue;
 
                     case "max_turns_reached":
-                        if (taskState.HardCapReached || taskState.WrapUpSent)
-                        {
-                            this._logger.LogWarning(
-                                "Task {TaskId} cannot continue after max_turns_reached. HardCapReached={HardCapReached}. WrapUpSent={WrapUpSent}.",
-                                task.TaskId,
-                                taskState.HardCapReached,
-                                taskState.WrapUpSent);
-                            if (sessionOpen)
-                            {
-                                await this.CloseSessionAsync(openedSession.SessionId, task.TaskId!, ct).ConfigureAwait(false);
-                                sessionOpen = false;
-                            }
-
-                            return TaskExecutionResult.Failure(
-                                task.TaskId!,
-                                "Codexplorer hit its per-message turn cap and the runner had no safe turns left to continue.");
-                        }
-
                         nextMessage = await this.BuildNextMessageAsync(taskState, response, ct).ConfigureAwait(false);
                         continue;
 
@@ -318,7 +286,7 @@ internal sealed class AutomationRunner
             ? "resume"
             : "continue";
         this._logger.LogInformation(
-            "Task {TaskId} will {ContinuationMode}. TurnsRemaining={TurnsRemaining}.",
+            "Task {TaskId} will {ContinuationMode}. PlannedTurnsRemaining={TurnsRemaining}.",
             taskState.Task.TaskId,
             continuationMessage,
             taskState.TurnsRemaining);
@@ -370,8 +338,6 @@ internal sealed class AutomationRunner
         public bool WrapUpSent { get; private set; }
 
         public bool ShouldSendWrapUp => !this.WrapUpSent && this.TurnsConsumed >= this.Budget.WrapUpTriggerTurns;
-
-        public bool HardCapReached => this.TurnsConsumed >= this.Budget.MaxTurns;
 
         public void MarkWrapUpSent()
         {
