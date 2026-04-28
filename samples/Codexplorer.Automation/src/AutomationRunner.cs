@@ -11,6 +11,7 @@ internal sealed class AutomationRunner
 {
     private readonly IAutomationProtocolTransport _transport;
     private readonly ICodexplorerAutomationClient _client;
+    private readonly IAutomationTaskManifestLoader _taskManifestLoader;
     private readonly IRunnerHelperAi _helperAi;
     private readonly CodexplorerAutomationOptions _options;
     private readonly ILogger<AutomationRunner> _logger;
@@ -18,18 +19,21 @@ internal sealed class AutomationRunner
     public AutomationRunner(
         IAutomationProtocolTransport transport,
         ICodexplorerAutomationClient client,
+        IAutomationTaskManifestLoader taskManifestLoader,
         IRunnerHelperAi helperAi,
         IOptions<CodexplorerAutomationOptions> options,
         ILogger<AutomationRunner> logger)
     {
         ArgumentNullException.ThrowIfNull(transport);
         ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(taskManifestLoader);
         ArgumentNullException.ThrowIfNull(helperAi);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
 
         this._transport = transport;
         this._client = client;
+        this._taskManifestLoader = taskManifestLoader;
         this._helperAi = helperAi;
         this._options = options.Value;
         this._logger = logger;
@@ -47,9 +51,12 @@ internal sealed class AutomationRunner
                 ping.ProtocolVersion,
                 this._transport.ProcessId);
 
+            var tasks = this._taskManifestLoader.LoadTasks();
             var encounteredFailure = false;
 
-            foreach (var task in this._options.Tasks)
+            this._logger.LogInformation("Loaded {TaskCount} automation tasks from manifest.", tasks.Count);
+
+            foreach (var task in tasks)
             {
                 var taskResult = await this.ExecuteTaskAsync(task, ct).ConfigureAwait(false);
                 if (taskResult.Succeeded)
@@ -102,18 +109,17 @@ internal sealed class AutomationRunner
     {
         ArgumentNullException.ThrowIfNull(task);
 
-        var resolvedWorkspacePath = AutomationPathResolver.ResolveFromCurrentDirectory(task.WorkspacePath);
         var budget = this._options.GetTurnBudget(task.TaskSize);
-        var taskState = new TaskExecutionState(task, resolvedWorkspacePath, budget);
-
         var openedSession = await this._client
-            .OpenSessionAsync(new OpenSessionRequest(resolvedWorkspacePath), ct)
+            .OpenSessionAsync(CreateOpenSessionRequest(task), ct)
             .ConfigureAwait(false);
+        var taskState = new TaskExecutionState(task, openedSession.Workspace.LocalPath, budget);
 
         this._logger.LogInformation(
-            "Opened automation session {SessionId} for task {TaskId} in workspace {WorkspacePath}.",
+            "Opened automation session {SessionId} for task {TaskId} ({TaskTitle}) in workspace {WorkspacePath}.",
             openedSession.SessionId,
             task.TaskId,
+            task.Title,
             openedSession.Workspace.LocalPath);
 
         var sessionOpen = true;
@@ -222,6 +228,24 @@ internal sealed class AutomationRunner
                 await this.CloseSessionAsync(openedSession.SessionId, task.TaskId!, ct).ConfigureAwait(false);
             }
         }
+    }
+
+    private static OpenSessionRequest CreateOpenSessionRequest(AutomationTaskDefinition task)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+
+        if (!string.IsNullOrWhiteSpace(task.RepositoryUrl))
+        {
+            return new OpenSessionRequest
+            {
+                RepositoryUrl = task.RepositoryUrl
+            };
+        }
+
+        return new OpenSessionRequest
+        {
+            WorkspacePath = AutomationPathResolver.ResolveFromCurrentDirectory(task.WorkspacePath)
+        };
     }
 
     private async Task<string> BuildNextMessageAsync(

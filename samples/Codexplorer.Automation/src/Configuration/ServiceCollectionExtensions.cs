@@ -39,6 +39,7 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IAutomationProtocolTransport, ProcessAutomationProtocolTransport>();
         services.TryAddSingleton<ICodexplorerAutomationClient, CodexplorerAutomationClient>();
+        services.TryAddSingleton<IAutomationTaskManifestLoader, AutomationTaskManifestLoader>();
         services.AddHttpClient<IRunnerHelperAi, OpenRouterRunnerHelperAi>();
         services.TryAddSingleton<AutomationRunner>();
 

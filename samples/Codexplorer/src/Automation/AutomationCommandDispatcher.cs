@@ -39,7 +39,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 
         if (string.Equals(request.Command, "open_session", StringComparison.OrdinalIgnoreCase))
         {
-            return this.OpenSessionAsync(request);
+            return this.OpenSessionAsync(request, ct);
         }
 
         if (string.Equals(request.Command, "close_session", StringComparison.OrdinalIgnoreCase))
@@ -59,58 +59,119 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 message: $"Command '{request.Command}' is not supported."));
     }
 
-    private Task<AutomationResponseEnvelope> OpenSessionAsync(AutomationRequestEnvelope request)
+    private async Task<AutomationResponseEnvelope> OpenSessionAsync(AutomationRequestEnvelope request, CancellationToken ct)
     {
-        if (!TryGetRequiredStringPayloadProperty(request, "workspacePath", out var workspacePath, out var errorResponse))
+        if (!TryGetPayloadObject(request, out var payload, out var errorResponse))
         {
-            return Task.FromResult(errorResponse!);
+            return errorResponse!;
+        }
+
+        OpenSessionPayload? openSessionPayload;
+
+        try
+        {
+            openSessionPayload = payload.Deserialize<OpenSessionPayload>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+        catch (JsonException ex)
+        {
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId,
+                code: "invalid_request",
+                message: $"Command '{request.Command}' payload could not be parsed. {ex.Message}");
+        }
+
+        if (openSessionPayload is null)
+        {
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId,
+                code: "invalid_request",
+                message: $"Command '{request.Command}' requires a JSON object payload.");
+        }
+
+        var hasWorkspacePath = !string.IsNullOrWhiteSpace(openSessionPayload.WorkspacePath);
+        var hasRepositoryUrl = !string.IsNullOrWhiteSpace(openSessionPayload.RepositoryUrl);
+
+        if (hasWorkspacePath == hasRepositoryUrl)
+        {
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId,
+                code: "invalid_request",
+                message: "Payload must provide exactly one of 'workspacePath' or 'repositoryUrl'.");
         }
 
         Codexplorer.Workspace.Workspace? workspace;
 
-        try
+        if (hasWorkspacePath)
         {
-            workspace = this._workspaceManager.FindByLocalPath(workspacePath!);
-        }
-        catch (ArgumentException ex)
-        {
-            return Task.FromResult(
-                AutomationResponseEnvelope.ErrorResponse(
+            try
+            {
+                workspace = this._workspaceManager.FindByLocalPath(openSessionPayload.WorkspacePath!);
+            }
+            catch (ArgumentException ex)
+            {
+                return AutomationResponseEnvelope.ErrorResponse(
                     request.RequestId,
                     code: "invalid_request",
-                    message: ex.Message));
-        }
+                    message: ex.Message);
+            }
 
-        if (workspace is null)
-        {
-            return Task.FromResult(
-                AutomationResponseEnvelope.ErrorResponse(
+            if (workspace is null)
+            {
+                return AutomationResponseEnvelope.ErrorResponse(
                     request.RequestId,
                     code: "workspace_not_found",
-                    message: $"No tracked workspace exists at '{Path.GetFullPath(workspacePath!)}'."));
+                    message: $"No tracked workspace exists at '{Path.GetFullPath(openSessionPayload.WorkspacePath!)}'.");
+            }
+        }
+        else
+        {
+            try
+            {
+                workspace = await this._workspaceManager.CloneAsync(openSessionPayload.RepositoryUrl!, ct: ct).ConfigureAwait(false);
+            }
+            catch (ArgumentException ex)
+            {
+                return AutomationResponseEnvelope.ErrorResponse(
+                    request.RequestId,
+                    code: "invalid_request",
+                    message: ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return AutomationResponseEnvelope.ErrorResponse(
+                    request.RequestId,
+                    code: "clone_failed",
+                    message: ex.Message);
+            }
+            catch (RepositoryTooLargeException ex)
+            {
+                return AutomationResponseEnvelope.ErrorResponse(
+                    request.RequestId,
+                    code: "clone_failed",
+                    message: ex.Message);
+            }
         }
 
-        var explorerSession = this._explorerAgent.StartSession(workspace);
+        var explorerSession = this._explorerAgent.StartSession(workspace!);
 
         try
         {
             var registration = this._sessionRegistry.Add(workspace, explorerSession);
-            return Task.FromResult(
-                AutomationResponseEnvelope.SuccessResponse(
-                    request.RequestId!,
-                    new OpenSessionResult(
-                        registration.SessionId,
-                        new AutomationWorkspaceResult(
-                            workspace.Name,
-                            workspace.OwnerRepo,
-                            workspace.LocalPath,
-                            workspace.ClonedAt,
-                            workspace.SizeBytes),
-                        registration.LogFilePath)));
+            return AutomationResponseEnvelope.SuccessResponse(
+                request.RequestId!,
+                new OpenSessionResult(
+                    registration.SessionId,
+                    new AutomationWorkspaceResult(
+                        workspace.Name,
+                        workspace.OwnerRepo,
+                        workspace.LocalPath,
+                        workspace.ClonedAt,
+                        workspace.SizeBytes),
+                    registration.LogFilePath));
         }
         catch
         {
-            return DisposeFailedOpenSessionAsync(explorerSession);
+            return await DisposeFailedOpenSessionAsync(explorerSession).ConfigureAwait(false);
         }
     }
 
@@ -219,6 +280,28 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
             return false;
         }
 
+        errorResponse = null;
+        return true;
+    }
+
+    private static bool TryGetPayloadObject(
+        AutomationRequestEnvelope request,
+        out JsonElement payload,
+        out AutomationResponseEnvelope? errorResponse)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.Payload is null || request.Payload.Value.ValueKind != JsonValueKind.Object)
+        {
+            payload = default;
+            errorResponse = AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId,
+                code: "invalid_request",
+                message: $"Command '{request.Command}' requires a JSON object payload.");
+            return false;
+        }
+
+        payload = request.Payload.Value;
         errorResponse = null;
         return true;
     }
@@ -346,6 +429,8 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         string SessionId,
         AutomationWorkspaceResult Workspace,
         string LogFilePath);
+
+    private sealed record OpenSessionPayload(string? WorkspacePath, string? RepositoryUrl);
 
     private sealed record AutomationWorkspaceResult(
         string Name,

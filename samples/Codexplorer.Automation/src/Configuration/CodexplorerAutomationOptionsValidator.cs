@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Configuration;
+using System.Text.Json;
 
 namespace Codexplorer.Automation.Configuration;
 
@@ -47,18 +48,23 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
             }
         }
 
-        if (options.Tasks.Count == 0)
+        var configuredTasks = this.TryLoadConfiguredTasks(options, failures);
+
+        if (configuredTasks.Count == 0)
         {
-            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:Tasks' must contain at least one task definition.");
+            failures.Add(
+                $"Configuration must provide at least one task definition through '{CodexplorerAutomationOptions.SectionName}:ManifestPath' or '{CodexplorerAutomationOptions.SectionName}:Tasks'.");
         }
         else
         {
             var uniqueTaskIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            for (var index = 0; index < options.Tasks.Count; index++)
+            for (var index = 0; index < configuredTasks.Count; index++)
             {
-                var task = options.Tasks[index];
-                var taskPrefix = $"{CodexplorerAutomationOptions.SectionName}:Tasks:{index}";
+                var task = configuredTasks[index];
+                var taskPrefix = !string.IsNullOrWhiteSpace(options.ManifestPath)
+                    ? $"{CodexplorerAutomationOptions.SectionName}:ManifestPath:Tasks:{index}"
+                    : $"{CodexplorerAutomationOptions.SectionName}:Tasks:{index}";
 
                 if (task is null)
                 {
@@ -75,22 +81,20 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
                     failures.Add($"Configuration field '{taskPrefix}:TaskId' must be unique. Duplicate value '{task.TaskId}' was found.");
                 }
 
-                if (string.IsNullOrWhiteSpace(task.WorkspacePath))
+                if (string.IsNullOrWhiteSpace(task.Title))
                 {
-                    failures.Add($"Configuration field '{taskPrefix}:WorkspacePath' is required.");
+                    failures.Add($"Configuration field '{taskPrefix}:Title' is required.");
                 }
-                else
-                {
-                    var resolvedWorkspacePath = AutomationPathResolver.ResolveFromCurrentDirectory(task.WorkspacePath);
-                    if (!Directory.Exists(resolvedWorkspacePath))
-                    {
-                        failures.Add($"Configured workspace path '{resolvedWorkspacePath}' does not exist for task '{task.TaskId ?? $"index-{index}"}'.");
-                    }
-                }
+
+                ValidateTaskTarget(task, taskPrefix, index, failures);
 
                 if (string.IsNullOrWhiteSpace(task.InitialPrompt))
                 {
                     failures.Add($"Configuration field '{taskPrefix}:InitialPrompt' is required.");
+                }
+                else
+                {
+                    ValidateTaskPrompt(task, taskPrefix, failures);
                 }
             }
         }
@@ -132,6 +136,141 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
+    }
+
+    private IReadOnlyList<AutomationTaskDefinition> TryLoadConfiguredTasks(
+        CodexplorerAutomationOptions options,
+        List<string> failures)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(failures);
+
+        if (string.IsNullOrWhiteSpace(options.ManifestPath))
+        {
+            return options.Tasks;
+        }
+
+        string resolvedManifestPath;
+        try
+        {
+            resolvedManifestPath = AutomationPathResolver.ResolveFromCurrentDirectory(options.ManifestPath);
+        }
+        catch (InvalidOperationException ex)
+        {
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:ManifestPath' is invalid. {ex.Message}");
+            return [];
+        }
+
+        if (!File.Exists(resolvedManifestPath))
+        {
+            failures.Add($"Configured manifest path '{resolvedManifestPath}' does not exist.");
+            return [];
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(resolvedManifestPath);
+            var manifest = JsonSerializer.Deserialize<AutomationTaskManifest>(stream, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            return manifest?.Tasks ?? [];
+        }
+        catch (JsonException ex)
+        {
+            failures.Add($"Configured manifest path '{resolvedManifestPath}' contains invalid JSON. {ex.Message}");
+            return [];
+        }
+    }
+
+    private static void ValidateTaskPrompt(
+        AutomationTaskDefinition task,
+        string taskPrefix,
+        List<string> failures)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentException.ThrowIfNullOrWhiteSpace(taskPrefix);
+        ArgumentNullException.ThrowIfNull(failures);
+
+        var taskArtifactDirectory = $".codexplorer/tasks/{task.TaskId}/";
+        if (!task.InitialPrompt!.Contains(taskArtifactDirectory, StringComparison.Ordinal))
+        {
+            failures.Add(
+                $"Configuration field '{taskPrefix}:InitialPrompt' must direct task-owned artifacts to '{taskArtifactDirectory}'.");
+        }
+
+        if (!task.InitialPrompt.Contains("Do not modify", StringComparison.OrdinalIgnoreCase)
+            || !task.InitialPrompt.Contains("repository source", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add(
+                $"Configuration field '{taskPrefix}:InitialPrompt' must explicitly forbid modifying repository source files.");
+        }
+    }
+
+    private static void ValidateTaskTarget(
+        AutomationTaskDefinition task,
+        string taskPrefix,
+        int index,
+        List<string> failures)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentException.ThrowIfNullOrWhiteSpace(taskPrefix);
+        ArgumentNullException.ThrowIfNull(failures);
+
+        var hasWorkspacePath = !string.IsNullOrWhiteSpace(task.WorkspacePath);
+        var hasRepositoryUrl = !string.IsNullOrWhiteSpace(task.RepositoryUrl);
+
+        if (!hasWorkspacePath && !hasRepositoryUrl)
+        {
+            failures.Add($"Configuration field '{taskPrefix}:WorkspacePath' or '{taskPrefix}:RepositoryUrl' is required.");
+            return;
+        }
+
+        if (hasWorkspacePath && hasRepositoryUrl)
+        {
+            failures.Add($"Configuration fields '{taskPrefix}:WorkspacePath' and '{taskPrefix}:RepositoryUrl' are mutually exclusive.");
+            return;
+        }
+
+        if (hasWorkspacePath)
+        {
+            try
+            {
+                var resolvedWorkspacePath = AutomationPathResolver.ResolveFromCurrentDirectory(task.WorkspacePath!);
+                if (!Directory.Exists(resolvedWorkspacePath))
+                {
+                    failures.Add($"Configured workspace path '{resolvedWorkspacePath}' does not exist for task '{task.TaskId ?? $"index-{index}"}'.");
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                failures.Add($"Configuration field '{taskPrefix}:WorkspacePath' is invalid. {ex.Message}");
+            }
+
+            return;
+        }
+
+        ValidateRepositoryUrl(task.RepositoryUrl!, $"{taskPrefix}:RepositoryUrl", failures);
+    }
+
+    private static void ValidateRepositoryUrl(string repositoryUrl, string fieldName, List<string> failures)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fieldName);
+        ArgumentNullException.ThrowIfNull(failures);
+
+        if (Uri.TryCreate(repositoryUrl, UriKind.Absolute, out var uri))
+        {
+            if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase))
+            {
+                failures.Add($"Configuration field '{fieldName}' must target a GitHub HTTPS repository URL.");
+            }
+
+            return;
+        }
+
+        if (!repositoryUrl.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add($"Configuration field '{fieldName}' must be a GitHub HTTPS or SSH repository URL.");
+        }
     }
 
     private static void ValidateBudgetProfile(TurnBudgetProfile profile, string prefix, List<string> failures)

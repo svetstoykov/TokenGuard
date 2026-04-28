@@ -97,11 +97,16 @@ Minimal smoke example:
 ```text
 {"requestId":"1","command":"ping"}
 {"requestId":"1","success":true,"result":{"status":"ok","protocolVersion":1},"error":null}
-{"requestId":"2","command":"open_session","payload":{"workspacePath":"/absolute/path/to/workspace/dotnet-runtime"}}
-{"requestId":"2","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","workspace":{"name":"runtime","ownerRepo":"dotnet/runtime","localPath":"/absolute/path/to/workspace/dotnet-runtime","clonedAt":"2026-04-26T09:00:00.0000000Z","sizeBytes":123456789},"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-dotnet-runtime-interactive-repo-chat.md"},"error":null}
+{"requestId":"2","command":"open_session","payload":{"repositoryUrl":"https://github.com/cli/cli"}}
+{"requestId":"2","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","workspace":{"name":"cli","ownerRepo":"cli/cli","localPath":"/absolute/path/to/workspace/cli-cli","clonedAt":"2026-04-26T09:00:00.0000000Z","sizeBytes":123456789},"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-cli-cli-interactive-repo-chat.md"},"error":null}
 {"requestId":"3","command":"submit","payload":{"sessionId":"session_0123456789abcdef0123456789abcdef","message":"Give me the main entry points for this repo."}}
 {"requestId":"3","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","outcome":"reply_received","assistantText":"The main entry points are ...","assistantTextIsPartial":false,"modelTurnsCompleted":2,"reportedTokensConsumed":1874,"sessionOpen":true,"asksRunner":false,"runnerQuestion":null,"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-dotnet-runtime-interactive-repo-chat.md","degradationReason":null,"failure":null},"error":null}
 ```
+
+`open_session` accepts exactly one target:
+
+- `workspacePath` for an already tracked local workspace
+- `repositoryUrl` for clone-on-open from a public GitHub HTTPS or SSH URL
 
 If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
 
@@ -109,37 +114,16 @@ If the assistant needs genuine outside clarification from the automation runner,
 
 ### Automation runner
 
-`Codexplorer.Automation` is a separate executable in the same sample-local solution. It launches Codexplorer with `--automation`, keeps stdout reserved for protocol traffic, logs child stderr separately, and exposes typed `open_session`, `submit`, and `close_session` client calls inside the runner codebase.
+`Codexplorer.Automation` is a separate executable under `samples/Codexplorer.Automation/src`. It launches Codexplorer with `--automation`, keeps stdout reserved for protocol traffic, logs child stderr separately, and exposes typed `open_session`, `submit`, and `close_session` client calls inside the runner codebase.
 
-Create `automation/appsettings.Development.json`:
+Create `../Codexplorer.Automation/src/appsettings.Development.json`:
 
 ```json
 {
   "CodexplorerAutomation": {
     "CodexplorerExecutablePath": "../src/bin/Debug/net10.0/Codexplorer",
     "CodexplorerWorkingDirectory": "..",
-    "Tasks": [
-      {
-        "TaskId": "tg-065-smoke",
-        "WorkspacePath": "../workspace/dotnet-runtime",
-        "TaskSize": "Medium",
-        "InitialPrompt": "Find the core hosting entry points for this repository and start implementing the requested change."
-      }
-    ],
-    "TurnBudgets": {
-      "Small": {
-        "MaxTurns": 24,
-        "WrapUpWindow": 4
-      },
-      "Medium": {
-        "MaxTurns": 48,
-        "WrapUpWindow": 8
-      },
-      "Large": {
-        "MaxTurns": 80,
-        "WrapUpWindow": 12
-      }
-    },
+    "ManifestPath": "./tasks/initial-corpus.json",
     "HelperAi": {
       "ModelName": "openai/gpt-5.4-mini",
       "ApiKey": "your-openrouter-api-key"
@@ -157,19 +141,42 @@ export OPENROUTER_API_KEY="your-openrouter-api-key"
 Then run it from automation project directory:
 
 ```bash
-cd samples/Codexplorer/automation
+cd samples/Codexplorer.Automation/src
 dotnet run
 ```
 
-Runner behavior now:
+Shipped batch workflow:
 
-- Opens one Codexplorer session per configured task and submits `InitialPrompt`
-- Tracks cumulative `modelTurnsCompleted` against configured small/medium/large task budgets
-- Sends helper-AI answers back into same session whenever `submit` returns `asksRunner: true`
-- Reserves wrap-up window before hard cap and sends a final stop prompt that constrains task-owned artifacts to `.codexplorer/tasks/<task-id>/`
-- Treats `degraded`, unsafe `max_turns_reached`, and `failed` outcomes as explicit stop conditions
+1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty queued tasks with task ID, title, target `workspacePath` or `repositoryUrl`, initial prompt, and size class.
+2. Runner loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
+3. Each shipped task tells Codexplorer not to modify repository source files and to keep task-owned notes under `.codexplorer/tasks/<task-id>/`.
+4. Resulting task artifacts land inside the target workspace under `.codexplorer/tasks/<task-id>/`.
+5. Codexplorer session transcripts still land in Codexplorer's normal session log location, which is reported in automation responses and written by Codexplorer itself.
 
-- Later task analytics can build on top of this bounded live loop without parsing markdown transcripts during execution
+The shipped corpus now mixes direct public GitHub clone targets with normal local-workspace tasks, so custom manifests only need `CODEXPLORER_WORKSPACE_PATH` when they actually use `workspacePath`.
+
+To inspect results after a batch:
+
+- Check `.codexplorer/tasks/` inside the target workspace for task-owned notes and drafts.
+- Check Codexplorer session transcripts under its configured session logs directory for the full conversation history.
+
+To run a different manifest, point `CodexplorerAutomation:ManifestPath` at another JSON file in `appsettings.Development.json`. The manifest format is:
+
+```json
+{
+  "tasks": [
+    {
+      "taskId": "example-task",
+      "title": "Example title",
+      "repositoryUrl": "https://github.com/cli/cli",
+      "taskSize": "Medium",
+      "initialPrompt": "Write notes to `.codexplorer/tasks/example-task/report.md`. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under `.codexplorer/tasks/example-task/`."
+    }
+  ]
+}
+```
+
+`workspacePath` remains supported for already cloned tracked workspaces.
 
 ## Configuration
 

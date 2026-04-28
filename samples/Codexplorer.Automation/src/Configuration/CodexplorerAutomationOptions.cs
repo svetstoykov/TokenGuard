@@ -8,6 +8,8 @@ internal sealed record CodexplorerAutomationOptions
 
     public string? CodexplorerWorkingDirectory { get; init; } = "..";
 
+    public string? ManifestPath { get; init; } = "./tasks/initial-corpus.json";
+
     public IReadOnlyList<AutomationTaskDefinition> Tasks { get; init; } = [];
 
     public AutomationTurnBudgetOptions TurnBudgets { get; init; } = new();
@@ -30,11 +32,20 @@ internal sealed record AutomationTaskDefinition
 {
     public string? TaskId { get; init; }
 
+    public string? Title { get; init; }
+
     public string? WorkspacePath { get; init; }
+
+    public string? RepositoryUrl { get; init; }
 
     public RunnerTaskSize TaskSize { get; init; } = RunnerTaskSize.Medium;
 
     public string? InitialPrompt { get; init; }
+}
+
+internal sealed record AutomationTaskManifest
+{
+    public IReadOnlyList<AutomationTaskDefinition> Tasks { get; init; } = [];
 }
 
 internal enum RunnerTaskSize

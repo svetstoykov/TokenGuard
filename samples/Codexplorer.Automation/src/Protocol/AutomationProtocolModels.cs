@@ -21,7 +21,12 @@ internal sealed record AutomationWorkspace(
     DateTime ClonedAt,
     long SizeBytes);
 
-internal sealed record OpenSessionRequest(string WorkspacePath);
+internal sealed record OpenSessionRequest
+{
+    public string? WorkspacePath { get; init; }
+
+    public string? RepositoryUrl { get; init; }
+}
 
 internal sealed record OpenSessionResponse(
     string SessionId,
