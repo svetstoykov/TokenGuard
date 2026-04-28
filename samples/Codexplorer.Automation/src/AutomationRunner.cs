@@ -43,6 +43,7 @@ internal sealed class AutomationRunner
     {
         try
         {
+            this._logger.LogInformation("Automation runner starting.");
             await this._transport.StartAsync(ct).ConfigureAwait(false);
 
             var ping = await this._client.PingAsync(ct).ConfigureAwait(false);
@@ -54,7 +55,7 @@ internal sealed class AutomationRunner
             var tasks = this._taskManifestLoader.LoadTasks();
             var encounteredFailure = false;
 
-            this._logger.LogInformation("Loaded {TaskCount} automation tasks from manifest.", tasks.Count);
+            this._logger.LogInformation("Loaded {TaskCount} automation tasks.", tasks.Count);
 
             foreach (var task in tasks)
             {
@@ -74,6 +75,9 @@ internal sealed class AutomationRunner
                 encounteredFailure |= !taskResult.Succeeded;
             }
 
+            this._logger.LogInformation(
+                "Automation runner finished. EncounteredFailure={EncounteredFailure}.",
+                encounteredFailure);
             return encounteredFailure ? 1 : 0;
         }
         catch (CodexplorerAutomationProtocolException ex)
@@ -110,17 +114,25 @@ internal sealed class AutomationRunner
         ArgumentNullException.ThrowIfNull(task);
 
         var budget = this._options.GetTurnBudget(task.TaskSize);
+        this._logger.LogInformation(
+            "Starting task {TaskId} ({TaskTitle}). Repository={RepositoryUrl}. Budget={MaxTurns} turns with wrap-up window {WrapUpWindow}.",
+            task.TaskId,
+            task.Title,
+            task.RepositoryUrl,
+            budget.MaxTurns,
+            budget.WrapUpWindow);
         var openedSession = await this._client
             .OpenSessionAsync(CreateOpenSessionRequest(task), ct)
             .ConfigureAwait(false);
         var taskState = new TaskExecutionState(task, openedSession.Workspace.LocalPath, budget);
 
         this._logger.LogInformation(
-            "Opened automation session {SessionId} for task {TaskId} ({TaskTitle}) in workspace {WorkspacePath}.",
+            "Opened automation session {SessionId} for task {TaskId} ({TaskTitle}) in workspace {WorkspacePath}. SessionLogPath={SessionLogPath}.",
             openedSession.SessionId,
             task.TaskId,
             task.Title,
-            openedSession.Workspace.LocalPath);
+            openedSession.Workspace.LocalPath,
+            openedSession.LogFilePath);
 
         var sessionOpen = true;
 
@@ -138,12 +150,13 @@ internal sealed class AutomationRunner
                 taskState.Record(response.ModelTurnsCompleted);
 
                 this._logger.LogInformation(
-                    "Task {TaskId} received outcome {Outcome} after {ExchangeTurns} turns ({TotalTurns}/{MaxTurns} total).",
+                    "Task {TaskId} received outcome {Outcome} after {ExchangeTurns} turns ({TotalTurns}/{MaxTurns} total). SessionOpen={SessionOpen}.",
                     task.TaskId,
                     response.Outcome,
                     response.ModelTurnsCompleted,
                     taskState.TurnsConsumed,
-                    budget.MaxTurns);
+                    budget.MaxTurns,
+                    response.SessionOpen);
 
                 switch (response.Outcome)
                 {
@@ -155,6 +168,9 @@ internal sealed class AutomationRunner
 
                         if (taskState.HardCapReached)
                         {
+                            this._logger.LogWarning(
+                                "Task {TaskId} reached hard turn cap immediately after reply_received.",
+                                task.TaskId);
                             if (sessionOpen)
                             {
                                 await this.CloseSessionAsync(openedSession.SessionId, task.TaskId!, ct).ConfigureAwait(false);
@@ -170,6 +186,11 @@ internal sealed class AutomationRunner
                     case "max_turns_reached":
                         if (taskState.HardCapReached || taskState.WrapUpSent)
                         {
+                            this._logger.LogWarning(
+                                "Task {TaskId} cannot continue after max_turns_reached. HardCapReached={HardCapReached}. WrapUpSent={WrapUpSent}.",
+                                task.TaskId,
+                                taskState.HardCapReached,
+                                taskState.WrapUpSent);
                             if (sessionOpen)
                             {
                                 await this.CloseSessionAsync(openedSession.SessionId, task.TaskId!, ct).ConfigureAwait(false);
@@ -185,6 +206,10 @@ internal sealed class AutomationRunner
                         continue;
 
                     case "degraded":
+                        this._logger.LogWarning(
+                            "Task {TaskId} degraded. Reason: {Reason}",
+                            task.TaskId,
+                            response.DegradationReason);
                         if (sessionOpen)
                         {
                             await this.CloseSessionAsync(openedSession.SessionId, task.TaskId!, ct).ConfigureAwait(false);
@@ -196,6 +221,11 @@ internal sealed class AutomationRunner
                             response.DegradationReason ?? "Codexplorer degraded the exchange and could not continue safely.");
 
                     case "failed":
+                        this._logger.LogWarning(
+                            "Task {TaskId} failed. FailureType={FailureType}. Message={FailureMessage}",
+                            task.TaskId,
+                            response.Failure?.ExceptionType,
+                            response.Failure?.Message);
                         if (sessionOpen)
                         {
                             await this.CloseSessionAsync(openedSession.SessionId, task.TaskId!, ct).ConfigureAwait(false);
@@ -207,6 +237,7 @@ internal sealed class AutomationRunner
                             response.Failure?.Message ?? "Codexplorer reported a failed exchange.");
 
                     case "cancelled":
+                        this._logger.LogWarning("Task {TaskId} was cancelled by Codexplorer.", task.TaskId);
                         if (sessionOpen)
                         {
                             await this.CloseSessionAsync(openedSession.SessionId, task.TaskId!, ct).ConfigureAwait(false);
@@ -275,8 +306,22 @@ internal sealed class AutomationRunner
         if (taskState.ShouldSendWrapUp)
         {
             taskState.MarkWrapUpSent();
+            this._logger.LogInformation(
+                "Task {TaskId} reached wrap-up window at {TurnsConsumed}/{MaxTurns} turns. Sending wrap-up prompt.",
+                taskState.Task.TaskId,
+                taskState.TurnsConsumed,
+                taskState.Budget.MaxTurns);
             return AutomationRunnerPrompts.CreateWrapUpPrompt(taskState.Task.TaskId!);
         }
+
+        var continuationMessage = response.Outcome == "max_turns_reached"
+            ? "resume"
+            : "continue";
+        this._logger.LogInformation(
+            "Task {TaskId} will {ContinuationMode}. TurnsRemaining={TurnsRemaining}.",
+            taskState.Task.TaskId,
+            continuationMessage,
+            taskState.TurnsRemaining);
 
         return response.Outcome == "max_turns_reached"
             ? AutomationRunnerPrompts.CreateResumePrompt(taskState.TurnsRemaining)

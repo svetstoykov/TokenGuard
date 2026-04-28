@@ -120,6 +120,11 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
                 ?? throw new CodexplorerAutomationTransportException("Codexplorer stdout is not available.");
 
             var requestLine = AutomationProtocolJson.SerializeRequest(request);
+            this._logger.LogInformation(
+                "Dispatching protocol request {RequestId} ({Command}) to Codexplorer process {ProcessId}.",
+                request.RequestId,
+                request.Command,
+                process.Id);
             await standardInput.WriteLineAsync(requestLine.AsMemory(), ct).ConfigureAwait(false);
             await standardInput.FlushAsync().ConfigureAwait(false);
 
@@ -140,6 +145,12 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
                     $"Codexplorer returned response '{response.RequestId}' for request '{request.RequestId}'.");
             }
 
+            this._logger.LogInformation(
+                "Received protocol response {RequestId} ({Command}) from Codexplorer process {ProcessId}. Success={Success}.",
+                response.RequestId,
+                request.Command,
+                process.Id,
+                response.Success);
             return response;
         }
         finally
@@ -187,11 +198,18 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
             {
                 if (!process.HasExited)
                 {
+                    this._logger.LogInformation(
+                        "Waiting for Codexplorer automation process {ProcessId} to exit during transport disposal.",
+                        process.Id);
                     await process.WaitForExitAsync().ConfigureAwait(false);
                 }
             }
             finally
             {
+                this._logger.LogInformation(
+                    "Disposed Codexplorer automation process {ProcessId} with exit code {ExitCode}.",
+                    process.Id,
+                    process.HasExited ? process.ExitCode : null);
                 process.Dispose();
             }
         }

@@ -45,6 +45,13 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        this._logger.LogInformation(
+            "Requesting helper AI answer for task {TaskId} with model {ModelName}. TurnsConsumed={TurnsConsumed}/{MaxTurns}.",
+            request.TaskId,
+            this._options.ModelName,
+            request.TurnsConsumed,
+            request.MaxTurns);
+
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, this._options.Endpoint);
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", this._apiKey);
         httpRequest.Headers.Accept.ParseAdd("application/json");
@@ -78,8 +85,9 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
         }
 
         this._logger.LogInformation(
-            "Generated helper answer for task {TaskId} after runner question.",
-            request.TaskId);
+            "Generated helper answer for task {TaskId} after runner question. AnswerLength={AnswerLength}.",
+            request.TaskId,
+            answer.Length);
 
         return answer;
     }

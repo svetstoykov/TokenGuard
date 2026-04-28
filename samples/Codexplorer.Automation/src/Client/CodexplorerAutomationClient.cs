@@ -1,17 +1,23 @@
 using System.Text.Json;
 using Codexplorer.Automation.Protocol;
+using Microsoft.Extensions.Logging;
 
 namespace Codexplorer.Automation.Client;
 
 internal sealed class CodexplorerAutomationClient : ICodexplorerAutomationClient
 {
     private readonly IAutomationProtocolTransport _transport;
+    private readonly ILogger<CodexplorerAutomationClient> _logger;
     private long _requestSequence;
 
-    public CodexplorerAutomationClient(IAutomationProtocolTransport transport)
+    public CodexplorerAutomationClient(
+        IAutomationProtocolTransport transport,
+        ILogger<CodexplorerAutomationClient> logger)
     {
         ArgumentNullException.ThrowIfNull(transport);
+        ArgumentNullException.ThrowIfNull(logger);
         this._transport = transport;
+        this._logger = logger;
     }
 
     public Task<AutomationPingResult> PingAsync(CancellationToken ct)
@@ -42,6 +48,10 @@ internal sealed class CodexplorerAutomationClient : ICodexplorerAutomationClient
         ArgumentException.ThrowIfNullOrWhiteSpace(command);
 
         var requestId = $"runner-{Interlocked.Increment(ref this._requestSequence):D6}";
+        this._logger.LogInformation(
+            "Sending protocol command {Command} with request {RequestId}.",
+            command,
+            requestId);
         var response = await this._transport
             .SendAsync(new AutomationRequestEnvelope(requestId, command, payload), ct)
             .ConfigureAwait(false);
@@ -64,9 +74,17 @@ internal sealed class CodexplorerAutomationClient : ICodexplorerAutomationClient
         try
         {
             var typedResult = response.Result.Value.Deserialize<TResult>(AutomationProtocolJson.SerializerOptions);
-            return typedResult
-                ?? throw new CodexplorerAutomationTransportException(
+            if (typedResult is null)
+            {
+                throw new CodexplorerAutomationTransportException(
                     $"Codexplorer returned an empty result payload for request '{requestId}'.");
+            }
+
+            this._logger.LogInformation(
+                "Protocol command {Command} with request {RequestId} completed successfully.",
+                command,
+                requestId);
+            return typedResult;
         }
         catch (JsonException ex)
         {
