@@ -126,6 +126,8 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
         Do not ask follow-up questions.
         Prefer concrete decisions over meta-discussion.
         If context is missing, state the missing fact briefly and give the safest useful direction you can.
+        You should at all times give an answer that allows the flow to continue forward, to the best of your effort.
+        Never in doubt and never ask, questions. Simply anwser, always.
         """;
 
     private sealed record OpenRouterChatRequest(

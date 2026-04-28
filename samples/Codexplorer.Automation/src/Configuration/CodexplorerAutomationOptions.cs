@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Codexplorer.Automation.Configuration;
 
 internal sealed record CodexplorerAutomationOptions
@@ -34,6 +36,7 @@ internal sealed record AutomationTaskDefinition
 
     public string? RepositoryUrl { get; init; }
 
+    [JsonConverter(typeof(JsonStringEnumConverter<RunnerTaskSize>))]
     public RunnerTaskSize TaskSize { get; init; } = RunnerTaskSize.Medium;
 
     public string? InitialPrompt { get; init; }
