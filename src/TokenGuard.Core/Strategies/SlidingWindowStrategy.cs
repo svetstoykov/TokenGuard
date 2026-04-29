@@ -135,8 +135,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
                 tokensBefore,
                 tokensBefore,
                 0,
-                nameof(SlidingWindowStrategy),
-                CompactionType.None));
+                nameof(SlidingWindowStrategy)));
         }
 
         var toolNameLookup = BuildToolNameLookup(messages);
@@ -165,8 +164,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             tokensBefore,
             tokensAfter,
             messagesAffected,
-            nameof(SlidingWindowStrategy),
-            messagesAffected > 0 ? CompactionType.Masking : CompactionType.None));
+            nameof(SlidingWindowStrategy)));
     }
 
     private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)

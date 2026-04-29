@@ -83,8 +83,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
                 tokensBefore,
                 tokensBefore,
                 0,
-                nameof(LlmSummarizationStrategy),
-                CompactionType.None);
+                nameof(LlmSummarizationStrategy));
         }
 
         var protectedTailTokens = 0;
@@ -112,8 +111,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             tokensBefore,
             tokensAfter,
             boundary,
-            nameof(LlmSummarizationStrategy),
-            CompactionType.Summarization);
+            nameof(LlmSummarizationStrategy));
     }
 
     private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)

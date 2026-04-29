@@ -1,5 +1,4 @@
 using TokenGuard.Core.Abstractions;
-using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 
@@ -72,7 +71,7 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
 
         if (slidingWindowResult.TokensAfter <= availableTokens)
         {
-            return BuildCompactionResult(slidingWindowResult, slidingWindowResult.CompactionType, slidingWindowResult.MessagesAffected);
+            return BuildCompactionResult(slidingWindowResult);
         }
 
         var summarizationResult = await this._llmSummarizationStrategy.CompactAsync(
@@ -81,26 +80,16 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
             tokenCounter,
             cancellationToken);
 
-        var compactionType = summarizationResult.CompactionType != CompactionType.None
-            ? summarizationResult.CompactionType
-            : slidingWindowResult.CompactionType;
-        
-        var messagesAffected = summarizationResult.CompactionType != CompactionType.None
-            ? summarizationResult.MessagesAffected
-            : slidingWindowResult.MessagesAffected;
-
-        return BuildCompactionResult(summarizationResult, compactionType, messagesAffected);
+        return BuildCompactionResult(summarizationResult);
     }
 
-    private static CompactionResult BuildCompactionResult(CompactionResult result, CompactionType compactionType, int messagesAffected)
+    private static CompactionResult BuildCompactionResult(CompactionResult result)
     {
         return new CompactionResult(
             result.Messages,
             result.TokensBefore,
             result.TokensAfter,
-            messagesAffected,
-            nameof(TieredCompactionStrategy),
-            compactionType,
-            result.EmergencyMessagesDropped);
+            result.MessagesAffected,
+            nameof(TieredCompactionStrategy));
     }
 }

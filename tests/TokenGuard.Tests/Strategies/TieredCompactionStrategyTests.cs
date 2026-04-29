@@ -36,7 +36,6 @@ public sealed class TieredCompactionStrategyTests
         // Assert
         Assert.Equal(0, summarizer.CallCount);
         Assert.Equal(nameof(TieredCompactionStrategy), compacted.StrategyName);
-        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
         Assert.Equal(1, compacted.MessagesAffected);
         Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
         Assert.Same(keep1, compacted.Messages[1]);
@@ -74,11 +73,10 @@ public sealed class TieredCompactionStrategyTests
         Assert.Equal("full-tool-output", summarizedToolResult.Content);
         Assert.Equal(-6, summarizer.LastTargetTokens);
         Assert.Equal(nameof(TieredCompactionStrategy), compacted.StrategyName);
-        Assert.Equal(CompactionType.Summarization, compacted.CompactionType);
     }
 
     [Fact]
-    public async Task CompactAsync_WhenBothStagesAreNoOp_ReturnsCompactionTypeNone()
+    public async Task CompactAsync_WhenBothStagesAreNoOp_ReturnsOriginalMessages()
     {
         // Arrange
         var first = ContextMessage.FromText(MessageRole.User, "one");
@@ -101,10 +99,40 @@ public sealed class TieredCompactionStrategyTests
 
         // Assert
         Assert.Same(messages, compacted.Messages);
-        Assert.Equal(CompactionType.None, compacted.CompactionType);
         Assert.Equal(0, compacted.MessagesAffected);
         Assert.Equal(0, summarizer.CallCount);
         Assert.Equal(nameof(TieredCompactionStrategy), compacted.StrategyName);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenSummaryStageCannotCompact_ReturnsNoOpResult()
+    {
+        // Arrange
+        var oldest = CreateToolResultMessage("call_1", "search", "tool-output");
+        var keep = ContextMessage.FromText(MessageRole.User, "keep");
+        var messages = new List<ContextMessage> { oldest, keep };
+
+        var summarizer = new TrackingSummarizer("unused");
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(oldest, 10);
+        tokenCounter.Set(keep, 8);
+
+        var strategy = new TieredCompactionStrategy(
+            summarizer,
+            new TieredCompactionOptions(
+                new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
+                new LlmSummarizationOptions(windowSize: 5)));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 5, tokenCounter);
+
+        // Assert
+        Assert.Equal(0, summarizer.CallCount);
+        Assert.Equal(nameof(TieredCompactionStrategy), compacted.StrategyName);
+        Assert.Same(messages, compacted.Messages);
+        Assert.Equal(0, compacted.MessagesAffected);
+        Assert.Equal(18, compacted.TokensBefore);
+        Assert.Equal(18, compacted.TokensAfter);
     }
 
     [Fact]

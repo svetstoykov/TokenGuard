@@ -27,7 +27,6 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Equal(0, compacted.TokensBefore);
         Assert.Equal(0, compacted.TokensAfter);
         Assert.Equal(0, compacted.MessagesAffected);
-        Assert.Equal(CompactionType.None, compacted.CompactionType);
         Assert.Equal(nameof(LlmSummarizationStrategy), compacted.StrategyName);
         Assert.Equal(0, summarizer.CallCount);
     }
@@ -57,7 +56,6 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Equal(5, compacted.TokensBefore);
         Assert.Equal(5, compacted.TokensAfter);
         Assert.Equal(0, compacted.MessagesAffected);
-        Assert.Equal(CompactionType.None, compacted.CompactionType);
         Assert.Equal(0, summarizer.CallCount);
     }
 
@@ -96,7 +94,6 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Same(keep1, compacted.Messages[1]);
         Assert.Same(keep2, compacted.Messages[2]);
         Assert.Equal(2, compacted.MessagesAffected);
-        Assert.Equal(CompactionType.Summarization, compacted.CompactionType);
         Assert.Equal(nameof(LlmSummarizationStrategy), compacted.StrategyName);
     }
 

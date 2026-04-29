@@ -1,5 +1,3 @@
-using TokenGuard.Core.Enums;
-
 namespace TokenGuard.Core.Models;
 
 /// <summary>
@@ -13,9 +11,8 @@ namespace TokenGuard.Core.Models;
 /// </para>
 /// <para>
 /// Implementations should populate <see cref="TokensBefore"/>, <see cref="TokensAfter"/>,
-/// <see cref="MessagesAffected"/>, <see cref="StrategyName"/>, and <see cref="CompactionType"/> so downstream consumers
-/// can inspect the aggregate cycle outcome. Emergency truncation diagnostics are exposed separately through
-/// <see cref="EmergencyMessagesDropped"/>.
+/// <see cref="MessagesAffected"/> and <see cref="StrategyName"/> so downstream consumers can inspect the aggregate
+/// cycle outcome without depending on strategy-specific compaction classifications.
 /// </para>
 /// </remarks>
 public sealed record CompactionResult
@@ -33,44 +30,12 @@ public sealed record CompactionResult
     /// The aggregate number of messages replaced by strategy compaction or dropped by emergency truncation.
     /// </param>
     /// <param name="strategyName">The strategy identifier reported by the compaction implementation.</param>
-    /// <param name="compactionType">The compaction effect represented by this result.</param>
     public CompactionResult(
         IReadOnlyList<ContextMessage> messages,
         int tokensBefore,
         int tokensAfter,
         int messagesAffected,
-        string strategyName,
-        CompactionType compactionType)
-        : this(messages, tokensBefore, tokensAfter, messagesAffected, strategyName, compactionType, 0)
-    {
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="CompactionResult"/> record with explicit emergency truncation diagnostics.
-    /// </summary>
-    /// <param name="messages">The ordered messages produced by the compaction cycle.</param>
-    /// <param name="tokensBefore">The aggregate token count before the compaction cycle ran.</param>
-    /// <param name="tokensAfter">
-    /// The aggregate token count across <paramref name="messages"/> after all strategy compaction and emergency
-    /// truncation represented by this result completed.
-    /// </param>
-    /// <param name="messagesAffected">
-    /// The aggregate number of messages replaced by strategy compaction or dropped by emergency truncation.
-    /// </param>
-    /// <param name="strategyName">The strategy identifier reported by the compaction implementation.</param>
-    /// <param name="compactionType">The compaction effect represented by this result.</param>
-    /// <param name="emergencyMessagesDropped">
-    /// The number of messages dropped by emergency truncation. This excludes strategy-stage replacements and removals,
-    /// and zero means emergency truncation did not remove any messages.
-    /// </param>
-    public CompactionResult(
-        IReadOnlyList<ContextMessage> messages,
-        int tokensBefore,
-        int tokensAfter,
-        int messagesAffected,
-        string strategyName,
-        CompactionType compactionType,
-        int emergencyMessagesDropped)
+        string strategyName)
     {
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentException.ThrowIfNullOrWhiteSpace(strategyName);
@@ -80,8 +45,6 @@ public sealed record CompactionResult
         this.TokensAfter = tokensAfter;
         this.MessagesAffected = messagesAffected;
         this.StrategyName = strategyName;
-        this.CompactionType = compactionType;
-        this.EmergencyMessagesDropped = emergencyMessagesDropped;
     }
 
     /// <summary>
@@ -109,19 +72,4 @@ public sealed record CompactionResult
     /// Gets the strategy identifier reported by the compaction implementation.
     /// </summary>
     public string StrategyName { get; }
-
-    /// <summary>
-    /// Gets the compaction effect represented by this result.
-    /// </summary>
-    public CompactionType CompactionType { get; }
-
-    /// <summary>
-    /// Gets the number of messages dropped by emergency truncation.
-    /// </summary>
-    /// <remarks>
-    /// This count includes only messages removed by the emergency stage. It does not include strategy-stage replacements
-    /// or removals already counted inside <see cref="MessagesAffected"/>. A value of zero means emergency truncation did
-    /// not remove any messages during this compaction cycle.
-    /// </remarks>
-    public int EmergencyMessagesDropped { get; }
 }

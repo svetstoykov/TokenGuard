@@ -376,13 +376,7 @@ public sealed class ConversationContext : IConversationContext
 
         var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
 
-        var emergencyApplied = false;
-        IReadOnlyList<ContextMessage>? truncated = null;
-        if (compacted.CompactionType != CompactionType.Summarization)
-        {
-             emergencyApplied = this.TryApplyEmergencyTruncation(compacted.CompactionType, prepared, preparedTotal, out truncated);
-        }
-
+        var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
         var final = emergencyApplied ? truncated! : prepared;
         var estimatedFinalTokens = this.Sum(final);
         var finalTokens = estimatedFinalTokens + this._anchorCorrection;
@@ -396,13 +390,11 @@ public sealed class ConversationContext : IConversationContext
                 compacted.TokensBefore,
                 finalTokens,
                 messagesCompacted,
-                compacted.StrategyName,
-                MergeWithEmergency(compacted.CompactionType),
-                emergencyMessagesDropped);
-            
+                compacted.StrategyName);
+
             this._observer?.OnCompaction(new CompactionEvent(mergedResult, DateTimeOffset.UtcNow, CompactionTrigger.Emergency, this._budget));
         }
-        else if (compacted.CompactionType != CompactionType.None)
+        else if (compacted.MessagesAffected > 0)
         {
             this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, CompactionTrigger.Normal, this._budget));
         }
@@ -458,19 +450,6 @@ public sealed class ConversationContext : IConversationContext
             : $"Compaction reduced content but still exceeds budget ({finalTokens} tokens > {effectiveMax} max). {messagesCompacted} messages were compacted but insufficient.";
     }
 
-    private static CompactionType MergeWithEmergency(CompactionType compactionType)
-    {
-        return compactionType switch
-        {
-            CompactionType.None => CompactionType.EmergencyTruncation,
-            CompactionType.Masking => CompactionType.MaskingWithEmergencyTruncation,
-            CompactionType.Summarization => throw new InvalidOperationException("Emergency truncation must not run after summarization compaction."),
-            CompactionType.EmergencyTruncation => CompactionType.EmergencyTruncation,
-            CompactionType.MaskingWithEmergencyTruncation => CompactionType.MaskingWithEmergencyTruncation,
-            _ => throw new ArgumentOutOfRangeException(nameof(compactionType), compactionType, "Unknown compaction type."),
-        };
-    }
-
     /// <summary>
     /// Releases the conversation history held by this context.
     /// </summary>
@@ -514,7 +493,6 @@ public sealed class ConversationContext : IConversationContext
     /// more important than forcing a fit-to-budget outcome.
     /// </para>
     /// </remarks>
-    /// <param name="compactionType">The effect reported by the primary compaction strategy.</param>
     /// <param name="prepared">The assembled message list produced after the primary strategy pass.</param>
     /// <param name="currentTotal">
     /// The current token total of <paramref name="prepared"/>, including any active anchor correction.
@@ -530,19 +508,11 @@ public sealed class ConversationContext : IConversationContext
     /// <paramref name="prepared"/> is already within budget, or when no eligible candidates exist.
     /// </returns>
     private bool TryApplyEmergencyTruncation(
-        CompactionType compactionType,
         IReadOnlyList<ContextMessage> prepared,
         int currentTotal,
         out IReadOnlyList<ContextMessage>? truncated)
     {
         if (!this._budget.EmergencyTriggerTokens.HasValue)
-        {
-            truncated = null;
-            return false;
-        }
-
-
-        if (compactionType == CompactionType.Summarization)
         {
             truncated = null;
             return false;
@@ -647,6 +617,14 @@ public sealed class ConversationContext : IConversationContext
     /// </returns>
     private int FindPreservedFloorStartIndex(IReadOnlyList<ContextMessage> prepared)
     {
+        for (var i = 0; i < prepared.Count; i++)
+        {
+            if (prepared[i].State == CompactionState.Summarized)
+            {
+                return i;
+            }
+        }
+
         var newestUnpinnedIndex = -1;
         for (var i = prepared.Count - 1; i >= 0; i--)
         {
