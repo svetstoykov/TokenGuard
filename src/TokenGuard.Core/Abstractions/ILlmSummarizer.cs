@@ -13,9 +13,11 @@ namespace TokenGuard.Core.Abstractions;
 /// the conversation.
 /// </para>
 /// <para>
-/// The caller computes <c>targetTokens</c> from the remaining budget after protected history is preserved. That value
-/// can be zero or negative when the protected tail already consumes the entire budget, so implementations must treat
-/// it as guidance rather than as a guarantee that summary output will fit.
+/// The calling strategy enforces system-wide budget policy before invoking the summarizer: it skips the call
+/// entirely when the remaining budget falls below the configured minimum, and clamps the target to the configured
+/// maximum otherwise. Implementations can therefore assume that <c>targetTokens</c> is always a positive, bounded
+/// value that represents a meaningful upper limit for a viable summary, not a directive to consume all leftover
+/// budget. Producing a smaller summary is acceptable and expected.
 /// </para>
 /// </remarks>
 public interface ILlmSummarizer
@@ -29,7 +31,10 @@ public interface ILlmSummarizer
     /// stable, reconstruction-grade summary rather than an opaque identifier or transport envelope.
     /// </remarks>
     /// <param name="messages">The ordered source messages to summarize.</param>
-    /// <param name="targetTokens">The approximate token budget available for the summary text.</param>
+    /// <param name="targetTokens">
+    /// A strategy-enforced upper bound on the summary token budget. Always positive. Treat as guidance for how
+    /// large the summary should be, not as a requirement to fill the entire allowance.
+    /// </param>
     /// <param name="cancellationToken">A token that can cancel the summarization request.</param>
     /// <returns>A task that resolves to the summary text generated for <paramref name="messages"/>.</returns>
     Task<string> SummarizeAsync(

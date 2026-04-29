@@ -15,9 +15,11 @@ namespace TokenGuard.Core.Strategies;
 /// <see cref="ILlmSummarizer"/>, and the returned summary is inserted at the front of the compacted result.
 /// </para>
 /// <para>
-/// The strategy does not attempt to second-guess the summarizer when the protected tail already exhausts
-/// <c>availableTokens</c>. It still forwards the original pre-boundary slice together with the computed remaining
-/// token budget so the summarizer can choose the best fallback behavior for the active model and prompt.
+/// Before invoking the summarizer the strategy computes <c>remainingBudget = availableTokens - protectedTailTokens</c>
+/// and enforces the configured bounds. When <c>remainingBudget</c> is less than
+/// <see cref="LlmSummarizationOptions.MinSummaryTokens"/> summarization is skipped and only the protected tail is
+/// returned. Otherwise the summarizer receives <c>Math.Min(remainingBudget, MaxSummaryTokens)</c> as its target,
+/// ensuring <c>targetTokens</c> is always a positive, bounded value.
 /// </para>
 /// </remarks>
 internal sealed class LlmSummarizationStrategy : ICompactionStrategy
@@ -92,7 +94,22 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             protectedTailTokens += messages[i].TokenCount ?? tokenCounter.Count(messages[i]);
         }
 
-        var targetTokens = availableTokens - protectedTailTokens;
+        var remainingBudget = availableTokens - protectedTailTokens;
+
+        if (remainingBudget < this._options.MinSummaryTokens)
+        {
+            var protectedTail = messages.Skip(boundary).ToArray();
+            var tokensAfterSkip = CountTokens(protectedTail, tokenCounter);
+
+            return new CompactionResult(
+                protectedTail,
+                tokensBefore,
+                tokensAfterSkip,
+                boundary,
+                nameof(LlmSummarizationStrategy));
+        }
+
+        var targetTokens = Math.Min(remainingBudget, this._options.MaxSummaryTokens);
         var messagesToSummarize = messages.Take(boundary).ToArray();
         var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
 
