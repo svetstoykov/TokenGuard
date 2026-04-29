@@ -12,7 +12,8 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// <summary>
     /// Initialises the factory with the standard default configuration: a 100,000-token budget,
     /// 0.80 compaction threshold, 0.95 emergency threshold, 0 reserved tokens,
-    /// <see cref="TokenCounting.EstimatedTokenCounter"/>, and <see cref="Strategies.SlidingWindowStrategy"/>.
+    /// TokenGuard's built-in heuristic <see cref="Abstractions.ITokenCounter"/> implementation, and
+    /// <see cref="Strategies.SlidingWindowStrategy"/>.
     /// </summary>
     /// <remarks>
     /// The default configuration is identical to the library default profile produced by

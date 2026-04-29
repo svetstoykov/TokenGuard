@@ -23,7 +23,7 @@ public class EstimatedTokenCounterTests
     }
 
     [Fact]
-    public void SingleTextMessage_ReturnsCeilingEstimatePlusOverhead()
+    public void SingleTextMessage_ReturnsHeuristicEstimatePlusOverhead()
     {
         // Arrange
         var message = ContextMessage.FromText(MessageRole.User, "Hello");
@@ -32,7 +32,7 @@ public class EstimatedTokenCounterTests
         var result = this._counter.Count(message);
 
         // Assert
-        Assert.Equal(6, result);
+        Assert.Equal(5, result);
     }
 
     [Fact]
@@ -67,11 +67,11 @@ public class EstimatedTokenCounterTests
         var result = this._counter.Count(message);
 
         // Assert
-        Assert.Equal(5, result);
+        Assert.Equal(8, result);
     }
 
     [Fact]
-    public void MultiBlockMessage_AccumulatesCharacterCounts()
+    public void MultiBlockMessage_AccumulatesSegmentEstimates()
     {
         // Arrange
         var message = new ContextMessage
@@ -87,7 +87,7 @@ public class EstimatedTokenCounterTests
         var result = this._counter.Count(message);
 
         // Assert
-        Assert.Equal(7, result);
+        Assert.Equal(10, result);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class EstimatedTokenCounterTests
     }
 
     [Fact]
-    public void ToolResultContent_CountsCorrectly()
+    public void ToolResultContent_CountsIdentifiersNameAndPayload()
     {
         // Arrange
         var message = ContextMessage.FromContent(MessageRole.User, new ToolResultContent("call_1", "calc", "42"));
@@ -135,6 +135,32 @@ public class EstimatedTokenCounterTests
         var result = this._counter.Count(message);
 
         // Assert
-        Assert.Equal(6, result);
+        Assert.Equal(9, result);
+    }
+
+    [Fact]
+    public void LongAsciiWord_UsesChunkedWordEstimate()
+    {
+        // Arrange
+        var message = ContextMessage.FromText(MessageRole.User, "tokenization");
+
+        // Act
+        var result = this._counter.Count(message);
+
+        // Assert
+        Assert.Equal(7, result);
+    }
+
+    [Fact]
+    public void CodeLikePayload_CountsPunctuationAndIdentifiersSeparately()
+    {
+        // Arrange
+        var message = ContextMessage.FromText(MessageRole.User, "{\"snake_case\":true}");
+
+        // Act
+        var result = this._counter.Count(message);
+
+        // Assert
+        Assert.Equal(11, result);
     }
 }

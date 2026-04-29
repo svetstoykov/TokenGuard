@@ -43,7 +43,7 @@ public sealed class ConversationConfigBuilder
     ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
     ///     the resulting configuration uses the library default profile: 100,000 tokens, a 0.80 compaction
-    ///     threshold, no emergency truncation, <see cref="EstimatedTokenCounter"/>, and
+    ///     threshold, no emergency truncation, the built-in heuristic <see cref="ITokenCounter"/>, and
     ///     <see cref="TieredCompactionStrategy"/> with <see cref="SlidingWindowOptions.Default"/> and no LLM stage.
 /// </remarks>
     /// <param name="maxTokens">
@@ -150,7 +150,8 @@ public sealed class ConversationConfigBuilder
     ///     Sets the token counter used to estimate message token counts.
     /// </summary>
     /// <remarks>
-    ///     When no token counter is configured, <see cref="EstimatedTokenCounter"/> is used.
+    ///     When no token counter is configured, TokenGuard uses its built-in heuristic <see cref="ITokenCounter"/>
+    ///     implementation.
     /// </remarks>
     /// <param name="tokenCounter">The token counter.</param>
     /// <returns>The current builder instance.</returns>
@@ -186,7 +187,8 @@ public sealed class ConversationConfigBuilder
     ///         no emergency truncation, and 0 reserved tokens.
     ///     </para>
     ///     <para>
-    ///         If no token counter has been configured, this method uses <see cref="EstimatedTokenCounter"/>.
+    ///         If no token counter has been configured, this method uses TokenGuard's built-in heuristic
+    ///         <see cref="ITokenCounter"/> implementation.
     ///         Compaction always uses <see cref="TieredCompactionStrategy"/> with configured
     ///         <see cref="SlidingWindowOptions"/> and an optional provider-backed <see cref="LlmSummarizationStrategy"/>.
     ///     </para>
@@ -229,7 +231,8 @@ public sealed class ConversationConfigBuilder
     ///         This method applies exactly the same defaulting logic as <see cref="Build"/>: any budget
     ///         values not explicitly configured are merged with the library defaults from
     ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction and no emergency truncation,
-    ///         and a missing counter falls back to <see cref="TokenCounting.EstimatedTokenCounter"/>.
+    ///         and a missing counter falls back to TokenGuard's built-in heuristic <see cref="ITokenCounter"/>
+    ///         implementation.
     ///         Compaction still uses the same internal <see cref="Strategies.TieredCompactionStrategy"/> pipeline as
     ///         <see cref="Build"/>.
     ///     </para>

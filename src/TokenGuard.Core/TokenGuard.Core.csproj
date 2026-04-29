@@ -17,6 +17,7 @@
         <InternalsVisibleTo Include="TokenGuard.Benchmark" />
         <InternalsVisibleTo Include="TokenGuard.Extensions.OpenAI" />
         <InternalsVisibleTo Include="TokenGuard.Extensions.Anthropic" />
+        <InternalsVisibleTo Include="Codexplorer" />
     </ItemGroup>
 
 </Project>

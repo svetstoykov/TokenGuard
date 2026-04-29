@@ -45,7 +45,8 @@ public interface IConversationContextFactory
     /// Every call produces a distinct instance. Contexts returned by this method are never reused
     /// or shared with other callers. Unless startup registration replaced it, the library default profile
     /// uses 100,000 max tokens, 0.80 compaction, 0.95 emergency, 0 reserved tokens,
-    /// <see cref="TokenCounting.EstimatedTokenCounter"/>, and <see cref="Strategies.SlidingWindowStrategy"/>.
+    /// TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation, and
+    /// <see cref="Strategies.SlidingWindowStrategy"/>.
     /// </remarks>
     IConversationContext Create();
 
