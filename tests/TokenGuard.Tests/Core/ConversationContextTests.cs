@@ -111,9 +111,7 @@ public sealed class ConversationContextTests
 
         // Assert
         strategy.LastInput.Should().ContainSingle().Which.Should().BeSameAs(user1);
-        strategy.LastBudget.ReservedTokens.Should().Be(100);
-        strategy.LastBudget.MaxTokens.Should().Be(1000);
-        strategy.LastBudget.AvailableTokens.Should().Be(900);
+        strategy.LastAvailableTokens.Should().Be(900);
         prepared.Should().HaveCount(2);
         prepared[0].Should().BeSameAs(sys1);
         prepared[1].Should().BeSameAs(compacted);
@@ -245,8 +243,7 @@ public sealed class ConversationContextTests
 
         // Assert
         strategy.CompactCalls.Should().Be(1);
-        strategy.LastBudget.ReservedTokens.Should().Be(40);
-        strategy.LastBudget.AvailableTokens.Should().Be(960);
+        strategy.LastAvailableTokens.Should().Be(960);
         prepared[0].IsPinned.Should().BeTrue();
         AssertText(prepared[0], "sys-new");
     }
@@ -342,8 +339,7 @@ public sealed class ConversationContextTests
         strategy.LastInput.Should().HaveCount(3);
         strategy.LastInput.Should().OnlyContain(message => !message.IsPinned);
         strategy.LastInput.Select(GetText).Should().Equal("u1", "u2", "u4");
-        strategy.LastBudget.ReservedTokens.Should().Be(250);
-        strategy.LastBudget.AvailableTokens.Should().Be(750);
+        strategy.LastAvailableTokens.Should().Be(750);
         prepared.Select(GetText).Should().Equal("p0", "c1", "c2", "p3", "c4");
         prepared[0].IsPinned.Should().BeTrue();
         prepared[3].IsPinned.Should().BeTrue();
@@ -353,7 +349,7 @@ public sealed class ConversationContextTests
     public async Task PrepareAsync_WhenPinnedMessagesExceedAvailableBudget_ThrowsDiagnosticException()
     {
         // Arrange
-        // AvailableTokens = 1000 (no reserved). Pinned total = 1100 > 1000 → throws.
+        // MaxTokens = 1000. Pinned total = 1100 > 1000 → throws.
         var budget = new ContextBudget(1_000, 0.5);
         var counter = new TrackingTokenCounter();
         counter.SetByText("pin-a", 600);
@@ -369,7 +365,7 @@ public sealed class ConversationContextTests
         // Assert
         var ex = await act.Should().ThrowAsync<PinnedTokenBudgetExceededException>();
         ex.Which.PinnedTokenTotal.Should().Be(1_100);
-        ex.Which.AvailableTokens.Should().Be(1_000);
+        ex.Which.MaxTokens.Should().Be(1_000);
     }
 
     [Fact]
@@ -395,8 +391,7 @@ public sealed class ConversationContextTests
 
         // Assert
         strategy.CompactCalls.Should().Be(1);
-        strategy.LastBudget.ReservedTokens.Should().Be(700);
-        strategy.LastBudget.AvailableTokens.Should().Be(300);
+        strategy.LastAvailableTokens.Should().Be(300);
         prepared.Select(GetText).Should().Equal("pin", "u1", "u2");
     }
 
@@ -1357,24 +1352,24 @@ public sealed class ConversationContextTests
         public IReadOnlyList<ContextMessage>? LastInput { get; private set; }
 
         /// <summary>
-        /// Gets the last budget passed to <see cref="CompactAsync"/>.
+        /// Gets the last available-tokens value passed to <see cref="CompactAsync"/>.
         /// </summary>
-        public ContextBudget LastBudget { get; private set; }
+        public int LastAvailableTokens { get; private set; }
 
         /// <summary>
         /// Records the compaction request and returns the configured result.
         /// </summary>
         /// <param name="messages">The messages selected for compaction.</param>
-        /// <param name="budget">The budget available to the compaction operation.</param>
+        /// <param name="availableTokens">The token budget available to the compaction operation.</param>
         /// <param name="tokenCounter">The token counter associated with the request.</param>
         /// <param name="cancellationToken">A token used to cancel the operation.</param>
         /// <returns>A task containing either the configured result or a pass-through compaction result.</returns>
-        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
+        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             this.CompactCalls++;
             this.LastInput = messages;
-            this.LastBudget = budget;
+            this.LastAvailableTokens = availableTokens;
 
             return Task.FromResult(this._result ?? new CompactionResult(messages, 0, 0, 0, nameof(TrackingCompactionStrategy), false));
         }

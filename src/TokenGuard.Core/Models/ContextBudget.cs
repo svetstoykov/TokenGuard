@@ -8,12 +8,7 @@ namespace TokenGuard.Core.Models;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="ContextBudget"/> separates the model's total context window from the portion that can actually be used for
-/// recorded messages. The reserved token allowance is subtracted first so callers can hold space for system
-/// overhead, response allowance, or provider-specific framing that is not represented as <see cref="ContextMessage"/> values.
-/// </para>
-/// <para>
-/// The threshold properties express policy as fractions of <see cref="AvailableTokens"/> rather than raw counts. This
+/// The threshold properties express policy as fractions of <see cref="MaxTokens"/> rather than raw counts. This
 /// keeps the same compaction behavior portable across models with different context sizes while still exposing the
 /// derived integer trigger values used by the runtime.
 /// </para>
@@ -31,17 +26,16 @@ public readonly record struct ContextBudget
     /// Initializes a <see cref="ContextBudget"/> with validated token limits and compaction thresholds.
     /// </summary>
     /// <remarks>
-    /// The constructor validates the total model window, reserved token space, and threshold ordering before the value
+    /// The constructor validates the token limit and threshold ordering before the value
     /// participates in record equality. This keeps the record state aligned with the exposed validated properties rather
     /// than capturing duplicate hidden primary-constructor fields.
     /// </remarks>
-    /// <param name="maxTokens">The total token capacity of the target model context window.</param>
-    /// <param name="compactionThreshold">The fraction of <see cref="AvailableTokens"/> at which normal compaction begins.</param>
+    /// <param name="maxTokens">The maximum number of tokens allowed in the conversation.</param>
+    /// <param name="compactionThreshold">The fraction of <see cref="MaxTokens"/> at which normal compaction begins.</param>
     /// <param name="emergencyThreshold">
-    /// The fraction of <see cref="AvailableTokens"/> at which emergency truncation begins, or
+    /// The fraction of <see cref="MaxTokens"/> at which emergency truncation begins, or
     /// <see langword="null"/> to disable emergency truncation entirely. Defaults to <see langword="null"/>.
     /// </param>
-    /// <param name="reservedTokens">The token space held back for non-message content.</param>
     /// <param name="overrunTolerance">
     /// The fraction of <paramref name="maxTokens"/> by which a prepared result may exceed the budget and still be
     /// considered acceptable. Must be in the range [0.0, 1.0]. Defaults to
@@ -52,28 +46,26 @@ public readonly record struct ContextBudget
         int maxTokens,
         double compactionThreshold = ConversationDefaults.CompactionThreshold,
         double? emergencyThreshold = null,
-        int reservedTokens = ConversationDefaults.ReservedTokens,
         double overrunTolerance = ConversationDefaults.OverrunTolerance)
     {
         this.MaxTokens = ValidateMaxTokens(maxTokens, nameof(maxTokens));
         this.CompactionThreshold = ValidateCompactionThreshold(compactionThreshold, emergencyThreshold, nameof(compactionThreshold));
         this.EmergencyThreshold = ValidateEmergencyThreshold(emergencyThreshold, compactionThreshold, nameof(emergencyThreshold));
-        this.ReservedTokens = ValidateReservedTokens(reservedTokens, maxTokens, nameof(reservedTokens));
         this.OverrunTolerance = ValidateOverrunTolerance(overrunTolerance, nameof(overrunTolerance));
     }
 
     /// <summary>
-    /// Gets the total token capacity of the target context window.
+    /// Gets the maximum number of tokens allowed in the conversation.
     /// </summary>
     public int MaxTokens { get; }
 
     /// <summary>
-    /// Gets the fraction of <see cref="AvailableTokens"/> at which normal compaction starts.
+    /// Gets the fraction of <see cref="MaxTokens"/> at which normal compaction starts.
     /// </summary>
     public double CompactionThreshold { get; }
 
     /// <summary>
-    /// Gets the fraction of <see cref="AvailableTokens"/> at which emergency truncation starts, or
+    /// Gets the fraction of <see cref="MaxTokens"/> at which emergency truncation starts, or
     /// <see langword="null"/> when emergency truncation is disabled.
     /// </summary>
     /// <remarks>
@@ -90,11 +82,6 @@ public readonly record struct ContextBudget
     /// </para>
     /// </remarks>
     public double? EmergencyThreshold { get; }
-
-    /// <summary>
-    /// Gets the token space reserved for content not represented in message history.
-    /// </summary>
-    public int ReservedTokens { get; }
 
     /// <summary>
     /// Gets the overrun tolerance as a fraction of <see cref="MaxTokens"/>.
@@ -125,21 +112,16 @@ public readonly record struct ContextBudget
     public int OverrunToleranceTokens => (int)Math.Floor(this.MaxTokens * this.OverrunTolerance);
 
     /// <summary>
-    /// Gets the token budget remaining for recorded message history after reservations are applied.
-    /// </summary>
-    public int AvailableTokens => this.MaxTokens - this.ReservedTokens;
-
-    /// <summary>
     /// Gets the integer token count at which normal compaction should trigger.
     /// </summary>
-    public int CompactionTriggerTokens => (int)Math.Floor(this.AvailableTokens * this.CompactionThreshold);
+    public int CompactionTriggerTokens => (int)Math.Floor(this.MaxTokens * this.CompactionThreshold);
 
     /// <summary>
     /// Gets the integer token count at which emergency truncation should trigger, or <see langword="null"/> when
     /// <see cref="EmergencyThreshold"/> is not configured.
     /// </summary>
     public int? EmergencyTriggerTokens => this.EmergencyThreshold.HasValue
-        ? (int)Math.Floor(this.AvailableTokens * this.EmergencyThreshold.Value)
+        ? (int)Math.Floor(this.MaxTokens * this.EmergencyThreshold.Value)
         : null;
 
     /// <summary>
@@ -148,10 +130,10 @@ public readonly record struct ContextBudget
     /// <remarks>
     /// This helper is used by <see cref="ConversationConfigBuilder"/> and by callers that want a sensible budget for a
     /// known model window without choosing compaction thresholds explicitly. The library default threshold policy is
-    /// 0.80 compaction, no emergency truncation, and 0 reserved tokens.
+    /// 0.80 compaction and no emergency truncation.
     /// </remarks>
-    /// <param name="maxTokens">The total token capacity of the target model context window.</param>
-    /// <returns>A <see cref="ContextBudget"/> configured with 0.80 compaction, no emergency truncation, and 0 reserved tokens.</returns>
+    /// <param name="maxTokens">The maximum number of tokens allowed in the conversation.</param>
+    /// <returns>A <see cref="ContextBudget"/> configured with 0.80 compaction and no emergency truncation.</returns>
     public static ContextBudget For(int maxTokens)
     {
         return ConversationDefaults.CreateBudget(maxTokens);
@@ -210,21 +192,6 @@ public readonly record struct ContextBudget
         if (value is < 0.0 or > 1.0)
         {
             throw new ArgumentOutOfRangeException(paramName, "OverrunTolerance must be in the range [0.0, 1.0].");
-        }
-
-        return value;
-    }
-
-    private static int ValidateReservedTokens(int value, int max, string paramName)
-    {
-        if (value < 0)
-        {
-            throw new ArgumentOutOfRangeException(paramName, "ReservedTokens cannot be negative.");
-        }
-
-        if (value >= max)
-        {
-            throw new ArgumentOutOfRangeException(paramName, "ReservedTokens must be less than MaxTokens.");
         }
 
         return value;

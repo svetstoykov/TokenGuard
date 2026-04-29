@@ -383,19 +383,18 @@ var config = new ConversationConfigBuilder()
 | Property | Description |
 |---|---|
 | `MaxTokens` | Total token capacity of the model's context window |
-| `CompactionThreshold` | Fraction of `AvailableTokens` at which normal compaction starts (default: 0.80) |
-| `EmergencyThreshold` | Fraction of `AvailableTokens` at which emergency truncation starts (default: 0.95) |
+| `CompactionThreshold` | Fraction of `MaxTokens` at which normal compaction starts (default: 0.80) |
+| `EmergencyThreshold` | Fraction of `MaxTokens` at which emergency truncation starts (default: 0.95) |
 | `ReservedTokens` | Tokens held back for non-message overhead (default: 0) |
-| `AvailableTokens` | `MaxTokens - ReservedTokens` — the effective budget for messages |
-| `CompactionTriggerTokens` | `floor(AvailableTokens * CompactionThreshold)` — the trigger in tokens |
-| `EmergencyTriggerTokens` | `floor(AvailableTokens * EmergencyThreshold)` — the emergency trigger in tokens |
+| `CompactionTriggerTokens` | `floor(MaxTokens * CompactionThreshold)` — the trigger in tokens |
+| `EmergencyTriggerTokens` | `floor(MaxTokens * EmergencyThreshold)` — the emergency trigger in tokens |
 
 ### SlidingWindowOptions properties
 
 | Property | Default | Description |
 |---|---|---|
 | `WindowSize` | 10 | Minimum number of newest messages always protected |
-| `ProtectedWindowFraction` | 0.80 | Max fraction of `AvailableTokens` the protected window can consume |
+| `ProtectedWindowFraction` | 0.80 | Max fraction of `MaxTokens` the protected window can consume |
 | `PlaceholderFormat` | `"[Tool result cleared — {0}, {1}]"` | Format string; `{0}` = tool name, `{1}` = tool call ID |
 
 ### Agent loop integration pattern

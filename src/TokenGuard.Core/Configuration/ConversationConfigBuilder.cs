@@ -26,7 +26,6 @@ public sealed class ConversationConfigBuilder
     private int? _maxTokens;
     private double? _compactionThreshold;
     private double? _emergencyThreshold;
-    private int? _reservedTokens;
     private double? _overrunTolerance;
     private ICompactionStrategy? _strategy;
     private ITokenCounter? _tokenCounter;
@@ -39,11 +38,11 @@ public sealed class ConversationConfigBuilder
     ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
     ///     the resulting configuration uses the library default profile: 100,000 tokens, a 0.80 compaction
-    ///     threshold, no emergency truncation, 0 reserved tokens, <see cref="EstimatedTokenCounter"/>,
+    ///     threshold, no emergency truncation, <see cref="EstimatedTokenCounter"/>,
     ///     and <see cref="SlidingWindowStrategy"/>.
     /// </remarks>
     /// <param name="maxTokens">
-    ///     The hard token ceiling for the full context window. Defaults to 100,000 when omitted.
+    ///     The maximum number of tokens allowed in the conversation. Defaults to 100,000 when omitted.
     /// </param>
     /// <returns>A configured <see cref="ConversationContextConfiguration"/> instance.</returns>
     public static ConversationContextConfiguration Default(int maxTokens = ConversationDefaults.MaxTokens) =>
@@ -52,13 +51,13 @@ public sealed class ConversationConfigBuilder
             .Build();
 
     /// <summary>
-    ///     Sets the hard token ceiling for the context window.
+    ///     Sets the maximum number of tokens allowed in the conversation.
     /// </summary>
     /// <remarks>
     ///     This value is required. <see cref="Build"/> throws <see cref="InvalidOperationException"/> if it has
     ///     not been configured.
     /// </remarks>
-    /// <param name="maxTokens">The maximum number of tokens allowed in the context window.</param>
+    /// <param name="maxTokens">The maximum number of tokens the caller permits in the conversation.</param>
     /// <returns>The current builder instance.</returns>
     public ConversationConfigBuilder WithMaxTokens(int maxTokens)
     {
@@ -99,21 +98,6 @@ public sealed class ConversationConfigBuilder
     public ConversationConfigBuilder WithEmergencyThreshold(double emergencyThreshold)
     {
         this._emergencyThreshold = emergencyThreshold;
-        return this;
-    }
-
-    /// <summary>
-    ///     Sets the number of tokens reserved for fixed, non-message content.
-    /// </summary>
-    /// <remarks>
-    ///     When this value is not configured, the library default value from <see cref="ContextBudget.For(int)"/>
-    ///     is used, which is 0 reserved tokens.
-    /// </remarks>
-    /// <param name="reservedTokens">The reserved token count.</param>
-    /// <returns>The current builder instance.</returns>
-    public ConversationConfigBuilder WithReservedTokens(int reservedTokens)
-    {
-        this._reservedTokens = reservedTokens;
         return this;
     }
 
@@ -218,7 +202,6 @@ public sealed class ConversationConfigBuilder
             this._maxTokens.Value,
             this._compactionThreshold ?? defaults.CompactionThreshold,
             this._emergencyThreshold,
-            this._reservedTokens ?? defaults.ReservedTokens,
             this._overrunTolerance ?? ConversationDefaults.OverrunTolerance);
 
         var counter = this._tokenCounter ?? new EstimatedTokenCounter();
@@ -235,7 +218,7 @@ public sealed class ConversationConfigBuilder
     ///     <para>
     ///         This method applies exactly the same defaulting logic as <see cref="Build"/>: any budget
     ///         values not explicitly configured are merged with the library defaults from
-    ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction, no emergency truncation, and 0 reserved tokens,
+    ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction and no emergency truncation,
     ///         and missing counter or strategy choices fall back to
     ///         <see cref="TokenCounting.EstimatedTokenCounter"/> and <see cref="Strategies.SlidingWindowStrategy"/>,
     ///         respectively.

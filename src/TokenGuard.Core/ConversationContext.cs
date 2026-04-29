@@ -329,9 +329,9 @@ public sealed class ConversationContext : IConversationContext
             this._lastPreparedVersion = this._historyVersion;
         }
 
-        if (this._pinnedTokenTotal > this._budget.AvailableTokens)
+        if (this._pinnedTokenTotal > this._budget.MaxTokens)
         {
-            throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.AvailableTokens);
+            throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.MaxTokens);
         }
 
         IReadOnlyList<ContextMessage> messages = this._history;
@@ -366,14 +366,9 @@ public sealed class ConversationContext : IConversationContext
 
         IReadOnlyList<ContextMessage> compactable = compactableMessages ?? [];
 
-        var adjustedBudget = new ContextBudget(
-            this._budget.MaxTokens,
-            this._budget.CompactionThreshold,
-            this._budget.EmergencyThreshold,
-            this._budget.ReservedTokens + this._pinnedTokenTotal
-        );
+        var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
 
-        var compacted = await this._strategy.CompactAsync(compactable, adjustedBudget, this._counter, cancellationToken);
+        var compacted = await this._strategy.CompactAsync(compactable, availableTokens, this._counter, cancellationToken);
 
         var prepared = pinnedSlots.Count == 0
             ? compacted.Messages
