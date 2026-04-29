@@ -23,20 +23,22 @@ namespace TokenGuard.Core.Strategies;
 internal sealed class TieredCompactionStrategy : ICompactionStrategy
 {
     private readonly SlidingWindowStrategy _slidingWindowStrategy;
-    private readonly LlmSummarizationStrategy _llmSummarizationStrategy;
+    private readonly LlmSummarizationStrategy? _llmSummarizationStrategy;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TieredCompactionStrategy"/> class.
     /// </summary>
-    /// <param name="summarizer">The LLM-backed summarizer used only when sliding-window masking remains over budget.</param>
-    /// <param name="options">The forwarded inner-strategy configuration for masking and summarization.</param>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="summarizer"/> is <see langword="null"/>.</exception>
-    public TieredCompactionStrategy(ILlmSummarizer summarizer, TieredCompactionOptions options)
+    /// <param name="slidingWindowOptions">The masking configuration used for the always-on sliding-window stage.</param>
+    /// <param name="llmSummarizationStrategy">
+    /// The optional LLM-backed summarization stage used only when masking remains over budget. Pass <see langword="null"/>
+    /// to keep tiered compaction in sliding-window-only mode.
+    /// </param>
+    public TieredCompactionStrategy(
+        SlidingWindowOptions slidingWindowOptions,
+        LlmSummarizationStrategy? llmSummarizationStrategy = null)
     {
-        ArgumentNullException.ThrowIfNull(summarizer);
-
-        this._slidingWindowStrategy = new SlidingWindowStrategy(options.SlidingWindowOptions);
-        this._llmSummarizationStrategy = new LlmSummarizationStrategy(summarizer, options.LlmSummarizationOptions);
+        this._slidingWindowStrategy = new SlidingWindowStrategy(slidingWindowOptions);
+        this._llmSummarizationStrategy = llmSummarizationStrategy;
     }
 
     /// <summary>
@@ -69,7 +71,7 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
             tokenCounter,
             cancellationToken);
 
-        if (slidingWindowResult.TokensAfter <= availableTokens)
+        if (slidingWindowResult.TokensAfter <= availableTokens || this._llmSummarizationStrategy is null)
         {
             return BuildCompactionResult(slidingWindowResult);
         }

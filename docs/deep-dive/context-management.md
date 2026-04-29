@@ -367,12 +367,11 @@ var config = new ConversationConfigBuilder()
     .WithMaxTokens(200_000)
     .WithCompactionThreshold(0.75)      // compact at 75% of available tokens
     .WithEmergencyThreshold(0.92)       // emergency truncation at 92%
-    .WithReservedTokens(4_000)          // hold back 4k for response + overhead
-    .WithStrategy(new SlidingWindowStrategy(new SlidingWindowOptions(
+    .WithSlidingWindowOptions(new SlidingWindowOptions(
         windowSize: 15,                 // always protect newest 15 messages
         protectedWindowFraction: 0.70,  // protected window can use up to 70% of available tokens
         placeholderFormat: "[cleared: {0} / {1}]"
-    )))
+    ))
     .WithTokenCounter(new EstimatedTokenCounter())
     .WithCompactionObserver(myObserver)
     .Build();

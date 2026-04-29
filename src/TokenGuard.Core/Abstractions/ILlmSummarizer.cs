@@ -20,7 +20,7 @@ namespace TokenGuard.Core.Abstractions;
 /// budget. Producing a smaller summary is acceptable and expected.
 /// </para>
 /// </remarks>
-public interface ILlmSummarizer
+internal interface ILlmSummarizer
 {
     /// <summary>
     /// Produces summary text for the supplied message slice.

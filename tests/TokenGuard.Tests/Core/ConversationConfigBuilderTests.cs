@@ -1,10 +1,17 @@
+using System.Runtime.CompilerServices;
+using Anthropic;
 using FluentAssertions;
+using OpenAI.Chat;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
+using TokenGuard.Core.Models.Content;
+using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Core.TokenCounting;
+using TokenGuard.Extensions.Anthropic;
+using TokenGuard.Extensions.OpenAI;
 
 namespace TokenGuard.Tests.Core;
 
@@ -22,7 +29,7 @@ public sealed class ConversationConfigBuilderTests
         // Assert
         configuration.Budget.Should().Be(expected);
         configuration.Counter.Should().BeOfType<EstimatedTokenCounter>();
-        configuration.Strategy.Should().BeOfType<SlidingWindowStrategy>();
+        configuration.Strategy.Should().BeOfType<TieredCompactionStrategy>();
     }
 
     [Fact]
@@ -37,7 +44,7 @@ public sealed class ConversationConfigBuilderTests
         // Assert
         configuration.Budget.MaxTokens.Should().Be(maxTokens);
         configuration.Counter.Should().BeOfType<EstimatedTokenCounter>();
-        configuration.Strategy.Should().BeOfType<SlidingWindowStrategy>();
+        configuration.Strategy.Should().BeOfType<TieredCompactionStrategy>();
     }
 
     [Fact]
@@ -55,7 +62,7 @@ public sealed class ConversationConfigBuilderTests
         // Assert
         configuration.Budget.Should().Be(expectedBudget);
         configuration.Counter.Should().BeOfType<EstimatedTokenCounter>();
-        configuration.Strategy.Should().BeOfType<SlidingWindowStrategy>();
+        configuration.Strategy.Should().BeOfType<TieredCompactionStrategy>();
     }
 
     [Fact]
@@ -72,15 +79,23 @@ public sealed class ConversationConfigBuilderTests
         // Assert
         buildConfiguration.Should().BeEquivalentTo(build);
         buildConfiguration.Counter.Should().BeOfType<EstimatedTokenCounter>();
-        buildConfiguration.Strategy.Should().BeOfType<SlidingWindowStrategy>();
+        buildConfiguration.Strategy.Should().BeOfType<TieredCompactionStrategy>();
     }
 
     [Fact]
-    public void Build_WhenOverridesProvided_UsesExplicitValuesAndInstances()
+    public async Task Build_WhenSlidingWindowOptionsConfigured_UsesSlidingWindowOnlyWhenNoProviderIsRegistered()
     {
         // Arrange
-        var counter = new StubTokenCounter();
-        var strategy = new StubCompactionStrategy();
+        var oldest1 = CreateToolResultMessage("call_1", "search", "full-tool-output-1");
+        var oldest2 = CreateToolResultMessage("call_2", "search", "full-tool-output-2");
+        var keep1 = ContextMessage.FromText(MessageRole.User, "keep-1");
+        var keep2 = ContextMessage.FromText(MessageRole.Model, "keep-2");
+        var messages = new[] { oldest1, oldest2, keep1, keep2 };
+        var counter = new TrackingTokenCounter();
+        counter.Set(oldest1, 50);
+        counter.Set(oldest2, 50);
+        counter.Set(keep1, 5);
+        counter.Set(keep2, 5);
 
         // Act
         var configuration = new ConversationConfigBuilder()
@@ -88,15 +103,20 @@ public sealed class ConversationConfigBuilderTests
             .WithCompactionThreshold(0.65)
             .WithEmergencyThreshold(0.90)
             .WithTokenCounter(counter)
-            .WithStrategy(strategy)
+            .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20))
             .Build();
+        var compacted = await configuration.Strategy.CompactAsync(messages, 11, counter);
 
         // Assert
         configuration.Budget.MaxTokens.Should().Be(8_192);
         configuration.Budget.CompactionThreshold.Should().Be(0.65);
         configuration.Budget.EmergencyThreshold.Should().Be(0.90);
         configuration.Counter.Should().BeSameAs(counter);
-        configuration.Strategy.Should().BeSameAs(strategy);
+        configuration.Strategy.Should().BeOfType<TieredCompactionStrategy>();
+        compacted.Messages.Should().HaveCount(4);
+        compacted.Messages[0].State.Should().Be(CompactionState.Masked);
+        compacted.Messages[1].State.Should().Be(CompactionState.Masked);
+        compacted.Messages.Should().NotContain(message => message.State == CompactionState.Summarized);
     }
 
     [Fact]
@@ -128,17 +148,36 @@ public sealed class ConversationConfigBuilderTests
     }
 
     [Fact]
-    public void WithStrategy_WhenStrategyIsNull_ThrowsArgumentNullException()
+    public async Task Build_WhenLlmSummarizationIsRegistered_UsesLlmFallbackStage()
     {
         // Arrange
-        var builder = new ConversationConfigBuilder();
+        var oldest1 = CreateToolResultMessage("call_1", "search", "full-tool-output-1");
+        var oldest2 = CreateToolResultMessage("call_2", "search", "full-tool-output-2");
+        var keep1 = ContextMessage.FromText(MessageRole.User, "keep-1");
+        var keep2 = ContextMessage.FromText(MessageRole.Model, "keep-2");
+        var messages = new[] { oldest1, oldest2, keep1, keep2 };
+        var counter = new TrackingTokenCounter();
+        counter.Set(oldest1, 50);
+        counter.Set(oldest2, 50);
+        counter.Set(keep1, 5);
+        counter.Set(keep2, 5);
+        var builder = new ConversationConfigBuilder()
+            .WithMaxTokens(8_192)
+            .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        Action act = () => builder.WithStrategy(null!);
+        builder.SetLlmSummarizer(
+            new TrackingSummarizer("summary-text"),
+            "OpenAI",
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        var configuration = builder.Build();
+        var compacted = await configuration.Strategy.CompactAsync(messages, 11, counter);
 
         // Assert
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("strategy");
+        compacted.Messages.Should().HaveCount(3);
+        compacted.Messages[0].State.Should().Be(CompactionState.Summarized);
+        compacted.Messages[1].Should().BeSameAs(keep1);
+        compacted.Messages[2].Should().BeSameAs(keep2);
     }
 
     [Fact]
@@ -161,14 +200,13 @@ public sealed class ConversationConfigBuilderTests
         // Arrange
         var builder = new ConversationConfigBuilder();
         var counter = new StubTokenCounter();
-        var strategy = new StubCompactionStrategy();
 
         // Act
         var withMaxTokens = builder.WithMaxTokens(4_096);
         var withCompactionThreshold = builder.WithCompactionThreshold(0.70);
         var withEmergencyThreshold = builder.WithEmergencyThreshold(0.95);
         var withTokenCounter = builder.WithTokenCounter(counter);
-        var withStrategy = builder.WithStrategy(strategy);
+        var withSlidingWindowOptions = builder.WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 4));
         var withOverrunTolerance = builder.WithOverrunTolerance(0.10);
 
         // Assert
@@ -176,8 +214,33 @@ public sealed class ConversationConfigBuilderTests
         withCompactionThreshold.Should().BeSameAs(builder);
         withEmergencyThreshold.Should().BeSameAs(builder);
         withTokenCounter.Should().BeSameAs(builder);
-        withStrategy.Should().BeSameAs(builder);
+        withSlidingWindowOptions.Should().BeSameAs(builder);
         withOverrunTolerance.Should().BeSameAs(builder);
+    }
+
+    [Theory]
+    [InlineData("OpenAIFirst")]
+    [InlineData("AnthropicFirst")]
+    public void UseLlmSummarization_WhenCalledTwice_ThrowsWithBothProviderNames(string order)
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder()
+            .WithMaxTokens(8_192);
+        var openAiClient = new ChatClient("gpt-4.1", "test-key");
+        var anthropicClient = new AnthropicClient();
+
+        Action act = order == "OpenAIFirst"
+            ? () => builder
+                .UseLlmSummarization(openAiClient)
+                .UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest")
+            : () => builder
+                .UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest")
+                .UseLlmSummarization(openAiClient);
+
+        // Act / Assert
+        var assertion = act.Should().Throw<InvalidOperationException>();
+        assertion.WithMessage("*Only one provider can be registered per builder instance*");
+        assertion.Which.Message.Should().Contain("OpenAI").And.Contain("Anthropic");
     }
 
     [Fact]
@@ -223,11 +286,76 @@ public sealed class ConversationConfigBuilderTests
         }
     }
 
-    private sealed class StubCompactionStrategy : ICompactionStrategy
+    private static ContextMessage CreateToolResultMessage(string callId, string toolName, string payload)
     {
-        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
+        return new ContextMessage
         {
-            return Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(StubCompactionStrategy)));
+            Role = MessageRole.User,
+            Segments = [new ToolResultContent(callId, toolName, payload)],
+        };
+    }
+
+    private sealed class TrackingSummarizer : ILlmSummarizer
+    {
+        private readonly string _summary;
+
+        public TrackingSummarizer(string summary)
+        {
+            this._summary = summary;
+        }
+
+        public Task<string> SummarizeAsync(
+            IReadOnlyList<ContextMessage> messages,
+            int targetTokens,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(this._summary);
+        }
+    }
+
+    private sealed class TrackingTokenCounter : ITokenCounter
+    {
+        private readonly Dictionary<ContextMessage, int> _counts = new(ReferenceEqualityComparer.Instance);
+
+        public void Set(ContextMessage contextMessage, int count)
+        {
+            this._counts[contextMessage] = count;
+        }
+
+        public int Count(ContextMessage contextMessage)
+        {
+            return this._counts.TryGetValue(contextMessage, out var value)
+                ? value
+                : 1;
+        }
+
+        public int Count(IEnumerable<ContextMessage> messages)
+        {
+            ArgumentNullException.ThrowIfNull(messages);
+
+            var total = 0;
+            foreach (var message in messages)
+            {
+                total += this.Count(message);
+            }
+
+            return total;
+        }
+    }
+
+    private sealed class ReferenceEqualityComparer : IEqualityComparer<ContextMessage>
+    {
+        public static readonly ReferenceEqualityComparer Instance = new();
+
+        public bool Equals(ContextMessage? x, ContextMessage? y)
+        {
+            return ReferenceEquals(x, y);
+        }
+
+        public int GetHashCode(ContextMessage obj)
+        {
+            return RuntimeHelpers.GetHashCode(obj);
         }
     }
 }

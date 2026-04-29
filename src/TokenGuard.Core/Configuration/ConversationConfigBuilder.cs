@@ -1,6 +1,7 @@
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Models;
+using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Core.TokenCounting;
 
@@ -12,22 +13,26 @@ namespace TokenGuard.Core.Configuration;
 /// <remarks>
 ///     <para>
 ///         Use <see cref="ConversationConfigBuilder"/> when a conversation-context configuration needs to be composed from
-///         a token budget, a token counter, and a compaction strategy without constructing the underlying
-///         <see cref="ContextBudget"/> manually.
+///         a token budget, a token counter, and TokenGuard's built-in compaction pipeline without constructing the
+///         underlying <see cref="ContextBudget"/> manually.
 ///     </para>
 ///     <para>
 ///         The builder requires <see cref="WithMaxTokens(int)"/> to be called before <see cref="Build"/>.
 ///         All other configuration methods are optional. Any budget values not explicitly configured are taken
-///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count.
+///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count, while compaction always
+///         uses <see cref="TieredCompactionStrategy"/> with sliding-window masking and an optional provider-backed
+///         summarization stage.
 ///     </para>
-/// </remarks>
+    /// </remarks>
 public sealed class ConversationConfigBuilder
 {
     private int? _maxTokens;
     private double? _compactionThreshold;
     private double? _emergencyThreshold;
     private double? _overrunTolerance;
-    private ICompactionStrategy? _strategy;
+    private SlidingWindowOptions? _slidingWindowOptions;
+    private LlmSummarizationStrategy? _llmSummarizationStrategy;
+    private string? _llmSummarizationProviderName;
     private ITokenCounter? _tokenCounter;
     private ICompactionObserver? _observer;
 
@@ -38,9 +43,9 @@ public sealed class ConversationConfigBuilder
     ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
     ///     the resulting configuration uses the library default profile: 100,000 tokens, a 0.80 compaction
-    ///     threshold, no emergency truncation, <see cref="EstimatedTokenCounter"/>,
-    ///     and <see cref="SlidingWindowStrategy"/>.
-    /// </remarks>
+    ///     threshold, no emergency truncation, <see cref="EstimatedTokenCounter"/>, and
+    ///     <see cref="TieredCompactionStrategy"/> with <see cref="SlidingWindowOptions.Default"/> and no LLM stage.
+/// </remarks>
     /// <param name="maxTokens">
     ///     The maximum number of tokens allowed in the conversation. Defaults to 100,000 when omitted.
     /// </param>
@@ -126,16 +131,18 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
-    ///     Sets the compaction strategy used when the context exceeds the configured threshold.
+    ///     Sets the configuration used by the always-on sliding-window masking stage.
     /// </summary>
     /// <remarks>
-    ///     When no strategy is configured, <see cref="SlidingWindowStrategy"/> is used.
+    ///     When not configured, <see cref="SlidingWindowOptions.Default"/> is used. This only adjusts the masking
+    ///     phase; provider-backed LLM summarization is registered separately through extension-package methods such as
+    ///     <c>UseLlmSummarization(...)</c>.
     /// </remarks>
-    /// <param name="strategy">The compaction strategy.</param>
+    /// <param name="options">The sliding-window masking configuration.</param>
     /// <returns>The current builder instance.</returns>
-    public ConversationConfigBuilder WithStrategy(ICompactionStrategy strategy)
+    public ConversationConfigBuilder WithSlidingWindowOptions(SlidingWindowOptions options)
     {
-        this._strategy = strategy ?? throw new ArgumentNullException(nameof(strategy));
+        this._slidingWindowOptions = options;
         return this;
     }
 
@@ -179,8 +186,9 @@ public sealed class ConversationConfigBuilder
     ///         no emergency truncation, and 0 reserved tokens.
     ///     </para>
     ///     <para>
-    ///         If no token counter or compaction strategy has been configured, this method uses
-    ///         <see cref="EstimatedTokenCounter"/> and <see cref="SlidingWindowStrategy"/>, respectively.
+    ///         If no token counter has been configured, this method uses <see cref="EstimatedTokenCounter"/>.
+    ///         Compaction always uses <see cref="TieredCompactionStrategy"/> with configured
+    ///         <see cref="SlidingWindowOptions"/> and an optional provider-backed <see cref="LlmSummarizationStrategy"/>.
     ///     </para>
     /// </remarks>
     /// <returns>
@@ -205,7 +213,9 @@ public sealed class ConversationConfigBuilder
             this._overrunTolerance ?? ConversationDefaults.OverrunTolerance);
 
         var counter = this._tokenCounter ?? new EstimatedTokenCounter();
-        var strategy = this._strategy ?? new SlidingWindowStrategy();
+        var strategy = new TieredCompactionStrategy(
+            this._slidingWindowOptions ?? SlidingWindowOptions.Default,
+            this._llmSummarizationStrategy);
 
         return new ConversationContextConfiguration(budget, counter, strategy, this._observer);
     }
@@ -219,9 +229,9 @@ public sealed class ConversationConfigBuilder
     ///         This method applies exactly the same defaulting logic as <see cref="Build"/>: any budget
     ///         values not explicitly configured are merged with the library defaults from
     ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction and no emergency truncation,
-    ///         and missing counter or strategy choices fall back to
-    ///         <see cref="TokenCounting.EstimatedTokenCounter"/> and <see cref="Strategies.SlidingWindowStrategy"/>,
-    ///         respectively.
+    ///         and a missing counter falls back to <see cref="TokenCounting.EstimatedTokenCounter"/>.
+    ///         Compaction still uses the same internal <see cref="Strategies.TieredCompactionStrategy"/> pipeline as
+    ///         <see cref="Build"/>.
     ///     </para>
     ///     <para>
     ///         Use <see cref="BuildConfiguration"/> instead of <see cref="Build"/> when the resulting
@@ -239,4 +249,63 @@ public sealed class ConversationConfigBuilder
     ///     Thrown when <see cref="WithMaxTokens(int)"/> has not been called.
     /// </exception>
     public ConversationContextConfiguration BuildConfiguration() => this.Build();
+
+    /// <summary>
+    /// Registers provider-backed LLM summarization for the current builder.
+    /// </summary>
+    /// <param name="summarizer">The provider implementation that produces summaries when masking is insufficient.</param>
+    /// <param name="providerName">The human-readable provider name used in conflict messages.</param>
+    /// <param name="options">
+    /// Optional summarization options. When omitted, <see cref="LlmSummarizationOptions.Default"/> is used.
+    /// </param>
+    /// <returns>The current builder instance.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// Thrown when <paramref name="summarizer"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="providerName"/> is <see langword="null"/>, empty, or whitespace.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a summarization provider has already been registered on this builder instance.
+    /// </exception>
+    internal ConversationConfigBuilder SetLlmSummarizer(
+        ILlmSummarizer summarizer,
+        string providerName,
+        LlmSummarizationOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(summarizer);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
+
+        if (this._llmSummarizationStrategy is not null)
+        {
+            throw new InvalidOperationException(BuildProviderConflictMessage(
+                this._llmSummarizationProviderName!,
+                providerName));
+        }
+
+        this._llmSummarizationStrategy = options.HasValue
+            ? new LlmSummarizationStrategy(summarizer, options.Value)
+            : new LlmSummarizationStrategy(summarizer);
+        this._llmSummarizationProviderName = providerName;
+
+        return this;
+    }
+
+    private static string BuildProviderConflictMessage(string existingProviderName, string conflictingProviderName)
+    {
+        return
+            $"LLM summarization provider '{existingProviderName}' is already registered. Only one provider can be registered per builder instance.{Environment.NewLine}" +
+            $"Conflicting registration attempted for provider '{conflictingProviderName}'.{Environment.NewLine}" +
+            $"Remove the conflicting call before adding a new provider:{Environment.NewLine}{Environment.NewLine}" +
+            $"    builder.UseLlmSummarization({GetClientVariableName(existingProviderName)});   // keep one{Environment.NewLine}" +
+            $"    builder.UseLlmSummarization({GetClientVariableName(conflictingProviderName)}); // remove this";
+    }
+
+    private static string GetClientVariableName(string providerName) =>
+        providerName switch
+        {
+            "OpenAI" => "openAiClient",
+            "Anthropic" => "anthropicClient",
+            _ => char.ToLowerInvariant(providerName[0]) + providerName[1..] + "Client",
+        };
 }

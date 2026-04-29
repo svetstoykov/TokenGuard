@@ -109,6 +109,21 @@ services.AddConversationContext("analysis", builder => builder
 `WithEmergencyThreshold` is optional. Skip it and there's no fallback once masking saturates — fine for short sessions,
 risky for anything long-running.
 
+Sliding-window masking is always active. Add provider-backed summarization only through the provider extension packages:
+
+```csharp
+services.AddConversationContext(builder => builder
+    .WithMaxTokens(100_000)
+    .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 12))
+    .UseLlmSummarization(chatClient));
+```
+
+```csharp
+services.AddConversationContext(builder => builder
+    .WithMaxTokens(100_000)
+    .UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest"));
+```
+
 ### 2. Create a context per conversation
 
 ```csharp
@@ -197,11 +212,23 @@ var messages = preparedMessages.ForOpenAI();
 conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
 ```
 
+Optional LLM summarization addon:
+
+```csharp
+builder.UseLlmSummarization(chatClient);
+```
+
 **Anthropic**
 
 ```csharp
 var messages = preparedMessages.ForAnthropic();
 conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+```
+
+Optional LLM summarization addon:
+
+```csharp
+builder.UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest");
 ```
 
 ---
