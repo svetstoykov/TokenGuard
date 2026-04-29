@@ -17,6 +17,8 @@ public sealed class ContextBudgetTests
         Assert.Equal(0.80, budget.CompactionThreshold);
         Assert.Null(budget.EmergencyThreshold);
         Assert.Equal(0, budget.ReservedTokens);
+        Assert.Equal(0.05, budget.OverrunTolerance);
+        Assert.Equal(5_000, budget.OverrunToleranceTokens);
         Assert.Equal(100_000, budget.AvailableTokens);
         Assert.Equal(80_000, budget.CompactionTriggerTokens);
         Assert.Null(budget.EmergencyTriggerTokens);
@@ -178,5 +180,81 @@ public sealed class ContextBudgetTests
         // Assert
         Assert.Throws<ArgumentOutOfRangeException>(actOnEqualThresholds);
         Assert.Throws<ArgumentOutOfRangeException>(actOnInvertedThresholds);
+    }
+
+    [Fact]
+    public void OverrunTolerance_DefaultsToFivePercent()
+    {
+        // Arrange
+
+        // Act
+        var budget = new ContextBudget(maxTokens: 1_000);
+
+        // Assert
+        Assert.Equal(0.05, budget.OverrunTolerance);
+        Assert.Equal(50, budget.OverrunToleranceTokens);
+    }
+
+    [Fact]
+    public void OverrunTolerance_StoresConfiguredValue()
+    {
+        // Arrange
+
+        // Act
+        var budget = new ContextBudget(maxTokens: 1_000, overrunTolerance: 0.10);
+
+        // Assert
+        Assert.Equal(0.10, budget.OverrunTolerance);
+        Assert.Equal(100, budget.OverrunToleranceTokens);
+    }
+
+    [Fact]
+    public void OverrunToleranceTokens_FloorsPartialTokens()
+    {
+        // Arrange — 5% of 999 = 49.95, which must floor to 49, not round to 50.
+
+        // Act
+        var budget = new ContextBudget(maxTokens: 999, overrunTolerance: 0.05);
+
+        // Assert
+        Assert.Equal(49, budget.OverrunToleranceTokens);
+    }
+
+    [Fact]
+    public void Constructor_ThrowsForNegativeOverrunTolerance()
+    {
+        // Arrange
+
+        // Act
+        Action act = () => _ = new ContextBudget(maxTokens: 1_000, overrunTolerance: -0.01);
+
+        // Assert
+        Assert.Throws<ArgumentOutOfRangeException>(act);
+    }
+
+    [Fact]
+    public void Constructor_ThrowsWhenOverrunToleranceExceedsOne()
+    {
+        // Arrange
+
+        // Act
+        Action act = () => _ = new ContextBudget(maxTokens: 1_000, overrunTolerance: 1.01);
+
+        // Assert
+        Assert.Throws<ArgumentOutOfRangeException>(act);
+    }
+
+    [Fact]
+    public void Constructor_ThrowsForNonFiniteOverrunTolerance()
+    {
+        // Arrange
+
+        // Act
+        Action actNaN = () => _ = new ContextBudget(maxTokens: 1_000, overrunTolerance: double.NaN);
+        Action actInf = () => _ = new ContextBudget(maxTokens: 1_000, overrunTolerance: double.PositiveInfinity);
+
+        // Assert
+        Assert.Throws<ArgumentOutOfRangeException>(actNaN);
+        Assert.Throws<ArgumentOutOfRangeException>(actInf);
     }
 }

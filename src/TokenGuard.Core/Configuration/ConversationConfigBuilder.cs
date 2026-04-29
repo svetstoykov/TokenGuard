@@ -27,6 +27,7 @@ public sealed class ConversationConfigBuilder
     private double? _compactionThreshold;
     private double? _emergencyThreshold;
     private int? _reservedTokens;
+    private double? _overrunTolerance;
     private ICompactionStrategy? _strategy;
     private ITokenCounter? _tokenCounter;
     private ICompactionObserver? _observer;
@@ -117,6 +118,30 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
+    ///     Sets the fraction of <see cref="ContextBudget.MaxTokens"/> by which a prepared result may exceed the budget
+    ///     and still be considered acceptable.
+    /// </summary>
+    /// <remarks>
+    ///     When not configured, the default is <see cref="ConversationDefaults.OverrunTolerance"/> (0.05 — 5% of the
+    ///     configured maximum token count). Pass <c>0.0</c> to disable tolerance and restore strict-budget behavior.
+    ///     A positive value lets callers accept a small estimated overrun without the result being classified as
+    ///     <see cref="Enums.PrepareOutcome.Degraded"/>. Compaction strategies always target the hard
+    ///     <see cref="ContextBudget.MaxTokens"/> ceiling; the tolerance only affects the final outcome classification
+    ///     after all compaction techniques have run. See <see cref="ContextBudget.OverrunTolerance"/> for full
+    ///     behavioral details.
+    /// </remarks>
+    /// <param name="overrunTolerance">
+    ///     The fraction of <see cref="ContextBudget.MaxTokens"/> above the budget ceiling that is still considered
+    ///     acceptable. Must be in the range [0.0, 1.0].
+    /// </param>
+    /// <returns>The current builder instance.</returns>
+    public ConversationConfigBuilder WithOverrunTolerance(double overrunTolerance)
+    {
+        this._overrunTolerance = overrunTolerance;
+        return this;
+    }
+
+    /// <summary>
     ///     Sets the compaction strategy used when the context exceeds the configured threshold.
     /// </summary>
     /// <remarks>
@@ -193,7 +218,8 @@ public sealed class ConversationConfigBuilder
             this._maxTokens.Value,
             this._compactionThreshold ?? defaults.CompactionThreshold,
             this._emergencyThreshold,
-            this._reservedTokens ?? defaults.ReservedTokens);
+            this._reservedTokens ?? defaults.ReservedTokens,
+            this._overrunTolerance ?? ConversationDefaults.OverrunTolerance);
 
         var counter = this._tokenCounter ?? new EstimatedTokenCounter();
         var strategy = this._strategy ?? new SlidingWindowStrategy();

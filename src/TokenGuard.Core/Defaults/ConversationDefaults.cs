@@ -30,6 +30,11 @@ internal static class ConversationDefaults
     internal const int ReservedTokens = 0;
 
     /// <summary>
+    /// Gets the library default overrun tolerance as a fraction of the configured maximum token count.
+    /// </summary>
+    internal const double OverrunTolerance = 0.05;
+
+    /// <summary>
     /// Creates the library default <see cref="ContextBudget"/> for a specific maximum token count.
     /// </summary>
     /// <param name="maxTokens">The total token capacity of the target model context window.</param>

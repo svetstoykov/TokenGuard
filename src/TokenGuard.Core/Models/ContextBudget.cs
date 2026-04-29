@@ -42,16 +42,24 @@ public readonly record struct ContextBudget
     /// <see langword="null"/> to disable emergency truncation entirely. Defaults to <see langword="null"/>.
     /// </param>
     /// <param name="reservedTokens">The token space held back for non-message content.</param>
+    /// <param name="overrunTolerance">
+    /// The fraction of <paramref name="maxTokens"/> by which a prepared result may exceed the budget and still be
+    /// considered acceptable. Must be in the range [0.0, 1.0]. Defaults to
+    /// <see cref="ConversationDefaults.OverrunTolerance"/> (0.05, meaning 5% of <paramref name="maxTokens"/>).
+    /// Pass <c>0.0</c> to restore strict zero-tolerance behavior.
+    /// </param>
     public ContextBudget(
         int maxTokens,
         double compactionThreshold = ConversationDefaults.CompactionThreshold,
         double? emergencyThreshold = null,
-        int reservedTokens = ConversationDefaults.ReservedTokens)
+        int reservedTokens = ConversationDefaults.ReservedTokens,
+        double overrunTolerance = ConversationDefaults.OverrunTolerance)
     {
         this.MaxTokens = ValidateMaxTokens(maxTokens, nameof(maxTokens));
         this.CompactionThreshold = ValidateCompactionThreshold(compactionThreshold, emergencyThreshold, nameof(compactionThreshold));
         this.EmergencyThreshold = ValidateEmergencyThreshold(emergencyThreshold, compactionThreshold, nameof(emergencyThreshold));
         this.ReservedTokens = ValidateReservedTokens(reservedTokens, maxTokens, nameof(reservedTokens));
+        this.OverrunTolerance = ValidateOverrunTolerance(overrunTolerance, nameof(overrunTolerance));
     }
 
     /// <summary>
@@ -87,6 +95,34 @@ public readonly record struct ContextBudget
     /// Gets the token space reserved for content not represented in message history.
     /// </summary>
     public int ReservedTokens { get; }
+
+    /// <summary>
+    /// Gets the overrun tolerance as a fraction of <see cref="MaxTokens"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// When non-zero, <see cref="ConversationContext.PrepareAsync"/> accepts a result whose estimated token total
+    /// falls between <see cref="MaxTokens"/> and <c>MaxTokens + <see cref="OverrunToleranceTokens"/></c> inclusive,
+    /// returning <see cref="Enums.PrepareOutcome.Compacted"/> rather than <see cref="Enums.PrepareOutcome.Degraded"/>.
+    /// This is useful when the token estimator is known to have small systematic overestimates for a given provider.
+    /// </para>
+    /// <para>
+    /// Defaults to <see cref="ConversationDefaults.OverrunTolerance"/> (0.05 — 5% of <see cref="MaxTokens"/>).
+    /// Pass <c>0.0</c> to disable tolerance and restore strict-budget behavior.
+    /// Compaction strategies always target <see cref="MaxTokens"/>; the tolerance only affects the final outcome
+    /// classification after all compaction techniques have run.
+    /// </para>
+    /// </remarks>
+    public double OverrunTolerance { get; }
+
+    /// <summary>
+    /// Gets the absolute token count corresponding to <see cref="OverrunTolerance"/> applied to <see cref="MaxTokens"/>.
+    /// </summary>
+    /// <remarks>
+    /// Computed as <c>(int)Math.Floor(MaxTokens * OverrunTolerance)</c>. This is the value compared against the
+    /// final token total in <see cref="ConversationContext.PrepareAsync"/> after all compaction has run.
+    /// </remarks>
+    public int OverrunToleranceTokens => (int)Math.Floor(this.MaxTokens * this.OverrunTolerance);
 
     /// <summary>
     /// Gets the token budget remaining for recorded message history after reservations are applied.
@@ -159,6 +195,21 @@ public readonly record struct ContextBudget
         if (compaction >= value.Value)
         {
             throw new ArgumentOutOfRangeException(paramName, "EmergencyThreshold must be greater than CompactionThreshold.");
+        }
+
+        return value;
+    }
+
+    private static double ValidateOverrunTolerance(double value, string paramName)
+    {
+        if (!double.IsFinite(value))
+        {
+            throw new ArgumentOutOfRangeException(paramName, "OverrunTolerance must be a finite number.");
+        }
+
+        if (value is < 0.0 or > 1.0)
+        {
+            throw new ArgumentOutOfRangeException(paramName, "OverrunTolerance must be in the range [0.0, 1.0].");
         }
 
         return value;

@@ -431,7 +431,7 @@ public sealed class ConversationContext : IConversationContext
     /// <returns>The caller-facing outcome for the current prepared payload.</returns>
     private PrepareOutcome DetermineOutcome(int finalTokens, int messagesCompacted)
     {
-        if (finalTokens <= this._budget.MaxTokens)
+        if (finalTokens <= (long)this._budget.MaxTokens + this._budget.OverrunToleranceTokens)
         {
             return messagesCompacted > 0 ? PrepareOutcome.Compacted : PrepareOutcome.Ready;
         }
@@ -450,9 +450,10 @@ public sealed class ConversationContext : IConversationContext
     /// <returns>A stable diagnostic string describing why the prepared payload is still over budget.</returns>
     private string BuildDegradationReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted)
     {
-        return outcome == PrepareOutcome.ContextExhausted 
-            ? $"A single message or structural content exceeds the budget ({finalTokens} tokens > {this._budget.MaxTokens} max). Compaction is impossible." 
-            : $"Compaction reduced content but still exceeds budget ({finalTokens} tokens > {this._budget.MaxTokens} max). {messagesCompacted} messages were compacted but insufficient.";
+        var effectiveMax = (long)this._budget.MaxTokens + this._budget.OverrunToleranceTokens;
+        return outcome == PrepareOutcome.ContextExhausted
+            ? $"A single message or structural content exceeds the budget ({finalTokens} tokens > {effectiveMax} max). Compaction is impossible."
+            : $"Compaction reduced content but still exceeds budget ({finalTokens} tokens > {effectiveMax} max). {messagesCompacted} messages were compacted but insufficient.";
     }
 
     /// <summary>

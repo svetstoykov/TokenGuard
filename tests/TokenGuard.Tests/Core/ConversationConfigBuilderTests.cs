@@ -171,6 +171,7 @@ public sealed class ConversationConfigBuilderTests
         var withReservedTokens = builder.WithReservedTokens(256);
         var withTokenCounter = builder.WithTokenCounter(counter);
         var withStrategy = builder.WithStrategy(strategy);
+        var withOverrunTolerance = builder.WithOverrunTolerance(0.10);
 
         // Assert
         withMaxTokens.Should().BeSameAs(builder);
@@ -179,6 +180,37 @@ public sealed class ConversationConfigBuilderTests
         withReservedTokens.Should().BeSameAs(builder);
         withTokenCounter.Should().BeSameAs(builder);
         withStrategy.Should().BeSameAs(builder);
+        withOverrunTolerance.Should().BeSameAs(builder);
+    }
+
+    [Fact]
+    public void Build_WhenOverrunToleranceNotConfigured_DefaultsToFivePercent()
+    {
+        // Arrange
+
+        // Act
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(1_000)
+            .Build();
+
+        // Assert
+        configuration.Budget.OverrunTolerance.Should().Be(0.05);
+    }
+
+    [Fact]
+    public void Build_WhenOverrunToleranceConfigured_PropagatesValueToBudget()
+    {
+        // Arrange
+        const double tolerance = 0.15;
+
+        // Act
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(10_000)
+            .WithOverrunTolerance(tolerance)
+            .Build();
+
+        // Assert
+        configuration.Budget.OverrunTolerance.Should().Be(tolerance);
     }
 
     private sealed class StubTokenCounter : ITokenCounter

@@ -1159,9 +1159,9 @@ public sealed class ConversationContextTests
         var counter = new TrackingTokenCounter();
 
         counter.SetByText("original", 900);
-        counter.Set(compacted, 1050);
+        counter.Set(compacted, 1100);
 
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1050, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1100, 1, "TestStrategy", true));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
@@ -1170,7 +1170,7 @@ public sealed class ConversationContextTests
 
         result.Outcome.Should().Be(PrepareOutcome.Degraded);
         result.TokensBeforeCompaction.Should().Be(900);
-        result.TokensAfterCompaction.Should().Be(1050);
+        result.TokensAfterCompaction.Should().Be(1100);
         result.MessagesCompacted.Should().Be(1);
         result.DegradationReason.Should().NotBeNull();
         result.DegradationReason.Should().Contain("Compaction reduced content");
@@ -1207,9 +1207,9 @@ public sealed class ConversationContextTests
 
         counter.SetByText("sys", 100);
         counter.SetByText("original", 850);
-        counter.Set(compacted, 1050);
+        counter.Set(compacted, 1100);
 
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 850, 1050, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 850, 1100, 1, "TestStrategy", true));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.SetSystemPrompt("sys");
@@ -1221,6 +1221,106 @@ public sealed class ConversationContextTests
         result.TokensBeforeCompaction.Should().Be(950);
         result.MessagesCompacted.Should().BeGreaterThanOrEqualTo(1);
         result.DegradationReason.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WithZeroTolerance_ReportsDegraded_WhenFinalTokensExceedBudget()
+    {
+        // Arrange — budget with explicit zero tolerance; compaction still leaves 1 token above max.
+        var compacted = ContextMessage.FromText(MessageRole.Model, "still-over");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 900);
+        counter.Set(compacted, 1_001);
+
+        var budget = new ContextBudget(maxTokens: 1_000, compactionThreshold: 0.80, overrunTolerance: 0.0);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_001, 1, "TestStrategy", true));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        var result = await engine.PrepareAsync();
+
+        // Assert
+        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.TokensAfterCompaction.Should().Be(1_001);
+        result.DegradationReason.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WithPositiveTolerance_ReportsCompacted_WhenFinalTokensAreWithinTolerance()
+    {
+        // Arrange — tolerance of 10% (100 tokens on a 1000-token budget); compaction leaves 50 tokens above max, which is within tolerance.
+        var compacted = ContextMessage.FromText(MessageRole.Model, "within-tolerance");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 900);
+        counter.Set(compacted, 1_050);
+
+        var budget = new ContextBudget(maxTokens: 1_000, compactionThreshold: 0.80, overrunTolerance: 0.10);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_050, 1, "TestStrategy", true));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        var result = await engine.PrepareAsync();
+
+        // Assert — 1050 <= 1000 + 100 → accepted as Compacted, not Degraded
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.TokensAfterCompaction.Should().Be(1_050);
+        result.DegradationReason.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WithPositiveTolerance_ReportsDegraded_WhenFinalTokensExceedBudgetPlusTolerance()
+    {
+        // Arrange — tolerance of 10% (100 tokens on a 1000-token budget); compaction leaves 101 tokens above max, which exceeds tolerance.
+        var compacted = ContextMessage.FromText(MessageRole.Model, "outside-tolerance");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 900);
+        counter.Set(compacted, 1_101);
+
+        var budget = new ContextBudget(maxTokens: 1_000, compactionThreshold: 0.80, overrunTolerance: 0.10);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_101, 1, "TestStrategy", true));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        var result = await engine.PrepareAsync();
+
+        // Assert — 1101 > 1000 + 100 → still Degraded
+        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.TokensAfterCompaction.Should().Be(1_101);
+        result.DegradationReason.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WithPositiveTolerance_ReportsCompacted_WhenFinalTokensAreAtExactBudget()
+    {
+        // Arrange — regression: a result exactly at budget is always accepted regardless of tolerance.
+        var compacted = ContextMessage.FromText(MessageRole.Model, "exact-budget");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 900);
+        counter.Set(compacted, 1_000);
+
+        var budget = new ContextBudget(maxTokens: 1_000, compactionThreshold: 0.80, overrunTolerance: 0.10);
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_000, 1, "TestStrategy", true));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        var result = await engine.PrepareAsync();
+
+        // Assert — 1000 <= 1000 → Compacted (same as before tolerance was introduced)
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.TokensAfterCompaction.Should().Be(1_000);
+        result.DegradationReason.Should().BeNull();
     }
 
     private static string GetText(ContextMessage message)
