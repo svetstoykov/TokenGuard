@@ -42,7 +42,7 @@ public sealed class SessionLoggerFactory : ISessionLoggerFactory
         var modelName = modelOptions.Name
             ?? throw new InvalidOperationException("Codexplorer model name is not configured.");
 
-        var logDirectory = Path.GetFullPath(sessionLogsDirectory);
+        var logDirectory = CodexplorerPathResolver.ResolveFromAppBaseDirectory(sessionLogsDirectory);
         Directory.CreateDirectory(logDirectory);
 
         var timestampUtc = DateTime.UtcNow;

@@ -86,7 +86,6 @@ public sealed class ConversationConfigBuilderTests
             .WithMaxTokens(8_192)
             .WithCompactionThreshold(0.65)
             .WithEmergencyThreshold(0.90)
-            .WithReservedTokens(512)
             .WithTokenCounter(counter)
             .WithStrategy(strategy)
             .Build();
@@ -95,7 +94,6 @@ public sealed class ConversationConfigBuilderTests
         configuration.Budget.MaxTokens.Should().Be(8_192);
         configuration.Budget.CompactionThreshold.Should().Be(0.65);
         configuration.Budget.EmergencyThreshold.Should().Be(0.90);
-        configuration.Budget.ReservedTokens.Should().Be(512);
         configuration.Counter.Should().BeSameAs(counter);
         configuration.Strategy.Should().BeSameAs(strategy);
     }
@@ -168,17 +166,47 @@ public sealed class ConversationConfigBuilderTests
         var withMaxTokens = builder.WithMaxTokens(4_096);
         var withCompactionThreshold = builder.WithCompactionThreshold(0.70);
         var withEmergencyThreshold = builder.WithEmergencyThreshold(0.95);
-        var withReservedTokens = builder.WithReservedTokens(256);
         var withTokenCounter = builder.WithTokenCounter(counter);
         var withStrategy = builder.WithStrategy(strategy);
+        var withOverrunTolerance = builder.WithOverrunTolerance(0.10);
 
         // Assert
         withMaxTokens.Should().BeSameAs(builder);
         withCompactionThreshold.Should().BeSameAs(builder);
         withEmergencyThreshold.Should().BeSameAs(builder);
-        withReservedTokens.Should().BeSameAs(builder);
         withTokenCounter.Should().BeSameAs(builder);
         withStrategy.Should().BeSameAs(builder);
+        withOverrunTolerance.Should().BeSameAs(builder);
+    }
+
+    [Fact]
+    public void Build_WhenOverrunToleranceNotConfigured_DefaultsToFivePercent()
+    {
+        // Arrange
+
+        // Act
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(1_000)
+            .Build();
+
+        // Assert
+        configuration.Budget.OverrunTolerance.Should().Be(0.05);
+    }
+
+    [Fact]
+    public void Build_WhenOverrunToleranceConfigured_PropagatesValueToBudget()
+    {
+        // Arrange
+        const double tolerance = 0.15;
+
+        // Act
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(10_000)
+            .WithOverrunTolerance(tolerance)
+            .Build();
+
+        // Assert
+        configuration.Budget.OverrunTolerance.Should().Be(tolerance);
     }
 
     private sealed class StubTokenCounter : ITokenCounter
@@ -196,7 +224,7 @@ public sealed class ConversationConfigBuilderTests
 
     private sealed class StubCompactionStrategy : ICompactionStrategy
     {
-        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, ContextBudget budget, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
+        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(StubCompactionStrategy), false));
         }

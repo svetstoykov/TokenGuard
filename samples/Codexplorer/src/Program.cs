@@ -1,12 +1,16 @@
 using Codexplorer.CLI;
 using Codexplorer.Configuration;
+using Codexplorer.Automation;
 using Codexplorer.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Serilog;
+using Serilog.Events;
+using Serilog.Sinks.SystemConsole.Themes;
 
 namespace Codexplorer;
 
@@ -16,13 +20,26 @@ internal sealed class Program
     {
         try
         {
-            var builder = Host.CreateApplicationBuilder(args);
+            var startupOptions = ParseStartupOptions(args);
+            var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
+            {
+                Args = startupOptions.RemainingArgs,
+                ContentRootPath = AppContext.BaseDirectory
+            });
             builder.Configuration.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false);
 
             builder.Services.AddCodexplorerOptions(builder.Configuration);
+
+            if (startupOptions.AutomationMode)
+            {
+                builder.Services.Replace(ServiceDescriptor.Singleton(SessionRenderer.CreateDisabled()));
+            }
+
             builder.Services.AddSerilog((_, loggerConfiguration) => loggerConfiguration
                 .MinimumLevel.Information()
-                .WriteTo.Console()
+                .WriteTo.Console(
+                    theme: AnsiConsoleTheme.Code,
+                    standardErrorFromLevel: startupOptions.AutomationMode ? LogEventLevel.Verbose : LogEventLevel.Fatal)
                 .WriteTo.File(
                     Path.Combine(AppContext.BaseDirectory, "logs", "codexplorer-.log"),
                     rollingInterval: RollingInterval.Day));
@@ -34,10 +51,15 @@ internal sealed class Program
             {
                 LogResolvedConfiguration(host.Services);
 
-                return await host.Services
-                    .GetRequiredService<MainMenu>()
-                    .RunAsync()
-                    .ConfigureAwait(false);
+                return startupOptions.AutomationMode
+                    ? await host.Services
+                        .GetRequiredService<AutomationHost>()
+                        .RunAsync(host.Services.GetRequiredService<CancellationCoordinator>().AppCancellationToken)
+                        .ConfigureAwait(false)
+                    : await host.Services
+                        .GetRequiredService<MainMenu>()
+                        .RunAsync()
+                        .ConfigureAwait(false);
             }
             finally
             {
@@ -89,4 +111,19 @@ internal sealed class Program
             }
         };
     }
+
+    private static StartupOptions ParseStartupOptions(string[] args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+
+        var remainingArgs = args
+            .Where(static argument => !string.Equals(argument, "--automation", StringComparison.Ordinal))
+            .ToArray();
+
+        return new StartupOptions(
+            AutomationMode: args.Length != remainingArgs.Length,
+            RemainingArgs: remainingArgs);
+    }
+
+    private sealed record StartupOptions(bool AutomationMode, string[] RemainingArgs);
 }

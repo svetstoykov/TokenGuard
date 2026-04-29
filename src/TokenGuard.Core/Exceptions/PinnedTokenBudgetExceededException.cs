@@ -10,7 +10,7 @@ namespace TokenGuard.Core.Exceptions;
 /// fast before invoking any compaction strategy.
 /// </para>
 /// <para>
-/// Inspect <see cref="PinnedTokenTotal"/> and <see cref="AvailableTokens"/> to diagnose whether the fixed prompt
+/// Inspect <see cref="PinnedTokenTotal"/> and <see cref="MaxTokens"/> to diagnose whether the fixed prompt
 /// set, pinned constraints, or other durable instructions need to be reduced.
 /// </para>
 /// </remarks>
@@ -20,12 +20,12 @@ public sealed class PinnedTokenBudgetExceededException : Exception
     /// Initializes a new instance of the <see cref="PinnedTokenBudgetExceededException"/> class.
     /// </summary>
     /// <param name="pinnedTokenTotal">The total token cost of all pinned messages.</param>
-    /// <param name="availableTokens">The total available token budget after reservations are applied.</param>
-    public PinnedTokenBudgetExceededException(int pinnedTokenTotal, int availableTokens)
-        : base($"Pinned messages require {pinnedTokenTotal} tokens, which exceeds the available token budget of {availableTokens} tokens.")
+    /// <param name="maxTokens">The maximum token budget configured on the conversation.</param>
+    public PinnedTokenBudgetExceededException(int pinnedTokenTotal, int maxTokens)
+        : base($"Pinned messages require {pinnedTokenTotal} tokens, which exceeds the token budget of {maxTokens} tokens.")
     {
         this.PinnedTokenTotal = pinnedTokenTotal;
-        this.AvailableTokens = availableTokens;
+        this.MaxTokens = maxTokens;
     }
 
     /// <summary>
@@ -34,7 +34,7 @@ public sealed class PinnedTokenBudgetExceededException : Exception
     public int PinnedTokenTotal { get; }
 
     /// <summary>
-    /// Gets the total available token budget that the pinned total exceeded.
+    /// Gets the maximum token budget that the pinned total exceeded.
     /// </summary>
-    public int AvailableTokens { get; }
+    public int MaxTokens { get; }
 }

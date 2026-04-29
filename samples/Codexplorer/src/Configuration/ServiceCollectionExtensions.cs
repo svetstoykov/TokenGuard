@@ -1,4 +1,5 @@
 using Codexplorer.Agent;
+using Codexplorer.Automation;
 using Codexplorer.CLI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -111,6 +112,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IExplorerAgent, ExplorerAgent>();
         services.TryAddSingleton<CancellationCoordinator>();
         services.TryAddSingleton<MainMenu>();
+        services.TryAddSingleton<IAutomationProtocolChannel, ConsoleAutomationProtocolChannel>();
+        services.TryAddSingleton<IAutomationSessionRegistry, AutomationSessionRegistry>();
+        services.TryAddSingleton<IAutomationCommandDispatcher, AutomationCommandDispatcher>();
+        services.TryAddSingleton<AutomationHost>();
 
         return services;
     }

@@ -16,8 +16,8 @@ public sealed class ContextBudgetTests
         Assert.Equal(100_000, budget.MaxTokens);
         Assert.Equal(0.80, budget.CompactionThreshold);
         Assert.Null(budget.EmergencyThreshold);
-        Assert.Equal(0, budget.ReservedTokens);
-        Assert.Equal(100_000, budget.AvailableTokens);
+        Assert.Equal(0.05, budget.OverrunTolerance);
+        Assert.Equal(5_000, budget.OverrunToleranceTokens);
         Assert.Equal(80_000, budget.CompactionTriggerTokens);
         Assert.Null(budget.EmergencyTriggerTokens);
     }
@@ -36,19 +36,7 @@ public sealed class ContextBudgetTests
     }
 
     [Fact]
-    public void AvailableTokens_SubtractsReservedTokens()
-    {
-        // Arrange
-
-        // Act
-        var budget = new ContextBudget(maxTokens: 10_000, reservedTokens: 1_250);
-
-        // Assert
-        Assert.Equal(8_750, budget.AvailableTokens);
-    }
-
-    [Fact]
-    public void TriggerTokens_UseAvailableTokens_NotMaxTokens()
+    public void TriggerTokens_DerivedFromMaxTokens()
     {
         // Arrange
 
@@ -56,13 +44,12 @@ public sealed class ContextBudgetTests
         var budget = new ContextBudget(
             maxTokens: 1_000,
             compactionThreshold: 0.50,
-            emergencyThreshold: 0.75,
-            reservedTokens: 200);
+            emergencyThreshold: 0.75);
 
         // Assert
-        Assert.Equal(800, budget.AvailableTokens);
-        Assert.Equal(400, budget.CompactionTriggerTokens);
-        Assert.Equal(600, budget.EmergencyTriggerTokens!.Value);
+        Assert.Equal(1_000, budget.MaxTokens);
+        Assert.Equal(500, budget.CompactionTriggerTokens);
+        Assert.Equal(750, budget.EmergencyTriggerTokens!.Value);
     }
 
     [Fact]
@@ -72,8 +59,7 @@ public sealed class ContextBudgetTests
         var budget = new ContextBudget(
             maxTokens: 1_000,
             compactionThreshold: 0.30,
-            emergencyThreshold: 0.60,
-            reservedTokens: 0);
+            emergencyThreshold: 0.60);
 
         // Act
         var exactBoundary = budget.CompactionTriggerTokens;
@@ -82,8 +68,8 @@ public sealed class ContextBudgetTests
         // Assert
         Assert.Equal(300, exactBoundary);
         Assert.Equal(301, oneAboveBoundary);
-        Assert.True(exactBoundary <= budget.AvailableTokens);
-        Assert.True(oneAboveBoundary <= budget.AvailableTokens);
+        Assert.True(exactBoundary <= budget.MaxTokens);
+        Assert.True(oneAboveBoundary <= budget.MaxTokens);
     }
 
     [Fact]
@@ -93,8 +79,7 @@ public sealed class ContextBudgetTests
         var budget = new ContextBudget(
             maxTokens: 1_000,
             compactionThreshold: 0.30,
-            emergencyThreshold: 0.95,
-            reservedTokens: 0);
+            emergencyThreshold: 0.95);
 
         // Act
         var exactBoundary = budget.EmergencyTriggerTokens!.Value;
@@ -103,8 +88,8 @@ public sealed class ContextBudgetTests
         // Assert
         Assert.Equal(950, exactBoundary);
         Assert.Equal(951, oneAboveBoundary);
-        Assert.True(exactBoundary <= budget.AvailableTokens);
-        Assert.True(oneAboveBoundary <= budget.AvailableTokens);
+        Assert.True(exactBoundary <= budget.MaxTokens);
+        Assert.True(oneAboveBoundary <= budget.MaxTokens);
     }
 
     [Theory]
@@ -116,21 +101,6 @@ public sealed class ContextBudgetTests
 
         // Act
         Action act = () => _ = new ContextBudget(maxTokens);
-
-        // Assert
-        Assert.Throws<ArgumentOutOfRangeException>(act);
-    }
-
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(100)]
-    [InlineData(101)]
-    public void Constructor_ThrowsForInvalidReservedTokens(int reservedTokens)
-    {
-        // Arrange
-
-        // Act
-        Action act = () => _ = new ContextBudget(maxTokens: 100, reservedTokens: reservedTokens);
 
         // Assert
         Assert.Throws<ArgumentOutOfRangeException>(act);
@@ -178,5 +148,81 @@ public sealed class ContextBudgetTests
         // Assert
         Assert.Throws<ArgumentOutOfRangeException>(actOnEqualThresholds);
         Assert.Throws<ArgumentOutOfRangeException>(actOnInvertedThresholds);
+    }
+
+    [Fact]
+    public void OverrunTolerance_DefaultsToFivePercent()
+    {
+        // Arrange
+
+        // Act
+        var budget = new ContextBudget(maxTokens: 1_000);
+
+        // Assert
+        Assert.Equal(0.05, budget.OverrunTolerance);
+        Assert.Equal(50, budget.OverrunToleranceTokens);
+    }
+
+    [Fact]
+    public void OverrunTolerance_StoresConfiguredValue()
+    {
+        // Arrange
+
+        // Act
+        var budget = new ContextBudget(maxTokens: 1_000, overrunTolerance: 0.10);
+
+        // Assert
+        Assert.Equal(0.10, budget.OverrunTolerance);
+        Assert.Equal(100, budget.OverrunToleranceTokens);
+    }
+
+    [Fact]
+    public void OverrunToleranceTokens_FloorsPartialTokens()
+    {
+        // Arrange — 5% of 999 = 49.95, which must floor to 49, not round to 50.
+
+        // Act
+        var budget = new ContextBudget(maxTokens: 999, overrunTolerance: 0.05);
+
+        // Assert
+        Assert.Equal(49, budget.OverrunToleranceTokens);
+    }
+
+    [Fact]
+    public void Constructor_ThrowsForNegativeOverrunTolerance()
+    {
+        // Arrange
+
+        // Act
+        Action act = () => _ = new ContextBudget(maxTokens: 1_000, overrunTolerance: -0.01);
+
+        // Assert
+        Assert.Throws<ArgumentOutOfRangeException>(act);
+    }
+
+    [Fact]
+    public void Constructor_ThrowsWhenOverrunToleranceExceedsOne()
+    {
+        // Arrange
+
+        // Act
+        Action act = () => _ = new ContextBudget(maxTokens: 1_000, overrunTolerance: 1.01);
+
+        // Assert
+        Assert.Throws<ArgumentOutOfRangeException>(act);
+    }
+
+    [Fact]
+    public void Constructor_ThrowsForNonFiniteOverrunTolerance()
+    {
+        // Arrange
+
+        // Act
+        Action actNaN = () => _ = new ContextBudget(maxTokens: 1_000, overrunTolerance: double.NaN);
+        Action actInf = () => _ = new ContextBudget(maxTokens: 1_000, overrunTolerance: double.PositiveInfinity);
+
+        // Assert
+        Assert.Throws<ArgumentOutOfRangeException>(actNaN);
+        Assert.Throws<ArgumentOutOfRangeException>(actInf);
     }
 }

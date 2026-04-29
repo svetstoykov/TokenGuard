@@ -23,7 +23,7 @@ public readonly record struct SlidingWindowOptions
     /// than capturing duplicate hidden primary-constructor fields.
     /// </remarks>
     /// <param name="windowSize">The minimum number of newest messages to preserve unchanged before the token cap can stop the backward walk.</param>
-    /// <param name="protectedWindowFraction">The fraction of <see cref="ContextBudget.AvailableTokens"/> reserved for the protected newest-message window.</param>
+    /// <param name="protectedWindowFraction">The fraction of <see cref="ContextBudget.MaxTokens"/> reserved for the protected newest-message window.</param>
     /// <param name="placeholderFormat">The composite format string used when replacing older tool results, where <c>{0}</c> is the tool name and <c>{1}</c> is the tool call identifier.</param>
     public SlidingWindowOptions(
         int windowSize = SlidingWindowDefaults.WindowSize,

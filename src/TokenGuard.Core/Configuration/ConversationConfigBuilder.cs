@@ -26,7 +26,7 @@ public sealed class ConversationConfigBuilder
     private int? _maxTokens;
     private double? _compactionThreshold;
     private double? _emergencyThreshold;
-    private int? _reservedTokens;
+    private double? _overrunTolerance;
     private ICompactionStrategy? _strategy;
     private ITokenCounter? _tokenCounter;
     private ICompactionObserver? _observer;
@@ -38,11 +38,11 @@ public sealed class ConversationConfigBuilder
     ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
     ///     the resulting configuration uses the library default profile: 100,000 tokens, a 0.80 compaction
-    ///     threshold, no emergency truncation, 0 reserved tokens, <see cref="EstimatedTokenCounter"/>,
+    ///     threshold, no emergency truncation, <see cref="EstimatedTokenCounter"/>,
     ///     and <see cref="SlidingWindowStrategy"/>.
     /// </remarks>
     /// <param name="maxTokens">
-    ///     The hard token ceiling for the full context window. Defaults to 100,000 when omitted.
+    ///     The maximum number of tokens allowed in the conversation. Defaults to 100,000 when omitted.
     /// </param>
     /// <returns>A configured <see cref="ConversationContextConfiguration"/> instance.</returns>
     public static ConversationContextConfiguration Default(int maxTokens = ConversationDefaults.MaxTokens) =>
@@ -51,13 +51,13 @@ public sealed class ConversationConfigBuilder
             .Build();
 
     /// <summary>
-    ///     Sets the hard token ceiling for the context window.
+    ///     Sets the maximum number of tokens allowed in the conversation.
     /// </summary>
     /// <remarks>
     ///     This value is required. <see cref="Build"/> throws <see cref="InvalidOperationException"/> if it has
     ///     not been configured.
     /// </remarks>
-    /// <param name="maxTokens">The maximum number of tokens allowed in the context window.</param>
+    /// <param name="maxTokens">The maximum number of tokens the caller permits in the conversation.</param>
     /// <returns>The current builder instance.</returns>
     public ConversationConfigBuilder WithMaxTokens(int maxTokens)
     {
@@ -102,17 +102,26 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
-    ///     Sets the number of tokens reserved for fixed, non-message content.
+    ///     Sets the fraction of <see cref="ContextBudget.MaxTokens"/> by which a prepared result may exceed the budget
+    ///     and still be considered acceptable.
     /// </summary>
     /// <remarks>
-    ///     When this value is not configured, the library default value from <see cref="ContextBudget.For(int)"/>
-    ///     is used, which is 0 reserved tokens.
+    ///     When not configured, the default is <see cref="ConversationDefaults.OverrunTolerance"/> (0.05 — 5% of the
+    ///     configured maximum token count). Pass <c>0.0</c> to disable tolerance and restore strict-budget behavior.
+    ///     A positive value lets callers accept a small estimated overrun without the result being classified as
+    ///     <see cref="Enums.PrepareOutcome.Degraded"/>. Compaction strategies always target the hard
+    ///     <see cref="ContextBudget.MaxTokens"/> ceiling; the tolerance only affects the final outcome classification
+    ///     after all compaction techniques have run. See <see cref="ContextBudget.OverrunTolerance"/> for full
+    ///     behavioral details.
     /// </remarks>
-    /// <param name="reservedTokens">The reserved token count.</param>
+    /// <param name="overrunTolerance">
+    ///     The fraction of <see cref="ContextBudget.MaxTokens"/> above the budget ceiling that is still considered
+    ///     acceptable. Must be in the range [0.0, 1.0].
+    /// </param>
     /// <returns>The current builder instance.</returns>
-    public ConversationConfigBuilder WithReservedTokens(int reservedTokens)
+    public ConversationConfigBuilder WithOverrunTolerance(double overrunTolerance)
     {
-        this._reservedTokens = reservedTokens;
+        this._overrunTolerance = overrunTolerance;
         return this;
     }
 
@@ -193,7 +202,7 @@ public sealed class ConversationConfigBuilder
             this._maxTokens.Value,
             this._compactionThreshold ?? defaults.CompactionThreshold,
             this._emergencyThreshold,
-            this._reservedTokens ?? defaults.ReservedTokens);
+            this._overrunTolerance ?? ConversationDefaults.OverrunTolerance);
 
         var counter = this._tokenCounter ?? new EstimatedTokenCounter();
         var strategy = this._strategy ?? new SlidingWindowStrategy();
@@ -209,7 +218,7 @@ public sealed class ConversationConfigBuilder
     ///     <para>
     ///         This method applies exactly the same defaulting logic as <see cref="Build"/>: any budget
     ///         values not explicitly configured are merged with the library defaults from
-    ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction, no emergency truncation, and 0 reserved tokens,
+    ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction and no emergency truncation,
     ///         and missing counter or strategy choices fall back to
     ///         <see cref="TokenCounting.EstimatedTokenCounter"/> and <see cref="Strategies.SlidingWindowStrategy"/>,
     ///         respectively.

@@ -17,10 +17,9 @@ namespace TokenGuard.Core.Strategies;
 ///     </para>
 ///     <para>
 ///         The strategy walks backward from the newest message in the compactable slice supplied by
-///         <see cref="ICompactionStrategy.CompactAsync(IReadOnlyList{ContextMessage}, ContextBudget, ITokenCounter, CancellationToken)"/>
-///         and always protects at least <see cref="SlidingWindowOptions.WindowSize"/> messages when that many are
+///         <c>CompactAsync</c> and always protects at least <see cref="SlidingWindowOptions.WindowSize"/> messages when that many are
 ///         available. After that floor is satisfied, the protected segment continues growing while the token allowance
-///         derived from <see cref="ContextBudget.AvailableTokens"/> and
+///         derived from <c>availableTokens</c> and
 ///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> still permits more messages. Messages before that
 ///         boundary keep their ordering and structure, but any <see cref="ToolResultContent"/> blocks are converted into
 ///         text placeholders and the message state is marked as <see cref="CompactionState.Masked"/>.
@@ -48,7 +47,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <remarks>
     ///     Supply <paramref name="options"/> to tune how much of the newest history stays untouched and how older
     ///     tool results are represented after masking. The provided value is retained for all subsequent
-    ///     <see cref="CompactAsync(IReadOnlyList{ContextMessage}, ContextBudget, ITokenCounter, CancellationToken)"/> calls.
+    ///     <c>CompactAsync</c> calls.
     /// </remarks>
     /// <param name="options">The sliding-window configuration that controls boundary selection and placeholder generation.</param>
     public SlidingWindowStrategy(SlidingWindowOptions options)
@@ -61,16 +60,16 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// </summary>
     /// <remarks>
     ///     <para>
-///         This method preserves the original ordering of <paramref name="messages"/> while calculating a protected
-///         tail from the newest compactable message backward. The protected boundary always includes at least
-///         <see cref="SlidingWindowOptions.WindowSize"/> newest messages when available, and then expands further while
-///         the token allowance produced from <paramref name="budget"/> and
-///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> is not exceeded.
-///     </para>
+    ///         This method preserves the original ordering of <paramref name="messages"/> while calculating a protected
+    ///         tail from the newest compactable message backward. The protected boundary always includes at least
+    ///         <see cref="SlidingWindowOptions.WindowSize"/> newest messages when available, and then expands further while
+    ///         the token allowance produced from <paramref name="budget"/> and
+    ///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> is not exceeded.
+    ///     </para>
     ///     <para>
     ///         Callers are expected to exclude pinned messages before invoking this method. As a result, every entry in
     ///         <paramref name="messages"/> is treated as an eligible compaction candidate, and token calculations assume
-    ///         <paramref name="budget"/> already reflects any pinned-message cost reserved by the caller.
+    ///         <paramref name="availableTokens"/> already reflects any pinned-message cost deducted by the caller.
     ///     </para>
     ///     <para>
     ///         Messages before the protected boundary are only changed when they contain <see cref="ToolResultContent"/>.
@@ -83,9 +82,9 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///     The ordered compactable message history to process. Pinned messages must already be excluded, so all entries
     ///     are eligible for boundary evaluation and masking.
     /// </param>
-    /// <param name="budget">
-    ///     The context budget that supplies the available-token limit for the protected window after any caller-owned
-    ///     pinned-message reservation has been applied.
+    /// <param name="availableTokens">
+    ///     The number of tokens available for the protected window. Callers deduct pinned-message cost from the total
+    ///     context budget before passing this value.
     /// </param>
     /// <param name="tokenCounter">The token counter used to measure candidate messages while determining the protected boundary.</param>
     /// <param name="cancellationToken">A token that can cancel the compaction operation before it completes.</param>
@@ -100,7 +99,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// </exception>
     public Task<CompactionResult> CompactAsync(
         IReadOnlyList<ContextMessage> messages,
-        ContextBudget budget,
+        int availableTokens,
         ITokenCounter tokenCounter,
         CancellationToken cancellationToken = default)
     {
@@ -110,7 +109,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         var tokensBefore = CountTokens(messages, tokenCounter);
 
-        var maxProtectedTokens = (int)Math.Floor(budget.AvailableTokens * this._options.ProtectedWindowFraction);
+        var maxProtectedTokens = (int)Math.Floor(availableTokens * this._options.ProtectedWindowFraction);
         var protectedCount = 0;
         var protectedTokens = 0;
         var boundary = messages.Count;

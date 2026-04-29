@@ -17,6 +17,9 @@ local.*
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
+# Artifacts from session runs etc.
+.artifacts
+
 # Mono auto generated files
 mono_crash.*
 

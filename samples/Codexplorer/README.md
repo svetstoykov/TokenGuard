@@ -78,8 +78,101 @@ That is main point of sample: **real interactive repo agent running on TokenGuar
 
 ```bash
 cd samples/Codexplorer
-dotnet build ./src/Codexplorer.csproj
+dotnet build ./Codexplorer.slnx
 dotnet run --project ./src/Codexplorer.csproj
+```
+
+### Automation mode
+
+Run headless stdio host with:
+
+```bash
+dotnet run --project ./src/Codexplorer.csproj -- --automation
+```
+
+Automation mode reads exactly one JSON request per stdin line and writes exactly one JSON response per stdout line. Human logs and warnings stay on stderr so parent process can parse stdout directly.
+
+Minimal smoke example:
+
+```text
+{"requestId":"1","command":"ping"}
+{"requestId":"1","success":true,"result":{"status":"ok","protocolVersion":1},"error":null}
+{"requestId":"2","command":"open_session","payload":{"repositoryUrl":"https://github.com/cli/cli"}}
+{"requestId":"2","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","workspace":{"name":"cli","ownerRepo":"cli/cli","localPath":"/absolute/path/to/workspace/cli-cli","clonedAt":"2026-04-26T09:00:00.0000000Z","sizeBytes":123456789},"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-cli-cli-interactive-repo-chat.md"},"error":null}
+{"requestId":"3","command":"submit","payload":{"sessionId":"session_0123456789abcdef0123456789abcdef","message":"Give me the main entry points for this repo."}}
+{"requestId":"3","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","outcome":"reply_received","assistantText":"The main entry points are ...","assistantTextIsPartial":false,"modelTurnsCompleted":2,"reportedTokensConsumed":1874,"sessionOpen":true,"asksRunner":false,"runnerQuestion":null,"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-dotnet-runtime-interactive-repo-chat.md","degradationReason":null,"failure":null},"error":null}
+```
+
+`open_session` accepts exactly one target:
+
+- `workspacePath` for an already tracked local workspace
+- `repositoryUrl` for clone-on-open from a public GitHub HTTPS or SSH URL
+
+If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
+
+`submit` returns one stable `outcome` value per exchange: `reply_received`, `degraded`, `max_turns_reached`, `cancelled`, or `failed`. Every response includes the active `sessionId`, `modelTurnsCompleted`, `logFilePath`, whether the session is still open, and any assistant text or partial text that was available for that exchange.
+
+### Automation runner
+
+`Codexplorer.Automation` is a separate executable under `samples/Codexplorer.Automation/src`. It launches Codexplorer with `--automation`, keeps stdout reserved for protocol traffic, logs child stderr separately, and exposes typed `open_session`, `submit`, and `close_session` client calls inside the runner codebase.
+
+Create `../Codexplorer.Automation/src/appsettings.Development.json`:
+
+```json
+{
+  "CodexplorerAutomation": {
+    "CodexplorerExecutablePath": "../../../../../Codexplorer/src/bin/Debug/net10.0/Codexplorer",
+    "ManifestPath": "./tasks/initial-corpus.json",
+    "HelperAi": {
+      "ModelName": "openai/gpt-5.4-mini",
+      "ApiKey": "your-openrouter-api-key"
+    }
+  }
+}
+```
+
+You can also provide helper credentials through environment variable instead of configuration:
+
+```bash
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+```
+
+Then run it from automation project directory:
+
+```bash
+cd samples/Codexplorer.Automation/src
+dotnet run
+```
+
+Shipped batch workflow:
+
+1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty queued tasks with task ID, title, `repositoryUrl`, initial prompt, and size class.
+2. Runner loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
+3. Each shipped task tells Codexplorer not to modify repository source files and to keep task-owned notes under an `artifacts/` folder in its current workspace.
+4. Resulting task artifacts land inside the target workspace under that `artifacts/` folder.
+5. Codexplorer session transcripts still land in Codexplorer's normal session log location, which is reported in automation responses and written by Codexplorer itself.
+
+Automation paths are now resolved relative to each executable's own directory. The runner starts Codexplorer with the Codexplorer executable directory as its working directory, and Codexplorer resolves its relative workspace and log paths from that same executable directory.
+
+To inspect results after a batch:
+
+- Check the `artifacts/` folder inside the target workspace for task-owned notes and drafts.
+- Check Codexplorer session transcripts under its configured session logs directory for the full conversation history.
+
+To run a different manifest, point `CodexplorerAutomation:ManifestPath` at another JSON file in `appsettings.Development.json`. The manifest format is:
+
+```json
+{
+  "tasks": [
+    {
+      "taskId": "example-task",
+      "title": "Example title",
+      "repositoryUrl": "https://github.com/cli/cli",
+      "taskSize": "Medium",
+      "initialPrompt": "Write notes under an `artifacts/` folder in your current workspace. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under an `artifacts/` folder in your current workspace."
+    }
+  ]
+}
 ```
 
 ## Configuration
@@ -119,7 +212,7 @@ If `BRAVE_SEARCH_API_KEY` is missing and `Codexplorer:BraveSearch:ApiKey` is emp
 
 ### Optional: override defaults
 
-Shared defaults live in `src/appsettings.json`. You can override any of them in `src/appsettings.Development.json`.
+Shared defaults live in `src/appsettings.json`. You can override any of them in `src/appsettings.Development.json`. Relative paths in those files are resolved from Codexplorer's executable/output directory.
 
 Example:
 

@@ -7,7 +7,7 @@ namespace TokenGuard.Core.Defaults;
 /// Defines the library's default conversation-context profile.
 /// </summary>
 /// <remarks>
-/// The default profile uses 100,000 max tokens, 0.80 compaction, no emergency truncation, and 0 reserved tokens.
+/// The default profile uses 100,000 max tokens, 0.80 compaction, and no emergency truncation.
 /// Higher-level APIs such as <see cref="ConversationConfigBuilder"/>,
 /// <see cref="Extensions.ServiceCollectionExtensions"/>, and the built-in
 /// <see cref="Abstractions.IConversationContextFactory"/> rely on these values when no custom budget is supplied.
@@ -25,14 +25,14 @@ internal static class ConversationDefaults
     internal const double CompactionThreshold = 0.80;
 
     /// <summary>
-    /// Gets the library default reserved token count.
+    /// Gets the library default overrun tolerance as a fraction of the configured maximum token count.
     /// </summary>
-    internal const int ReservedTokens = 0;
+    internal const double OverrunTolerance = 0.05;
 
     /// <summary>
     /// Creates the library default <see cref="ContextBudget"/> for a specific maximum token count.
     /// </summary>
-    /// <param name="maxTokens">The total token capacity of the target model context window.</param>
+    /// <param name="maxTokens">The maximum number of tokens allowed in the conversation.</param>
     /// <returns>A <see cref="ContextBudget"/> using the library default thresholds and reserved tokens.</returns>
     internal static ContextBudget CreateBudget(int maxTokens)
     {
