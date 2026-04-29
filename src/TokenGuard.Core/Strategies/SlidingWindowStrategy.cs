@@ -136,7 +136,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
                 tokensBefore,
                 0,
                 nameof(SlidingWindowStrategy),
-                false));
+                CompactionType.None));
         }
 
         var toolNameLookup = BuildToolNameLookup(messages);
@@ -166,7 +166,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             tokensAfter,
             messagesAffected,
             nameof(SlidingWindowStrategy),
-            messagesAffected > 0));
+            messagesAffected > 0 ? CompactionType.Masking : CompactionType.None));
     }
 
     private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)

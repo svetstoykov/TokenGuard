@@ -1,3 +1,5 @@
+using TokenGuard.Core.Enums;
+
 namespace TokenGuard.Core.Models;
 
 /// <summary>
@@ -11,8 +13,8 @@ namespace TokenGuard.Core.Models;
 /// </para>
 /// <para>
 /// Implementations should populate <see cref="TokensBefore"/>, <see cref="TokensAfter"/>,
-/// <see cref="MessagesAffected"/>, <see cref="StrategyName"/>, and <see cref="WasApplied"/> so downstream consumers can
-/// inspect the aggregate cycle outcome. Emergency truncation diagnostics are exposed separately through
+/// <see cref="MessagesAffected"/>, <see cref="StrategyName"/>, and <see cref="CompactionType"/> so downstream consumers
+/// can inspect the aggregate cycle outcome. Emergency truncation diagnostics are exposed separately through
 /// <see cref="EmergencyMessagesDropped"/>.
 /// </para>
 /// </remarks>
@@ -31,15 +33,15 @@ public sealed record CompactionResult
     /// The aggregate number of messages replaced by strategy compaction or dropped by emergency truncation.
     /// </param>
     /// <param name="strategyName">The strategy identifier reported by the compaction implementation.</param>
-    /// <param name="wasApplied">Indicates whether any stage represented by this result changed the history.</param>
+    /// <param name="compactionType">The compaction effect represented by this result.</param>
     public CompactionResult(
         IReadOnlyList<ContextMessage> messages,
         int tokensBefore,
         int tokensAfter,
         int messagesAffected,
         string strategyName,
-        bool wasApplied)
-        : this(messages, tokensBefore, tokensAfter, messagesAffected, strategyName, wasApplied, 0)
+        CompactionType compactionType)
+        : this(messages, tokensBefore, tokensAfter, messagesAffected, strategyName, compactionType, 0)
     {
     }
 
@@ -56,7 +58,7 @@ public sealed record CompactionResult
     /// The aggregate number of messages replaced by strategy compaction or dropped by emergency truncation.
     /// </param>
     /// <param name="strategyName">The strategy identifier reported by the compaction implementation.</param>
-    /// <param name="wasApplied">Indicates whether any stage represented by this result changed the history.</param>
+    /// <param name="compactionType">The compaction effect represented by this result.</param>
     /// <param name="emergencyMessagesDropped">
     /// The number of messages dropped by emergency truncation. This excludes strategy-stage replacements and removals,
     /// and zero means emergency truncation did not remove any messages.
@@ -67,7 +69,7 @@ public sealed record CompactionResult
         int tokensAfter,
         int messagesAffected,
         string strategyName,
-        bool wasApplied,
+        CompactionType compactionType,
         int emergencyMessagesDropped)
     {
         ArgumentNullException.ThrowIfNull(messages);
@@ -78,7 +80,7 @@ public sealed record CompactionResult
         this.TokensAfter = tokensAfter;
         this.MessagesAffected = messagesAffected;
         this.StrategyName = strategyName;
-        this.WasApplied = wasApplied;
+        this.CompactionType = compactionType;
         this.EmergencyMessagesDropped = emergencyMessagesDropped;
     }
 
@@ -109,9 +111,9 @@ public sealed record CompactionResult
     public string StrategyName { get; }
 
     /// <summary>
-    /// Gets a value indicating whether any stage represented by this result changed the history.
+    /// Gets the compaction effect represented by this result.
     /// </summary>
-    public bool WasApplied { get; }
+    public CompactionType CompactionType { get; }
 
     /// <summary>
     /// Gets the number of messages dropped by emergency truncation.

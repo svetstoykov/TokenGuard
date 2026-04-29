@@ -253,7 +253,7 @@ public sealed class ConversationContext : IConversationContext
         this.AddMessage(message);
         this.ApplyAnchor(providerInputTokens);
     }
-    
+
     /// <summary>
     /// Records the result of one tool execution.
     /// </summary>
@@ -347,7 +347,7 @@ public sealed class ConversationContext : IConversationContext
                 totalBeforeCompaction,
                 messagesCompacted: 0);
         }
-        
+
         var pinnedSlots = new List<(int Index, ContextMessage Message)>();
         List<ContextMessage>? compactableMessages = null;
 
@@ -375,7 +375,13 @@ public sealed class ConversationContext : IConversationContext
             : this.ReassemblePreparedMessages(messages.Count, pinnedSlots, compacted.Messages);
 
         var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
-        var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
+
+        var emergencyApplied = false;
+        IReadOnlyList<ContextMessage>? truncated = null;
+        if (compacted.CompactionType != CompactionType.Summarization)
+        {
+             emergencyApplied = this.TryApplyEmergencyTruncation(compacted.CompactionType, prepared, preparedTotal, out truncated);
+        }
 
         var final = emergencyApplied ? truncated! : prepared;
         var estimatedFinalTokens = this.Sum(final);
@@ -391,11 +397,12 @@ public sealed class ConversationContext : IConversationContext
                 finalTokens,
                 messagesCompacted,
                 compacted.StrategyName,
-                wasApplied: true,
+                MergeWithEmergency(compacted.CompactionType),
                 emergencyMessagesDropped);
+            
             this._observer?.OnCompaction(new CompactionEvent(mergedResult, DateTimeOffset.UtcNow, CompactionTrigger.Emergency, this._budget));
         }
-        else if (compacted.WasApplied)
+        else if (compacted.CompactionType != CompactionType.None)
         {
             this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, CompactionTrigger.Normal, this._budget));
         }
@@ -451,6 +458,19 @@ public sealed class ConversationContext : IConversationContext
             : $"Compaction reduced content but still exceeds budget ({finalTokens} tokens > {effectiveMax} max). {messagesCompacted} messages were compacted but insufficient.";
     }
 
+    private static CompactionType MergeWithEmergency(CompactionType compactionType)
+    {
+        return compactionType switch
+        {
+            CompactionType.None => CompactionType.EmergencyTruncation,
+            CompactionType.Masking => CompactionType.MaskingWithEmergencyTruncation,
+            CompactionType.Summarization => throw new InvalidOperationException("Emergency truncation must not run after summarization compaction."),
+            CompactionType.EmergencyTruncation => CompactionType.EmergencyTruncation,
+            CompactionType.MaskingWithEmergencyTruncation => CompactionType.MaskingWithEmergencyTruncation,
+            _ => throw new ArgumentOutOfRangeException(nameof(compactionType), compactionType, "Unknown compaction type."),
+        };
+    }
+
     /// <summary>
     /// Releases the conversation history held by this context.
     /// </summary>
@@ -494,6 +514,7 @@ public sealed class ConversationContext : IConversationContext
     /// more important than forcing a fit-to-budget outcome.
     /// </para>
     /// </remarks>
+    /// <param name="compactionType">The effect reported by the primary compaction strategy.</param>
     /// <param name="prepared">The assembled message list produced after the primary strategy pass.</param>
     /// <param name="currentTotal">
     /// The current token total of <paramref name="prepared"/>, including any active anchor correction.
@@ -508,9 +529,20 @@ public sealed class ConversationContext : IConversationContext
     /// the reduced list; <see langword="false"/> when emergency truncation is disabled, when
     /// <paramref name="prepared"/> is already within budget, or when no eligible candidates exist.
     /// </returns>
-    private bool TryApplyEmergencyTruncation(IReadOnlyList<ContextMessage> prepared, int currentTotal, out IReadOnlyList<ContextMessage>? truncated)
+    private bool TryApplyEmergencyTruncation(
+        CompactionType compactionType,
+        IReadOnlyList<ContextMessage> prepared,
+        int currentTotal,
+        out IReadOnlyList<ContextMessage>? truncated)
     {
         if (!this._budget.EmergencyTriggerTokens.HasValue)
+        {
+            truncated = null;
+            return false;
+        }
+
+
+        if (compactionType == CompactionType.Summarization)
         {
             truncated = null;
             return false;
@@ -630,10 +662,10 @@ public sealed class ConversationContext : IConversationContext
             return prepared.Count;
 
         var floorStartIndex = newestUnpinnedIndex;
-        
+
         // If last message was not a Model message, we should just return it.
         if (prepared[newestUnpinnedIndex].Role != MessageRole.Model) return floorStartIndex;
-        
+
         // Otherwise the conversation ends with a model reply, preserve the triggering user turn too.
         for (var i = newestUnpinnedIndex - 1; i >= 0; i--)
         {

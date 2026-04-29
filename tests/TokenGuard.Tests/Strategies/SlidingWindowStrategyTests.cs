@@ -26,7 +26,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(0, compacted.TokensBefore);
         Assert.Equal(0, compacted.TokensAfter);
         Assert.Equal(0, compacted.MessagesAffected);
-        Assert.False(compacted.WasApplied);
+        Assert.Equal(CompactionType.None, compacted.CompactionType);
         Assert.Equal(nameof(SlidingWindowStrategy), compacted.StrategyName);
         Assert.Equal(0, tokenCounter.CountCalls);
     }
@@ -55,7 +55,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(4, compacted.TokensBefore);
         Assert.Equal(4, compacted.TokensAfter);
         Assert.Equal(0, compacted.MessagesAffected);
-        Assert.False(compacted.WasApplied);
+        Assert.Equal(CompactionType.None, compacted.CompactionType);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(9, compacted.TokensBefore);
         Assert.Equal(9, compacted.TokensAfter);
         Assert.Equal(0, compacted.MessagesAffected);
-        Assert.False(compacted.WasApplied);
+        Assert.Equal(CompactionType.None, compacted.CompactionType);
     }
 
     [Fact]
@@ -130,7 +130,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(11, compacted.TokensBefore);
         Assert.Equal(5, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(20, compacted.TokensBefore);
         Assert.Equal(17, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]
@@ -202,7 +202,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(5, compacted.TokensBefore);
         Assert.Equal(5, compacted.TokensAfter);
         Assert.Equal(0, compacted.MessagesAffected);
-        Assert.False(compacted.WasApplied);
+        Assert.Equal(CompactionType.None, compacted.CompactionType);
     }
 
     [Fact]
@@ -226,7 +226,7 @@ public sealed class SlidingWindowStrategyTests
         // Assert
         Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
         Assert.Equal(CompactionState.Masked, compacted.Messages[1].State);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]
@@ -253,7 +253,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Same(protectedOlder, compacted.Messages[1]);
         Assert.Same(newest, compacted.Messages[2]);
         Assert.Equal(1, compacted.MessagesAffected);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]
@@ -284,7 +284,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(8, compacted.TokensBefore);
         Assert.Equal(5, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]
@@ -309,7 +309,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(12, compacted.TokensAfter);
         Assert.Equal(0, compacted.MessagesAffected);
-        Assert.False(compacted.WasApplied);
+        Assert.Equal(CompactionType.None, compacted.CompactionType);
     }
 
     [Fact]
@@ -351,7 +351,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]
@@ -377,7 +377,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]
@@ -416,7 +416,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(15, compacted.TokensBefore);
         Assert.Equal(9, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]
@@ -444,7 +444,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]
@@ -479,7 +479,7 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
-        Assert.True(compacted.WasApplied);
+        Assert.Equal(CompactionType.Masking, compacted.CompactionType);
     }
 
     [Fact]

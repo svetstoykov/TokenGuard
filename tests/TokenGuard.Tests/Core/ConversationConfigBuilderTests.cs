@@ -1,6 +1,7 @@
 using FluentAssertions;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
+using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Core.TokenCounting;
@@ -226,7 +227,7 @@ public sealed class ConversationConfigBuilderTests
     {
         public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(StubCompactionStrategy), false));
+            return Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(StubCompactionStrategy), CompactionType.None));
         }
     }
 }
