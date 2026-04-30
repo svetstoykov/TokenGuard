@@ -709,7 +709,7 @@ public sealed class ConversationContext : IConversationContext
         IReadOnlyList<(int Index, ContextMessage Message)> pinnedSlots,
         IReadOnlyList<ContextMessage> compactedMessages)
     {
-        var prepared = new List<ContextMessage>(totalCount);
+        var prepared = new List<ContextMessage>(pinnedSlots.Count + compactedMessages.Count);
         var pinnedIndex = 0;
         var compactedIndex = 0;
 
@@ -719,6 +719,11 @@ public sealed class ConversationContext : IConversationContext
             {
                 prepared.Add(pinnedSlots[pinnedIndex].Message);
                 pinnedIndex++;
+                continue;
+            }
+
+            if (compactedIndex >= compactedMessages.Count)
+            {
                 continue;
             }
 

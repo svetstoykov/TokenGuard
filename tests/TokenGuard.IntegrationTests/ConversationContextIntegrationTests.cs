@@ -1,5 +1,6 @@
 using FluentAssertions;
 using TokenGuard.Core;
+using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
@@ -399,5 +400,223 @@ public sealed class ConversationContextIntegrationTests
                 ReferenceEquals(m, systemMessage) || ReferenceEquals(m, latestUser) || ReferenceEquals(m, latestModel),
             because: "only the pinned system prompt and the newest user-model turn should survive the emergency pass");
     }
+
+    [Fact]
+    public async Task PrepareAsync_WhenLlmSummarizationTriggers_ReplacesOlderFlowWithSummaryAndPreservesPinnedSystemAndRecentTail()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer("summary: initial investigation complete.");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt("You are a careful assistant.");
+        engine.AddUserMessage(new string('A', 120));
+        engine.RecordModelResponse([new ToolUseContent("call_1", "read_logs", "{\"path\":\"app.log\"}")]);
+        engine.RecordToolResult("call_1", "read_logs", new string('B', 120));
+        engine.AddUserMessage(new string('C', 120));
+        engine.RecordModelResponse([new TextContent(new string('D', 120))]);
+
+        var systemMessage = engine.History[0];
+        var summarizedPrefix = engine.History.Skip(1).Take(3).ToArray();
+        var protectedTail = engine.History.Skip(engine.History.Count - 2).ToArray();
+        var availableTokens = budget.MaxTokens - counter.Count(systemMessage);
+        var expectedTargetTokens = Math.Min(availableTokens - counter.Count(protectedTail), 100);
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        summarizer.CallCount.Should().Be(1);
+        summarizer.Calls[0].Messages.Should().HaveCount(3);
+        summarizer.Calls[0].Messages[0].Should().BeSameAs(summarizedPrefix[0]);
+        summarizer.Calls[0].Messages[1].Should().BeSameAs(summarizedPrefix[1]);
+        summarizer.Calls[0].Messages[2].Should().BeSameAs(summarizedPrefix[2]);
+        summarizer.Calls[0].TargetTokens.Should().Be(expectedTargetTokens);
+
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.MessagesCompacted.Should().Be(3);
+        result.MessagesDropped.Should().Be(0);
+        result.TokensAfterCompaction.Should().BeLessThan(result.TokensBeforeCompaction);
+
+        prepared.Should().HaveCount(4);
+        prepared[0].Should().BeSameAs(systemMessage);
+        prepared[1].Role.Should().Be(MessageRole.User);
+        prepared[1].State.Should().Be(CompactionState.Summarized);
+        prepared[1].Segments.Should().ContainSingle()
+            .Which.Should().BeOfType<TextContent>()
+            .Which.Content.Should().Be("summary: initial investigation complete.");
+        prepared[2].Should().BeSameAs(protectedTail[0]);
+        prepared[3].Should().BeSameAs(protectedTail[1]);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenSummaryCheckpointExists_ReusesItForStableHistoryAndPromotesItWhenConversationGrows()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer(call => Task.FromResult($"summary-{call.CallNumber}"));
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage(new string('A', 120));
+        engine.RecordModelResponse([new TextContent(new string('B', 120))]);
+        engine.AddUserMessage(new string('C', 120));
+        engine.RecordModelResponse([new TextContent(new string('D', 120))]);
+
+        var firstBoundary = engine.History.Take(2).ToArray();
+
+        // Act
+        var first = await engine.PrepareAsync();
+        var second = await engine.PrepareAsync();
+
+        engine.AddUserMessage(new string('E', 120));
+        var promoted = await engine.PrepareAsync();
+
+        // Assert
+        summarizer.CallCount.Should().Be(2);
+        summarizer.Calls[0].Messages.Should().HaveCount(2);
+        summarizer.Calls[0].Messages[0].Should().BeSameAs(firstBoundary[0]);
+        summarizer.Calls[0].Messages[1].Should().BeSameAs(firstBoundary[1]);
+        summarizer.Calls[1].Messages.Should().HaveCount(3);
+        summarizer.Calls[1].Messages[0].Should().BeSameAs(engine.History[0]);
+        summarizer.Calls[1].Messages[1].Should().BeSameAs(engine.History[1]);
+        summarizer.Calls[1].Messages[2].Should().BeSameAs(engine.History[2]);
+
+        first.Messages.Should().HaveCount(3);
+        first.Messages[0].Segments.Should().ContainSingle()
+            .Which.Should().BeOfType<TextContent>()
+            .Which.Content.Should().Be("summary-1");
+
+        second.Messages.Should().HaveCount(3);
+        second.Messages[0].Segments.Should().ContainSingle()
+            .Which.Should().BeOfType<TextContent>()
+            .Which.Content.Should().Be("summary-1");
+
+        promoted.Outcome.Should().Be(PrepareOutcome.Compacted);
+        promoted.Messages.Should().HaveCount(3);
+        promoted.Messages[0].Segments.Should().ContainSingle()
+            .Which.Should().BeOfType<TextContent>()
+            .Which.Content.Should().Be("summary-2");
+        promoted.Messages[1].Should().BeSameAs(engine.History[3]);
+        promoted.Messages[2].Should().BeSameAs(engine.History[4]);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenRemainingBudgetFallsBelowMinSummaryTokens_SkipsSummarizerAndReturnsProtectedTailOnly()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 45, compactionThreshold: 0.50);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer("unused");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 20, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage(new string('O', 120));
+        engine.AddUserMessage(new string('K', 40));
+        engine.RecordModelResponse([new TextContent(new string('M', 40))]);
+
+        var keep1 = engine.History[1];
+        var keep2 = engine.History[2];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        summarizer.CallCount.Should().Be(0);
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.MessagesCompacted.Should().Be(1);
+        prepared.Should().HaveCount(2);
+        prepared[0].Should().BeSameAs(keep1);
+        prepared[1].Should().BeSameAs(keep2);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenSummarizedHistoryStillExceedsEmergencyThreshold_PreservesSummaryFloorAndReturnsDegradedOutcome()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55, emergencyThreshold: 0.75);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer(new string('S', 200));
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt("Keep following system instructions.");
+        engine.AddUserMessage(new string('A', 120));
+        engine.RecordModelResponse([new TextContent(new string('B', 120))]);
+        engine.AddUserMessage(new string('C', 60));
+        engine.RecordModelResponse([new TextContent(new string('D', 60))]);
+
+        var systemMessage = engine.History[0];
+        var latestUser = engine.History[^2];
+        var latestModel = engine.History[^1];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        summarizer.CallCount.Should().Be(1);
+        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.MessagesDropped.Should().Be(0,
+            because: "the summarized history becomes preserved floor and emergency truncation has nothing eligible to drop");
+        result.DegradationReason.Should().NotBeNull();
+
+        prepared.Should().HaveCount(4);
+        prepared[0].Should().BeSameAs(systemMessage);
+        prepared[1].State.Should().Be(CompactionState.Summarized);
+        prepared[2].Should().BeSameAs(latestUser);
+        prepared[3].Should().BeSameAs(latestModel);
+        result.TokensAfterCompaction.Should().BeGreaterThan(budget.MaxTokens);
+    }
+
+    private sealed class TrackingSummarizer : ILlmSummarizer
+    {
+        private readonly Func<SummarizerCall, Task<string>> _handler;
+
+        public TrackingSummarizer(string summary)
+            : this(_ => Task.FromResult(summary))
+        {
+        }
+
+        public TrackingSummarizer(Func<SummarizerCall, Task<string>> handler)
+        {
+            this._handler = handler;
+        }
+
+        public int CallCount => this.Calls.Count;
+
+        public List<SummarizerCall> Calls { get; } = [];
+
+        public async Task<string> SummarizeAsync(
+            IReadOnlyList<ContextMessage> messages,
+            int targetTokens,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var call = new SummarizerCall(this.Calls.Count + 1, messages.ToArray(), targetTokens);
+            this.Calls.Add(call);
+            return await this._handler(call);
+        }
+    }
+
+    private sealed record SummarizerCall(int CallNumber, IReadOnlyList<ContextMessage> Messages, int TargetTokens);
 }
  
