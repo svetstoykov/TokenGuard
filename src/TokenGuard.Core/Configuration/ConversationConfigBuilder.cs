@@ -31,10 +31,10 @@ public sealed class ConversationConfigBuilder
     private double? _emergencyThreshold;
     private double? _overrunTolerance;
     private SlidingWindowOptions? _slidingWindowOptions;
-    private LlmSummarizationStrategy? _llmSummarizationStrategy;
+    private Func<ILlmSummarizer>? _llmSummarizerFactory;
+    private LlmSummarizationOptions? _llmSummarizationOptions;
     private string? _llmSummarizationProviderName;
-    private ITokenCounter? _tokenCounter;
-    private ICompactionObserver? _observer;
+    private Func<ICompactionObserver?>? _observerFactory;
 
     /// <summary>
     ///     Creates a <see cref="ConversationContextConfiguration"/> using the default builder configuration.
@@ -147,37 +147,27 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
-    ///     Sets the token counter used to estimate message token counts.
-    /// </summary>
-    /// <remarks>
-    ///     When no token counter is configured, TokenGuard uses its built-in heuristic <see cref="ITokenCounter"/>
-    ///     implementation.
-    /// </remarks>
-    /// <param name="tokenCounter">The token counter.</param>
-    /// <returns>The current builder instance.</returns>
-    public ConversationConfigBuilder WithTokenCounter(ITokenCounter tokenCounter)
-    {
-        this._tokenCounter = tokenCounter ?? throw new ArgumentNullException(nameof(tokenCounter));
-        return this;
-    }
-
-    /// <summary>
     ///     Sets the observer that is notified after each compaction cycle that modifies the history.
     /// </summary>
     /// <remarks>
     ///     The observer is optional. When not configured, no compaction notifications are emitted and
-    ///     <see cref="ConversationContextConfiguration.Observer"/> is <see langword="null"/>.
+    ///     <see cref="ConversationContextConfiguration.ObserverFactory"/> returns <see langword="null"/>.
     /// </remarks>
-    /// <param name="observer">The compaction observer.</param>
+    /// <param name="observerFactory">
+    /// A factory that creates the observer for each conversation context built from the resulting
+    /// configuration. Return <see langword="null"/> to disable notifications for that context.
+    /// </param>
     /// <returns>The current builder instance.</returns>
-    public ConversationConfigBuilder WithCompactionObserver(ICompactionObserver observer)
+    public ConversationConfigBuilder WithCompactionObserver(Func<ICompactionObserver?> observerFactory)
     {
-        this._observer = observer ?? throw new ArgumentNullException(nameof(observer));
+        ArgumentNullException.ThrowIfNull(observerFactory);
+
+        this._observerFactory = observerFactory;
         return this;
     }
 
     /// <summary>
-    ///     Captures an immutable snapshot of the current builder state as a
+    ///     Captures an immutable construction recipe from the current builder state as a
     ///     <see cref="ConversationContextConfiguration"/>.
     /// </summary>
     /// <remarks>
@@ -187,9 +177,9 @@ public sealed class ConversationConfigBuilder
     ///         no emergency truncation, and 0 reserved tokens.
     ///     </para>
     ///     <para>
-    ///         If no token counter has been configured, this method uses TokenGuard's built-in heuristic
-    ///         <see cref="ITokenCounter"/> implementation.
-    ///         Compaction always uses <see cref="TieredCompactionStrategy"/> with configured
+    ///         If no token counter factory has been configured, this method uses TokenGuard's built-in
+    ///         heuristic <see cref="ITokenCounter"/> implementation.
+    ///         Compaction always uses a freshly created <see cref="TieredCompactionStrategy"/> with configured
     ///         <see cref="SlidingWindowOptions"/> and an optional provider-backed <see cref="LlmSummarizationStrategy"/>.
     ///     </para>
     /// </remarks>
@@ -214,49 +204,21 @@ public sealed class ConversationConfigBuilder
             this._emergencyThreshold,
             this._overrunTolerance ?? ConversationDefaults.OverrunTolerance);
 
-        var counter = this._tokenCounter ?? new EstimatedTokenCounter();
-        var strategy = new TieredCompactionStrategy(
+        var observerFactory = this._observerFactory ?? CreateDefaultObserver;
+        var strategyFactory = BuildStrategyFactory(
             this._slidingWindowOptions ?? SlidingWindowOptions.Default,
-            this._llmSummarizationStrategy);
+            this._llmSummarizerFactory,
+            this._llmSummarizationOptions);
 
-        return new ConversationContextConfiguration(budget, counter, strategy, this._observer);
+        return new ConversationContextConfiguration(budget, CounterFactory: () => new EstimatedTokenCounter(), strategyFactory, observerFactory);
     }
-
-    /// <summary>
-    ///     Captures an immutable snapshot of the current builder state as a
-    ///     <see cref="ConversationContextConfiguration"/>.
-    /// </summary>
-    /// <remarks>
-    ///     <para>
-    ///         This method applies exactly the same defaulting logic as <see cref="Build"/>: any budget
-    ///         values not explicitly configured are merged with the library defaults from
-    ///         <see cref="ContextBudget.For(int)"/> of 0.80 compaction and no emergency truncation,
-    ///         and a missing counter falls back to TokenGuard's built-in heuristic <see cref="ITokenCounter"/>
-    ///         implementation.
-    ///         Compaction still uses the same internal <see cref="Strategies.TieredCompactionStrategy"/> pipeline as
-    ///         <see cref="Build"/>.
-    ///     </para>
-    ///     <para>
-    ///         Use <see cref="BuildConfiguration"/> instead of <see cref="Build"/> when the resulting
-    ///         configuration will be handed to the built-in dependency-injection registration pipeline.
-    ///         The factory behind <see cref="Abstractions.IConversationContextFactory"/> stores the
-    ///         snapshot and constructs a new <see cref="ConversationContext"/> from it on every
-    ///         <c>Create</c> call.
-    ///     </para>
-    /// </remarks>
-    /// <returns>
-    ///     An immutable <see cref="ConversationContextConfiguration"/> reflecting the builder's current
-    ///     configuration with all defaults applied.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    ///     Thrown when <see cref="WithMaxTokens(int)"/> has not been called.
-    /// </exception>
-    public ConversationContextConfiguration BuildConfiguration() => this.Build();
 
     /// <summary>
     /// Registers provider-backed LLM summarization for the current builder.
     /// </summary>
-    /// <param name="summarizer">The provider implementation that produces summaries when masking is insufficient.</param>
+    /// <param name="summarizerFactory">
+    /// A factory that creates the provider implementation that produces summaries when masking is insufficient.
+    /// </param>
     /// <param name="providerName">The human-readable provider name used in conflict messages.</param>
     /// <param name="options">
     /// Optional summarization options. When omitted, <see cref="LlmSummarizationOptions.Default"/> is used.
@@ -272,27 +234,48 @@ public sealed class ConversationConfigBuilder
     /// Thrown when a summarization provider has already been registered on this builder instance.
     /// </exception>
     internal ConversationConfigBuilder SetLlmSummarizer(
-        ILlmSummarizer summarizer,
+        Func<ILlmSummarizer> summarizerFactory,
         string providerName,
         LlmSummarizationOptions? options = null)
     {
-        ArgumentNullException.ThrowIfNull(summarizer);
+        ArgumentNullException.ThrowIfNull(summarizerFactory);
         ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
 
-        if (this._llmSummarizationStrategy is not null)
+        if (this._llmSummarizerFactory is not null)
         {
             throw new InvalidOperationException(BuildProviderConflictMessage(
                 this._llmSummarizationProviderName!,
                 providerName));
         }
 
-        this._llmSummarizationStrategy = options.HasValue
-            ? new LlmSummarizationStrategy(summarizer, options.Value)
-            : new LlmSummarizationStrategy(summarizer);
+        this._llmSummarizerFactory = summarizerFactory;
+        this._llmSummarizationOptions = options;
         this._llmSummarizationProviderName = providerName;
 
         return this;
     }
+
+    private static Func<ICompactionStrategy> BuildStrategyFactory(
+        SlidingWindowOptions slidingWindowOptions,
+        Func<ILlmSummarizer>? llmSummarizerFactory,
+        LlmSummarizationOptions? llmSummarizationOptions)
+    {
+        if (llmSummarizerFactory is null)
+        {
+            return () => new TieredCompactionStrategy(slidingWindowOptions);
+        }
+
+        return () =>
+        {
+            var llmStrategy = llmSummarizationOptions.HasValue
+                ? new LlmSummarizationStrategy(llmSummarizerFactory(), llmSummarizationOptions.Value)
+                : new LlmSummarizationStrategy(llmSummarizerFactory());
+
+            return new TieredCompactionStrategy(slidingWindowOptions, llmStrategy);
+        };
+    }
+
+    private static ICompactionObserver? CreateDefaultObserver() => null;
 
     private static string BuildProviderConflictMessage(string existingProviderName, string conflictingProviderName)
     {

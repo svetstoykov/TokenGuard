@@ -58,14 +58,13 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var tokenCounter = new EstimatedTokenCounter();
         var braveSearchSettings = new BraveSearchSettings(
             configuration["BRAVE_SEARCH_API_KEY"]
             ?? configuration[$"{CodexplorerOptions.SectionName}:BraveSearch:ApiKey"]);
 
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<CodexplorerOptions>, CodexplorerOptionsValidator>());
-        services.TryAdd(ServiceDescriptor.Singleton<ITokenCounter>(tokenCounter));
+        services.TryAddSingleton<ITokenCounter, EstimatedTokenCounter>();
         services.TryAdd(ServiceDescriptor.Singleton(braveSearchSettings));
 
         services.AddOptions<CodexplorerOptions>()
@@ -81,7 +80,7 @@ public static class ServiceCollectionExtensions
                 .WithMaxTokens(budgetOptions.ContextWindowTokens)
                 .WithCompactionThreshold(budgetOptions.SoftThresholdRatio)
                 .WithEmergencyThreshold(budgetOptions.HardThresholdRatio)
-                .WithTokenCounter(tokenCounter);
+                .WithTokenCounter(static () => new EstimatedTokenCounter());
         });
 
         services.AddHttpClient(WebFetchTool.HttpClientName, client =>

@@ -1,5 +1,6 @@
 using TokenGuard.Core.Abstractions;
 using FluentAssertions;
+using System.Reflection;
 using TokenGuard.Core;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Models;
@@ -20,6 +21,44 @@ public sealed class ConversationContextFactoryTests
 
         // Assert
         first.Should().NotBeSameAs(second);
+    }
+
+    [Fact]
+    public void Create_InvokesFreshFactoriesOnEachCall()
+    {
+        // Arrange
+        var counterCalls = 0;
+        var strategyCalls = 0;
+        var observerCalls = 0;
+        var factory = new ConversationContextFactory(new ConversationContextConfiguration(
+            ContextBudget.For(100_000),
+            () =>
+            {
+                counterCalls++;
+                return new StubTokenCounter();
+            },
+            () =>
+            {
+                strategyCalls++;
+                return new StubCompactionStrategy();
+            },
+            () =>
+            {
+                observerCalls++;
+                return new StubCompactionObserver();
+            }));
+
+        // Act
+        using var first = (ConversationContext)factory.Create();
+        using var second = (ConversationContext)factory.Create();
+
+        // Assert
+        counterCalls.Should().Be(2);
+        strategyCalls.Should().Be(2);
+        observerCalls.Should().Be(2);
+        GetPrivateField<ITokenCounter>(first, "_counter").Should().NotBeSameAs(GetPrivateField<ITokenCounter>(second, "_counter"));
+        GetPrivateField<ICompactionStrategy>(first, "_strategy").Should().NotBeSameAs(GetPrivateField<ICompactionStrategy>(second, "_strategy"));
+        GetPrivateField<ICompactionObserver?>(first, "_observer").Should().NotBeSameAs(GetPrivateField<ICompactionObserver?>(second, "_observer"));
     }
 
     [Fact]
@@ -118,7 +157,7 @@ public sealed class ConversationContextFactoryTests
     }
 
     [Fact]
-    public void Build_ReturnsSnapshotMatchingConfigurationDefaults()
+    public void Build_ReturnsRecipeMatchingConfigurationDefaults()
     {
         // Arrange
         const int maxTokens = 75_000;
@@ -130,8 +169,8 @@ public sealed class ConversationContextFactoryTests
 
         // Assert
         config.Budget.MaxTokens.Should().Be(maxTokens);
-        config.Counter.Should().NotBeNull();
-        config.Strategy.Should().NotBeNull();
+        config.CounterFactory.Should().NotBeNull();
+        config.StrategyFactory.Should().NotBeNull();
     }
 
     private static TestConversationContextFactory CreateFactory() => new();
@@ -145,14 +184,14 @@ public sealed class ConversationContextFactoryTests
         private readonly Dictionary<string, ConversationContextConfiguration> _named = new(StringComparer.Ordinal);
 
         public IConversationContext Create() =>
-            new ConversationContext(_default.Budget, _default.Counter, _default.Strategy);
+            new ConversationContext(_default.Budget, _default.CounterFactory(), _default.StrategyFactory(), _default.ObserverFactory());
 
         public IConversationContext Create(string name)
         {
             if (!_named.TryGetValue(name, out var config))
                 throw new InvalidOperationException($"No configuration registered for context name '{name}'.");
 
-            return new ConversationContext(config.Budget, config.Counter, config.Strategy);
+            return new ConversationContext(config.Budget, config.CounterFactory(), config.StrategyFactory(), config.ObserverFactory());
         }
 
         public TestConversationContextFactory AddNamed(string name, ConversationContextConfiguration config)
@@ -168,6 +207,38 @@ public sealed class ConversationContextFactoryTests
             ArgumentNullException.ThrowIfNull(config);
             _default = config;
             return this;
+        }
+    }
+
+    private static T GetPrivateField<T>(ConversationContext context, string fieldName)
+    {
+        var field = typeof(ConversationContext).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        field.Should().NotBeNull();
+
+        return (T)field!.GetValue(context)!;
+    }
+
+    private sealed class StubTokenCounter : ITokenCounter
+    {
+        public int Count(ContextMessage contextMessage) => 0;
+
+        public int Count(IEnumerable<ContextMessage> messages) => 0;
+    }
+
+    private sealed class StubCompactionStrategy : ICompactionStrategy
+    {
+        public Task<CompactionResult> CompactAsync(
+            IReadOnlyList<ContextMessage> messages,
+            int availableTokens,
+            ITokenCounter tokenCounter,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(StubCompactionStrategy)));
+    }
+
+    private sealed class StubCompactionObserver : ICompactionObserver
+    {
+        public void OnCompaction(CompactionEvent compactionEvent)
+        {
         }
     }
 }

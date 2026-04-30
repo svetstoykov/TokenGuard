@@ -48,6 +48,6 @@ public static class AnthropicBuilderExtensions
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
 
-        return builder.SetLlmSummarizer(new AnthropicSummarizer(client, model), "Anthropic", options);
+        return builder.SetLlmSummarizer(() => new AnthropicSummarizer(client, model), "Anthropic", options);
     }
 }

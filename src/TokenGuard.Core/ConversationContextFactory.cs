@@ -30,7 +30,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// Replaces the default configuration used by <see cref="Create()"/>.
     /// </summary>
     /// <param name="config">
-    /// The immutable configuration snapshot to use for unnamed context creation.
+    /// The immutable configuration recipe to use for unnamed context creation.
     /// </param>
     /// <returns>
     /// This factory instance, enabling fluent startup configuration alongside
@@ -59,7 +59,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// comparison. Registering a name more than once replaces the previous entry.
     /// </param>
     /// <param name="config">
-    /// The immutable configuration snapshot to store. Typically produced by
+    /// The immutable configuration recipe to store. Typically produced by
     /// <see cref="ConversationConfigBuilder.Build"/>.
     /// </param>
     /// <returns>This factory instance, enabling fluent chaining of multiple <see cref="AddNamed"/> calls.</returns>
@@ -83,10 +83,10 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// </returns>
     /// <remarks>
     /// Each call returns a distinct instance that shares no history or state with any other context
-    /// produced by this factory.
+    /// produced by this factory. The configured counter, strategy, and observer delegates are each
+    /// invoked for every call so no produced dependency instance is reused across contexts.
     /// </remarks>
-    public IConversationContext Create() =>
-        new ConversationContext(this._default.Budget, this._default.Counter, this._default.Strategy, this._default.Observer);
+    public IConversationContext Create() => CreateContext(this._default);
 
     /// <summary>
     /// Creates a new <see cref="ConversationContext"/> using a previously registered named configuration.
@@ -101,7 +101,9 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// </returns>
     /// <remarks>
     /// Each call returns a distinct instance that shares no history or state with any other context
-    /// produced by this factory, even when the same name is supplied repeatedly.
+    /// produced by this factory, even when the same name is supplied repeatedly. The configured
+    /// counter, strategy, and observer delegates are each invoked for every call so no produced
+    /// dependency instance is reused across contexts.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// Thrown when no configuration has been registered under <paramref name="name"/>. The exception
@@ -112,6 +114,15 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
         if (!this._named.TryGetValue(name, out var config))
             throw new InvalidOperationException($"No configuration registered for context name '{name}'.");
 
-        return new ConversationContext(config.Budget, config.Counter, config.Strategy, config.Observer);
+        return CreateContext(config);
+    }
+
+    private static ConversationContext CreateContext(ConversationContextConfiguration config)
+    {
+        var counter = config.CounterFactory();
+        var strategy = config.StrategyFactory();
+        var observer = config.ObserverFactory();
+
+        return new ConversationContext(config.Budget, counter, strategy, observer);
     }
 }

@@ -42,6 +42,6 @@ public static class OpenAIBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(client);
 
-        return builder.SetLlmSummarizer(new OpenAISummarizer(client), "OpenAI", options);
+        return builder.SetLlmSummarizer(() => new OpenAISummarizer(client), "OpenAI", options);
     }
 }

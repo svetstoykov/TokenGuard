@@ -19,8 +19,9 @@ namespace TokenGuard.Core.Extensions;
 /// </para>
 /// <para>
 /// Each registration callback receives a fresh <see cref="ConversationConfigBuilder"/>. The builder
-/// state is captured immediately as an immutable <see cref="ConversationContextConfiguration"/>, so
-/// later service-resolution paths do not depend on mutable startup objects.
+/// state is captured immediately as an immutable <see cref="ConversationContextConfiguration"/> recipe,
+/// so later service-resolution paths do not depend on mutable startup objects while each
+/// <see cref="IConversationContextFactory.Create()"/> call still receives freshly constructed dependencies.
 /// </para>
 /// <para>
 /// Applications that do not use dependency injection can still construct <see cref="ConversationContext"/>
@@ -76,7 +77,7 @@ public static class ServiceCollectionExtensions
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
     /// <remarks>
     /// Repeated calls remain idempotent with respect to singleton registration: the factory is
-    /// registered only once, and each call updates the default configuration snapshot stored by that
+    /// registered only once, and each call updates the default configuration recipe stored by that
     /// singleton. This keeps application startup on a single supported registration path while still
     /// allowing direct <see cref="ConversationContext"/> construction outside the container.
     /// </remarks>
@@ -105,7 +106,7 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection to update.</param>
     /// <param name="name">
-    /// The profile name to associate with the configured snapshot. Names are compared using ordinal
+    /// The profile name to associate with the configured recipe. Names are compared using ordinal
     /// string comparison when later resolved through <see cref="IConversationContextFactory.Create(string)"/>.
     /// </param>
     /// <param name="configure">
@@ -114,7 +115,7 @@ public static class ServiceCollectionExtensions
     /// </param>
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
     /// <remarks>
-    /// Re-registering the same <paramref name="name"/> replaces the previous named snapshot. This
+    /// Re-registering the same <paramref name="name"/> replaces the previous named recipe. This
     /// allows a single container registration flow to manage all named profiles exposed through
     /// <see cref="IConversationContextFactory.Create(string)"/>.
     /// </remarks>
