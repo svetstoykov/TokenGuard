@@ -18,11 +18,11 @@ public interface ICompactionStrategy
     /// </summary>
     /// <remarks>
     ///     Implementations should preserve the logical ordering of <paramref name="messages"/> while producing a
-    ///     sequence suitable for the token constraint expressed by <paramref name="availableTokens"/>. The supplied
-    ///     <paramref name="tokenCounter"/> is the abstraction used to estimate message cost and should be used
-    ///     consistently so compaction decisions align with the active counting strategy. The task-based contract
-    ///     allows implementations to call external services, including LLM-backed summarizers or reducers,
-    ///     without forcing callers to block a thread.
+    ///     sequence suitable for the token constraint expressed by <paramref name="availableTokens"/>. Implementations
+    ///     receive their <see cref="ITokenCounter"/> dependency at construction time so counting behavior remains
+    ///     explicit and aligned with the active conversation context. The task-based contract allows implementations to
+    ///     call external services, including LLM-backed summarizers or reducers, without forcing callers to block a
+    ///     thread.
     /// </remarks>
     /// <param name="messages">
     ///     The ordered source message list to compact. Callers must exclude pinned messages before invoking this
@@ -33,10 +33,9 @@ public interface ICompactionStrategy
     ///     The number of tokens available to the compacted result. Callers subtract pinned-message cost from the
     ///     total context budget before passing this value so implementations never need to reason about reservations.
     /// </param>
-    /// <param name="tokenCounter">The token counter used to measure message cost during compaction.</param>
     /// <returns>
     ///     A task that resolves to a <see cref="CompactionResult"/> containing the compacted messages together with
     ///     metrics describing what the strategy changed and how many tokens the result consumes.
     /// </returns>
-    Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, ITokenCounter tokenCounter, CancellationToken cancellationToken = default);
+    Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, CancellationToken cancellationToken = default);
 }

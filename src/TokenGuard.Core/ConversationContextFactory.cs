@@ -122,7 +122,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     private static ConversationContext CreateContext(ConversationContextConfiguration config)
     {
         var counter = new EstimatedTokenCounter();
-        var strategy = config.StrategyFactory();
+        var strategy = config.StrategyFactory(counter);
 
         return new ConversationContext(config.Budget, counter, strategy);
     }

@@ -361,7 +361,7 @@ public sealed class ConversationContext : IConversationContext
 
         var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
 
-        var compacted = await this._strategy.CompactAsync(compactable, availableTokens, this._counter, cancellationToken);
+        var compacted = await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
 
         var prepared = pinnedSlots.Count == 0
             ? compacted.Messages

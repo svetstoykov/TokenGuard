@@ -27,6 +27,7 @@ namespace TokenGuard.Core.Strategies;
 /// </remarks>
 internal sealed class SlidingWindowStrategy : ICompactionStrategy
 {
+    private readonly ITokenCounter _tokenCounter;
     private readonly SlidingWindowOptions _options;
 
     /// <summary>
@@ -34,10 +35,12 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// </summary>
     /// <remarks>
     ///     This constructor uses <see cref="SlidingWindowOptions.Default"/> so callers can adopt the standard
-    ///     sliding-window behavior without explicitly creating an options value.
+    ///     sliding-window behavior without explicitly creating an options value. The supplied
+    ///     <paramref name="tokenCounter"/> is retained and used for every later <c>CompactAsync</c> call.
     /// </remarks>
-    public SlidingWindowStrategy()
-        : this(SlidingWindowOptions.Default)
+    /// <param name="tokenCounter">The token counter used to measure message cost during compaction.</param>
+    public SlidingWindowStrategy(ITokenCounter tokenCounter)
+        : this(tokenCounter, SlidingWindowOptions.Default)
     {
     }
 
@@ -49,9 +52,13 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///     tool results are represented after masking. The provided value is retained for all subsequent
     ///     <c>CompactAsync</c> calls.
     /// </remarks>
+    /// <param name="tokenCounter">The token counter used to measure candidate and compacted messages.</param>
     /// <param name="options">The sliding-window configuration that controls boundary selection and placeholder generation.</param>
-    public SlidingWindowStrategy(SlidingWindowOptions options)
+    public SlidingWindowStrategy(ITokenCounter tokenCounter, SlidingWindowOptions options)
     {
+        ArgumentNullException.ThrowIfNull(tokenCounter);
+
+        this._tokenCounter = tokenCounter;
         this._options = options;
     }
 
@@ -86,7 +93,6 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///     The number of tokens available for the protected window. Callers deduct pinned-message cost from the total
     ///     context budget before passing this value.
     /// </param>
-    /// <param name="tokenCounter">The token counter used to measure candidate messages while determining the protected boundary.</param>
     /// <param name="cancellationToken">A token that can cancel the compaction operation before it completes.</param>
     /// <returns>
     ///     A task that resolves to a <see cref="CompactionResult"/> whose <see cref="CompactionResult.Messages"/>
@@ -94,20 +100,16 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///     window, including when <paramref name="messages"/> is empty; otherwise, older tool results are replaced with
     ///     placeholders and the result reports the associated metrics.
     /// </returns>
-    /// <exception cref="ArgumentNullException">
-    ///     Thrown when <paramref name="messages"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
-    /// </exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is <see langword="null"/>.</exception>
     public Task<CompactionResult> CompactAsync(
         IReadOnlyList<ContextMessage> messages,
         int availableTokens,
-        ITokenCounter tokenCounter,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
-        ArgumentNullException.ThrowIfNull(tokenCounter);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var tokensBefore = CountTokens(messages, tokenCounter);
+        var tokensBefore = CountTokens(messages, this._tokenCounter);
 
         var maxProtectedTokens = (int)Math.Floor(availableTokens * this._options.ProtectedWindowFraction);
         var protectedCount = 0;
@@ -116,7 +118,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         for (var i = messages.Count - 1; i >= 0; i--)
         {
-            var candidateTokens = messages[i].TokenCount ?? tokenCounter.Count(messages[i]);
+            var candidateTokens = messages[i].TokenCount ?? this._tokenCounter.Count(messages[i]);
 
             if (protectedCount >= this._options.WindowSize && protectedTokens + candidateTokens > maxProtectedTokens)
             {
@@ -157,7 +159,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             result[i] = messages[i];
         }
 
-        var tokensAfter = CountTokens(result, tokenCounter);
+        var tokensAfter = CountTokens(result, this._tokenCounter);
 
         return Task.FromResult(new CompactionResult(
             result,

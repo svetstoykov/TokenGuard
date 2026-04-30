@@ -1327,10 +1327,9 @@ public sealed class ConversationContextTests
         /// </summary>
         /// <param name="messages">The messages selected for compaction.</param>
         /// <param name="availableTokens">The token budget available to the compaction operation.</param>
-        /// <param name="tokenCounter">The token counter associated with the request.</param>
         /// <param name="cancellationToken">A token used to cancel the operation.</param>
         /// <returns>A task containing either the configured result or a pass-through compaction result.</returns>
-        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
+        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             this.CompactCalls++;

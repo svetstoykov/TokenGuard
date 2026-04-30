@@ -15,10 +15,10 @@ public sealed class SlidingWindowStrategyTests
         // Arrange
         IReadOnlyList<ContextMessage> messages = [];
         var tokenCounter = new TrackingTokenCounter();
-        var strategy = new SlidingWindowStrategy();
+        var strategy = new SlidingWindowStrategy(tokenCounter);
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 100, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 100);
 
         // Assert
         Assert.Same(messages, compacted.Messages);
@@ -44,10 +44,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(messages[1], 2);
         tokenCounter.Set(messages[0], 2);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 10, protectedWindowFraction: 0.90));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 10, protectedWindowFraction: 0.90));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 100, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 100);
 
         // Assert
         Assert.Same(messages, compacted.Messages);
@@ -77,10 +77,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(messages[4], 4);
         tokenCounter.Set(messages[3], 2);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.90));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.90));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Same(messages, compacted.Messages);
@@ -112,10 +112,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(messages[1], 1);
         tokenCounter.Set(messages[0], 7);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.50));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.50));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(15, tokenCounter.CountCalls);
@@ -149,10 +149,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(messages[1], 4);
         tokenCounter.Set(messages[0], 4);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 4, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 4, protectedWindowFraction: 0.20));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(15, tokenCounter.CountCalls);
@@ -185,10 +185,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(messages[2], 2);
         tokenCounter.Set(messages[1], 2);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 100, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 100);
 
         // Assert
         Assert.Same(protectedToolResult, compacted.Messages[1]);
@@ -212,10 +212,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(newest, 4);
         tokenCounter.Set(olderToolResult, 4);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.40));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.40));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
@@ -236,10 +236,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(protectedOlder, 4);
         tokenCounter.Set(olderToolResult, 4);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.80));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.80));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
@@ -262,10 +262,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(messages[1], 4);
         tokenCounter.Set(messages[0], 4);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         var masked = compacted.Messages[0];
@@ -290,10 +290,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(protectedMessage, 6);
         tokenCounter.Set(passthrough, 6);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Same(passthrough, compacted.Messages[0]);
@@ -324,10 +324,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(protectedMessage, 6);
         tokenCounter.Set(mixed, 6);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
         var compactedBlocks = compacted.Messages[0].Segments;
 
         // Assert
@@ -355,10 +355,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(protectedMessage, 6);
         tokenCounter.Set(exposed, 6);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
@@ -391,10 +391,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(protectedMessage, 7);
         tokenCounter.Set(toolResultMessage, 7);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[1].Segments));
@@ -418,10 +418,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(protectedMessage, 6);
         tokenCounter.Set(exposed, 6);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[0].Segments));
@@ -451,10 +451,10 @@ public sealed class SlidingWindowStrategyTests
         tokenCounter.Set(protectedMessage, 6);
         tokenCounter.Set(originalMessage, 6);
 
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(2, messages.Count);

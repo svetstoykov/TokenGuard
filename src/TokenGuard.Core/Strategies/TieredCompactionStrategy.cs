@@ -28,16 +28,20 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
     /// <summary>
     /// Initializes a new instance of the <see cref="TieredCompactionStrategy"/> class.
     /// </summary>
+    /// <param name="tokenCounter">The token counter used by the sliding-window stage to evaluate message cost.</param>
     /// <param name="slidingWindowOptions">The masking configuration used for the always-on sliding-window stage.</param>
     /// <param name="llmSummarizationStrategy">
     /// The optional LLM-backed summarization stage used only when masking remains over budget. Pass <see langword="null"/>
     /// to keep tiered compaction in sliding-window-only mode.
     /// </param>
     public TieredCompactionStrategy(
+        ITokenCounter tokenCounter,
         SlidingWindowOptions slidingWindowOptions,
         LlmSummarizationStrategy? llmSummarizationStrategy = null)
     {
-        this._slidingWindowStrategy = new SlidingWindowStrategy(slidingWindowOptions);
+        ArgumentNullException.ThrowIfNull(tokenCounter);
+
+        this._slidingWindowStrategy = new SlidingWindowStrategy(tokenCounter, slidingWindowOptions);
         this._llmSummarizationStrategy = llmSummarizationStrategy;
     }
 
@@ -46,29 +50,23 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
     /// </summary>
     /// <param name="messages">The ordered compactable message history to process.</param>
     /// <param name="availableTokens">The token budget available to the compacted result after pinned-message costs are removed.</param>
-    /// <param name="tokenCounter">The token counter used to measure both masking and summarization outcomes.</param>
     /// <param name="cancellationToken">A token that can cancel the compaction operation.</param>
     /// <returns>
     /// A task that resolves to a <see cref="CompactionResult"/> branded as
     /// <see cref="TieredCompactionStrategy"/> for no-op, masking-only, and summarization outcomes.
     /// </returns>
-    /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="messages"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
-    /// </exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is <see langword="null"/>.</exception>
     public async Task<CompactionResult> CompactAsync(
         IReadOnlyList<ContextMessage> messages,
         int availableTokens,
-        ITokenCounter tokenCounter,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
-        ArgumentNullException.ThrowIfNull(tokenCounter);
         cancellationToken.ThrowIfCancellationRequested();
 
         var slidingWindowResult = await this._slidingWindowStrategy.CompactAsync(
             messages,
             availableTokens,
-            tokenCounter,
             cancellationToken);
 
         if (slidingWindowResult.TokensAfter <= availableTokens || this._llmSummarizationStrategy is null)
@@ -79,7 +77,6 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
         var summarizationResult = await this._llmSummarizationStrategy.CompactAsync(
             messages,
             availableTokens,
-            tokenCounter,
             cancellationToken);
 
         return BuildCompactionResult(summarizationResult);

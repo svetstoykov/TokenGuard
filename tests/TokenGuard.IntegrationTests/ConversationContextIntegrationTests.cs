@@ -16,7 +16,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 1000, compactionThreshold: 0.80);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
         var engine = new ConversationContext(budget, counter, strategy);
         
         engine.SetSystemPrompt("You are a helpful assistant.");
@@ -65,7 +65,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 1000, compactionThreshold: 0.80);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
         var engine = new ConversationContext(budget, counter, strategy);
         engine.SetSystemPrompt("You are a helpful assistant.");
         engine.AddUserMessage("Please analyze the logs for the last 24 hours.");
@@ -96,7 +96,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.80);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 3, protectedWindowFraction: 0.5));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 3, protectedWindowFraction: 0.5));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("Scan the directory for large files.");
@@ -153,7 +153,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1200));
@@ -190,7 +190,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage(new string('U', 1800));
@@ -219,7 +219,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1200));
@@ -248,7 +248,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 700, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1800));
@@ -291,7 +291,7 @@ public sealed class ConversationContextIntegrationTests
         // new (fixed): drop {model_1, tool_1_masked} together (~42 T) → 266-42 = 224 ≤ 260 → stop — no orphan
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.50, emergencyThreshold: 0.52);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.10));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.10));
         var engine = new ConversationContext(budget, counter, strategy);
 
         var largeArgs = $"{{\"query\": \"{new string('A', 70)}\"}}";
@@ -336,7 +336,7 @@ public sealed class ConversationContextIntegrationTests
         // threshold is configured the runtime must not drop any further messages.
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1200));
@@ -373,7 +373,7 @@ public sealed class ConversationContextIntegrationTests
         // The strategy result exceeds the emergency threshold, so the runtime must drop oldest turn groups.
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1200));

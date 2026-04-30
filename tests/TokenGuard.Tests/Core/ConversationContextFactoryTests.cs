@@ -30,7 +30,7 @@ public sealed class ConversationContextFactoryTests
         var strategyCalls = 0;
         var factory = new ConversationContextFactory(new ConversationContextConfiguration(
             ContextBudget.For(100_000),
-            () =>
+            _ =>
             {
                 strategyCalls++;
                 return new StubCompactionStrategy();
@@ -170,14 +170,14 @@ public sealed class ConversationContextFactoryTests
         private readonly Dictionary<string, ConversationContextConfiguration> _named = new(StringComparer.Ordinal);
 
         public IConversationContext Create() =>
-            new ConversationContext(_default.Budget, new TokenGuard.Core.TokenCounting.EstimatedTokenCounter(), _default.StrategyFactory());
+            CreateContext(_default);
 
         public IConversationContext Create(string name)
         {
             if (!_named.TryGetValue(name, out var config))
                 throw new InvalidOperationException($"No configuration registered for context name '{name}'.");
 
-            return new ConversationContext(config.Budget, new TokenGuard.Core.TokenCounting.EstimatedTokenCounter(), config.StrategyFactory());
+            return CreateContext(config);
         }
 
         public TestConversationContextFactory AddNamed(string name, ConversationContextConfiguration config)
@@ -194,6 +194,12 @@ public sealed class ConversationContextFactoryTests
             _default = config;
             return this;
         }
+
+        private static ConversationContext CreateContext(ConversationContextConfiguration config)
+        {
+            var counter = new TokenGuard.Core.TokenCounting.EstimatedTokenCounter();
+            return new ConversationContext(config.Budget, counter, config.StrategyFactory(counter));
+        }
     }
 
     private static T GetPrivateField<T>(ConversationContext context, string fieldName)
@@ -209,7 +215,6 @@ public sealed class ConversationContextFactoryTests
         public Task<CompactionResult> CompactAsync(
             IReadOnlyList<ContextMessage> messages,
             int availableTokens,
-            ITokenCounter tokenCounter,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(StubCompactionStrategy)));
     }

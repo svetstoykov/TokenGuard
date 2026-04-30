@@ -25,11 +25,12 @@ public sealed class TieredCompactionStrategyTests
         tokenCounter.Set(keep2, 4);
 
         var strategy = new TieredCompactionStrategy(
+            tokenCounter,
             new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.20),
-            new LlmSummarizationStrategy(summarizer, new LlmSummarizationOptions(windowSize: 2)));
+            new LlmSummarizationStrategy(summarizer, tokenCounter, new LlmSummarizationOptions(windowSize: 2)));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(0, summarizer.CallCount);
@@ -59,13 +60,15 @@ public sealed class TieredCompactionStrategyTests
         tokenCounter.Set(keep2, 5);
 
         var strategy = new TieredCompactionStrategy(
+            tokenCounter,
             new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
             new LlmSummarizationStrategy(
                 summarizer,
+                tokenCounter,
                 new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100)));
 
         // Act — masked total: 1+1+5+5=12 > 11, so sliding-window fails; remaining budget 11-10=1 ≥ 1
-        var compacted = await strategy.CompactAsync(messages, 11, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 11);
 
         // Assert
         Assert.Equal(1, summarizer.CallCount);
@@ -89,11 +92,12 @@ public sealed class TieredCompactionStrategyTests
         tokenCounter.Set(second, 3);
 
         var strategy = new TieredCompactionStrategy(
+            tokenCounter,
             new SlidingWindowOptions(windowSize: 5, protectedWindowFraction: 0.90),
-            new LlmSummarizationStrategy(summarizer, new LlmSummarizationOptions(windowSize: 5)));
+            new LlmSummarizationStrategy(summarizer, tokenCounter, new LlmSummarizationOptions(windowSize: 5)));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 100, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 100);
 
         // Assert
         Assert.Same(messages, compacted.Messages);
@@ -116,11 +120,12 @@ public sealed class TieredCompactionStrategyTests
         tokenCounter.Set(keep, 8);
 
         var strategy = new TieredCompactionStrategy(
+            tokenCounter,
             new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
-            new LlmSummarizationStrategy(summarizer, new LlmSummarizationOptions(windowSize: 5)));
+            new LlmSummarizationStrategy(summarizer, tokenCounter, new LlmSummarizationOptions(windowSize: 5)));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 5, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 5);
 
         // Assert
         Assert.Equal(0, summarizer.CallCount);
@@ -149,13 +154,15 @@ public sealed class TieredCompactionStrategyTests
         tokenCounter.Set(keep2, 5);
 
         var strategy = new TieredCompactionStrategy(
+            tokenCounter,
             new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
             new LlmSummarizationStrategy(
                 summarizer,
+                tokenCounter,
                 new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100)));
 
         // Act — masked total: 1+1+5+5=12 > 11, so sliding-window fails; remaining budget 11-10=1 ≥ 1
-        var compacted = await strategy.CompactAsync(messages, 11, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 11);
 
         // Assert
         Assert.Equal(3, compacted.Messages.Count);
@@ -185,13 +192,15 @@ public sealed class TieredCompactionStrategyTests
         tokenCounter.Set(keep2, 8);
 
         var strategy = new TieredCompactionStrategy(
+            tokenCounter,
             new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
             new LlmSummarizationStrategy(
                 summarizer,
+                tokenCounter,
                 new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 500, maxSummaryTokens: 1000)));
 
         // Act — remainingBudget = 10 - 16 = -6, below minSummaryTokens=500; summarization skipped
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(0, summarizer.CallCount);
@@ -238,19 +247,22 @@ public sealed class TieredCompactionStrategyTests
 
         var summarizer = new TrackingSummarizer("summary-text");
         var noOpStrategy = new TieredCompactionStrategy(
+            tokenCounter,
             new SlidingWindowOptions(windowSize: 5, protectedWindowFraction: 0.90),
-            new LlmSummarizationStrategy(summarizer, new LlmSummarizationOptions(windowSize: 5)));
+            new LlmSummarizationStrategy(summarizer, tokenCounter, new LlmSummarizationOptions(windowSize: 5)));
         var slidingOnlyStrategy = new TieredCompactionStrategy(
+            tokenCounter,
             new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.20),
-            new LlmSummarizationStrategy(summarizer, new LlmSummarizationOptions(windowSize: 2)));
+            new LlmSummarizationStrategy(summarizer, tokenCounter, new LlmSummarizationOptions(windowSize: 2)));
         var summarizationStrategy = new TieredCompactionStrategy(
+            tokenCounter,
             new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
-            new LlmSummarizationStrategy(summarizer, new LlmSummarizationOptions(windowSize: 2)));
+            new LlmSummarizationStrategy(summarizer, tokenCounter, new LlmSummarizationOptions(windowSize: 2)));
 
         // Act
-        var noOpResult = await noOpStrategy.CompactAsync(noOpMessages, 100, tokenCounter);
-        var slidingOnlyResult = await slidingOnlyStrategy.CompactAsync(slidingOnlyMessages, 10, tokenCounter);
-        var summarizationResult = await summarizationStrategy.CompactAsync(summarizationMessages, 10, tokenCounter);
+        var noOpResult = await noOpStrategy.CompactAsync(noOpMessages, 100);
+        var slidingOnlyResult = await slidingOnlyStrategy.CompactAsync(slidingOnlyMessages, 10);
+        var summarizationResult = await summarizationStrategy.CompactAsync(summarizationMessages, 10);
 
         // Assert
         Assert.Equal(nameof(TieredCompactionStrategy), noOpResult.StrategyName);

@@ -25,14 +25,16 @@ namespace TokenGuard.Core.Strategies;
 internal sealed class LlmSummarizationStrategy : ICompactionStrategy
 {
     private readonly ILlmSummarizer _summarizer;
+    private readonly ITokenCounter _tokenCounter;
     private readonly LlmSummarizationOptions _options;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LlmSummarizationStrategy"/> class with default options.
     /// </summary>
     /// <param name="summarizer">The summarizer that converts older history into a single text summary.</param>
-    public LlmSummarizationStrategy(ILlmSummarizer summarizer)
-        : this(summarizer, LlmSummarizationOptions.Default)
+    /// <param name="tokenCounter">The token counter used to measure the protected tail and final compacted result.</param>
+    public LlmSummarizationStrategy(ILlmSummarizer summarizer, ITokenCounter tokenCounter)
+        : this(summarizer, tokenCounter, LlmSummarizationOptions.Default)
     {
     }
 
@@ -40,13 +42,18 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// Initializes a new instance of the <see cref="LlmSummarizationStrategy"/> class.
     /// </summary>
     /// <param name="summarizer">The summarizer that converts older history into a single text summary.</param>
+    /// <param name="tokenCounter">The token counter used to measure the protected tail and final compacted result.</param>
     /// <param name="options">The configuration that controls the protected tail size.</param>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="summarizer"/> is <see langword="null"/>.</exception>
-    public LlmSummarizationStrategy(ILlmSummarizer summarizer, LlmSummarizationOptions options)
+    /// <exception cref="ArgumentNullException">
+    /// Thrown when <paramref name="summarizer"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
+    /// </exception>
+    public LlmSummarizationStrategy(ILlmSummarizer summarizer, ITokenCounter tokenCounter, LlmSummarizationOptions options)
     {
         ArgumentNullException.ThrowIfNull(summarizer);
+        ArgumentNullException.ThrowIfNull(tokenCounter);
 
         this._summarizer = summarizer;
+        this._tokenCounter = tokenCounter;
         this._options = options;
     }
 
@@ -55,27 +62,22 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// </summary>
     /// <param name="messages">The ordered compactable message history to process.</param>
     /// <param name="availableTokens">The number of tokens available to the compacted result after pinned-message costs are removed.</param>
-    /// <param name="tokenCounter">The token counter used to measure the protected tail and the final compacted result.</param>
     /// <param name="cancellationToken">A token that can cancel the compaction operation.</param>
     /// <returns>
     /// A task that resolves to a <see cref="CompactionResult"/> containing either the original message sequence when
     /// the history fits fully inside the protected window, or a synthetic summary message followed by the verbatim
     /// protected tail.
     /// </returns>
-    /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="messages"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
-    /// </exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is <see langword="null"/>.</exception>
     public async Task<CompactionResult> CompactAsync(
         IReadOnlyList<ContextMessage> messages,
         int availableTokens,
-        ITokenCounter tokenCounter,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
-        ArgumentNullException.ThrowIfNull(tokenCounter);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var tokensBefore = CountTokens(messages, tokenCounter);
+        var tokensBefore = CountTokens(messages, this._tokenCounter);
         var boundary = Math.Max(0, messages.Count - this._options.WindowSize);
 
         if (boundary == 0)
@@ -91,7 +93,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         var protectedTailTokens = 0;
         for (var i = boundary; i < messages.Count; i++)
         {
-            protectedTailTokens += messages[i].TokenCount ?? tokenCounter.Count(messages[i]);
+            protectedTailTokens += messages[i].TokenCount ?? this._tokenCounter.Count(messages[i]);
         }
 
         var remainingBudget = availableTokens - protectedTailTokens;
@@ -99,7 +101,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         if (remainingBudget < this._options.MinSummaryTokens)
         {
             var protectedTail = messages.Skip(boundary).ToArray();
-            var tokensAfterSkip = CountTokens(protectedTail, tokenCounter);
+            var tokensAfterSkip = CountTokens(protectedTail, this._tokenCounter);
 
             return new CompactionResult(
                 protectedTail,
@@ -121,7 +123,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             result[(i - boundary) + 1] = messages[i];
         }
 
-        var tokensAfter = CountTokens(result, tokenCounter);
+        var tokensAfter = CountTokens(result, this._tokenCounter);
 
         return new CompactionResult(
             result,

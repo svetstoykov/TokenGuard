@@ -21,13 +21,14 @@ public sealed class ConversationConfigBuilderTests
     {
         // Arrange
         var expected = ContextBudget.For(100_000);
+        var counter = new TrackingTokenCounter();
 
         // Act
         var configuration = ConversationConfigBuilder.Default();
 
         // Assert
         configuration.Budget.Should().Be(expected);
-        configuration.StrategyFactory().Should().BeOfType<TieredCompactionStrategy>();
+        configuration.StrategyFactory(counter).Should().BeOfType<TieredCompactionStrategy>();
     }
 
     [Fact]
@@ -35,13 +36,14 @@ public sealed class ConversationConfigBuilderTests
     {
         // Arrange
         const int maxTokens = 200_000;
+        var counter = new TrackingTokenCounter();
 
         // Act
         var configuration = ConversationConfigBuilder.Default(maxTokens);
 
         // Assert
         configuration.Budget.MaxTokens.Should().Be(maxTokens);
-        configuration.StrategyFactory().Should().BeOfType<TieredCompactionStrategy>();
+        configuration.StrategyFactory(counter).Should().BeOfType<TieredCompactionStrategy>();
     }
 
     [Fact]
@@ -50,6 +52,7 @@ public sealed class ConversationConfigBuilderTests
         // Arrange
         const int maxTokens = 75_000;
         var expectedBudget = ContextBudget.For(maxTokens);
+        var counter = new TrackingTokenCounter();
 
         // Act
         var configuration = new ConversationConfigBuilder()
@@ -58,7 +61,7 @@ public sealed class ConversationConfigBuilderTests
 
         // Assert
         configuration.Budget.Should().Be(expectedBudget);
-        configuration.StrategyFactory().Should().BeOfType<TieredCompactionStrategy>();
+        configuration.StrategyFactory(counter).Should().BeOfType<TieredCompactionStrategy>();
     }
 
     [Fact]
@@ -68,10 +71,12 @@ public sealed class ConversationConfigBuilderTests
         var configuration = new ConversationConfigBuilder()
             .WithMaxTokens(75_000)
             .Build();
+        var firstCounter = new TrackingTokenCounter();
+        var secondCounter = new TrackingTokenCounter();
 
         // Act
-        var firstStrategy = configuration.StrategyFactory();
-        var secondStrategy = configuration.StrategyFactory();
+        var firstStrategy = configuration.StrategyFactory(firstCounter);
+        var secondStrategy = configuration.StrategyFactory(secondCounter);
         firstStrategy.Should().BeOfType<TieredCompactionStrategy>();
         secondStrategy.Should().BeOfType<TieredCompactionStrategy>();
         firstStrategy.Should().NotBeSameAs(secondStrategy);
@@ -98,8 +103,8 @@ public sealed class ConversationConfigBuilderTests
             .WithEmergencyThreshold(0.90)
             .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20))
             .Build();
-        var strategy = configuration.StrategyFactory();
-        var compacted = await strategy.CompactAsync(messages, 11, counter);
+        var strategy = configuration.StrategyFactory(counter);
+        var compacted = await strategy.CompactAsync(messages, 11);
 
         // Assert
         configuration.Budget.MaxTokens.Should().Be(8_192);
@@ -150,7 +155,7 @@ public sealed class ConversationConfigBuilderTests
             "OpenAI",
             new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
         var configuration = builder.Build();
-        var compacted = await configuration.StrategyFactory().CompactAsync(messages, 11, counter);
+        var compacted = await configuration.StrategyFactory(counter).CompactAsync(messages, 11);
 
         // Assert
         compacted.Messages.Should().HaveCount(3);

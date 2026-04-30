@@ -31,9 +31,10 @@ namespace TokenGuard.Core.Models;
 /// compaction trigger threshold and the number of tokens reserved for the next model response.
 /// </param>
 /// <param name="StrategyFactory">
-/// Creates the <see cref="ICompactionStrategy"/> used by one conversation-context instance. The built-in factory
-/// invokes this delegate once for each created context so compaction state is never shared across context lifetimes.
+/// Creates the <see cref="ICompactionStrategy"/> used by one conversation-context instance from that context's
+/// <see cref="ITokenCounter"/>. The built-in factory invokes this delegate once for each created context so
+/// compaction state is never shared across context lifetimes and the counting dependency stays explicit.
 /// </param>
 public sealed record ConversationContextConfiguration(
     ContextBudget Budget,
-    Func<ICompactionStrategy> StrategyFactory);
+    Func<ITokenCounter, ICompactionStrategy> StrategyFactory);

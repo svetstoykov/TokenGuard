@@ -16,10 +16,10 @@ public sealed class LlmSummarizationStrategyTests
         IReadOnlyList<ContextMessage> messages = [];
         var summarizer = new TrackingSummarizer("unused");
         var tokenCounter = new TrackingTokenCounter();
-        var strategy = new LlmSummarizationStrategy(summarizer);
+        var strategy = new LlmSummarizationStrategy(summarizer, tokenCounter);
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 100, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 100);
 
         // Assert
         Assert.Same(messages, compacted.Messages);
@@ -46,10 +46,10 @@ public sealed class LlmSummarizationStrategyTests
         tokenCounter.Set(messages[0], 2);
         tokenCounter.Set(messages[1], 3);
 
-        var strategy = new LlmSummarizationStrategy(summarizer, new LlmSummarizationOptions(windowSize: 5));
+        var strategy = new LlmSummarizationStrategy(summarizer, tokenCounter, new LlmSummarizationOptions(windowSize: 5));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 100, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 100);
 
         // Assert
         Assert.Same(messages, compacted.Messages);
@@ -78,10 +78,11 @@ public sealed class LlmSummarizationStrategyTests
 
         var strategy = new LlmSummarizationStrategy(
             summarizer,
+            tokenCounter,
             new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 20, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 20);
 
         // Assert
         Assert.Equal(1, summarizer.CallCount);
@@ -116,10 +117,11 @@ public sealed class LlmSummarizationStrategyTests
 
         var strategy = new LlmSummarizationStrategy(
             summarizer,
+            tokenCounter,
             new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 50, maxSummaryTokens: 100));
 
         // Act
-        var compacted = await strategy.CompactAsync(messages, 10, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(0, summarizer.CallCount);
@@ -148,11 +150,12 @@ public sealed class LlmSummarizationStrategyTests
 
         var strategy = new LlmSummarizationStrategy(
             summarizer,
+            tokenCounter,
             new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
 
         // Act
-        _ = await strategy.CompactAsync(messages, 10, tokenCounter);
-        _ = await strategy.CompactAsync(messages, 10, tokenCounter);
+        _ = await strategy.CompactAsync(messages, 10);
+        _ = await strategy.CompactAsync(messages, 10);
 
         // Assert
         Assert.Equal(2, summarizer.CallCount);
@@ -176,8 +179,8 @@ public sealed class LlmSummarizationStrategyTests
         var tokenCounter = new TrackingTokenCounter();
 
         // Act
-        var strategy = new LlmSummarizationStrategy(summarizer);
-        var compacted = await strategy.CompactAsync(messages, 3000, tokenCounter);
+        var strategy = new LlmSummarizationStrategy(summarizer, tokenCounter);
+        var compacted = await strategy.CompactAsync(messages, 3000);
 
         // Assert
         Assert.Equal(1, summarizer.CallCount);
@@ -276,10 +279,11 @@ public sealed class LlmSummarizationStrategyTests
 
         var strategy = new LlmSummarizationStrategy(
             summarizer,
+            tokenCounter,
             new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 10, maxSummaryTokens: 50));
 
         // Act — remainingBudget = 200 - 5 = 195, which exceeds max of 50
-        _ = await strategy.CompactAsync(messages, 200, tokenCounter);
+        _ = await strategy.CompactAsync(messages, 200);
 
         // Assert
         Assert.Equal(50, summarizer.LastTargetTokens);
@@ -300,10 +304,11 @@ public sealed class LlmSummarizationStrategyTests
 
         var strategy = new LlmSummarizationStrategy(
             summarizer,
+            tokenCounter,
             new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 10, maxSummaryTokens: 100));
 
         // Act — remainingBudget = 55 - 5 = 50, within [10, 100]
-        _ = await strategy.CompactAsync(messages, 55, tokenCounter);
+        _ = await strategy.CompactAsync(messages, 55);
 
         // Assert
         Assert.Equal(50, summarizer.LastTargetTokens);
@@ -324,10 +329,11 @@ public sealed class LlmSummarizationStrategyTests
 
         var strategy = new LlmSummarizationStrategy(
             summarizer,
+            tokenCounter,
             new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 20, maxSummaryTokens: 100));
 
         // Act — remainingBudget = 25 - 5 = 20, exactly equals min
-        _ = await strategy.CompactAsync(messages, 25, tokenCounter);
+        _ = await strategy.CompactAsync(messages, 25);
 
         // Assert
         Assert.Equal(1, summarizer.CallCount);
@@ -349,10 +355,11 @@ public sealed class LlmSummarizationStrategyTests
 
         var strategy = new LlmSummarizationStrategy(
             summarizer,
+            tokenCounter,
             new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 10, maxSummaryTokens: 50));
 
         // Act — remainingBudget = 55 - 5 = 50, exactly equals max
-        _ = await strategy.CompactAsync(messages, 55, tokenCounter);
+        _ = await strategy.CompactAsync(messages, 55);
 
         // Assert
         Assert.Equal(1, summarizer.CallCount);

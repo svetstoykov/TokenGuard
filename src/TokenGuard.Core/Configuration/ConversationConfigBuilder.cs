@@ -230,23 +230,23 @@ public sealed class ConversationConfigBuilder
         return this;
     }
 
-    private static Func<ICompactionStrategy> BuildStrategyFactory(
+    private static Func<ITokenCounter, ICompactionStrategy> BuildStrategyFactory(
         SlidingWindowOptions slidingWindowOptions,
         Func<ILlmSummarizer>? llmSummarizerFactory,
         LlmSummarizationOptions? llmSummarizationOptions)
     {
         if (llmSummarizerFactory is null)
         {
-            return () => new TieredCompactionStrategy(slidingWindowOptions);
+            return tokenCounter => new TieredCompactionStrategy(tokenCounter, slidingWindowOptions);
         }
 
-        return () =>
+        return tokenCounter =>
         {
             var llmStrategy = llmSummarizationOptions.HasValue
-                ? new LlmSummarizationStrategy(llmSummarizerFactory(), llmSummarizationOptions.Value)
-                : new LlmSummarizationStrategy(llmSummarizerFactory());
+                ? new LlmSummarizationStrategy(llmSummarizerFactory(), tokenCounter, llmSummarizationOptions.Value)
+                : new LlmSummarizationStrategy(llmSummarizerFactory(), tokenCounter);
 
-            return new TieredCompactionStrategy(slidingWindowOptions, llmStrategy);
+            return new TieredCompactionStrategy(tokenCounter, slidingWindowOptions, llmStrategy);
         };
     }
 
