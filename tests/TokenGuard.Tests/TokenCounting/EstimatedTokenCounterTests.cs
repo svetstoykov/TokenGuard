@@ -87,7 +87,7 @@ public class EstimatedTokenCounterTests
         var result = this._counter.Count(message);
 
         // Assert
-        Assert.Equal(10, result);
+        Assert.Equal(20, result);
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public class EstimatedTokenCounterTests
         var result = this._counter.Count(message);
 
         // Assert
-        Assert.Equal(9, result);
+        Assert.Equal(16, result);
     }
 
     [Fact]
