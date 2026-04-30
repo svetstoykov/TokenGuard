@@ -380,7 +380,7 @@ var config = new ConversationConfigBuilder()
 |---|---|
 | `MaxTokens` | Total token capacity of the model's context window |
 | `CompactionThreshold` | Fraction of `MaxTokens` at which normal compaction starts (default: 0.80) |
-| `EmergencyThreshold` | Fraction of `MaxTokens` at which emergency truncation starts (default: 0.95) |
+| `EmergencyThreshold` | Fraction of `MaxTokens` at which emergency truncation starts (default: 1.0 — fires only at the absolute token limit) |
 | `ReservedTokens` | Tokens held back for non-message overhead (default: 0) |
 | `CompactionTriggerTokens` | `floor(MaxTokens * CompactionThreshold)` — the trigger in tokens |
 | `EmergencyTriggerTokens` | `floor(MaxTokens * EmergencyThreshold)` — the emergency trigger in tokens |

@@ -174,6 +174,7 @@ public sealed class ConversationConfigBuilderTests
         var withMaxTokens = builder.WithMaxTokens(4_096);
         var withCompactionThreshold = builder.WithCompactionThreshold(0.70);
         var withEmergencyThreshold = builder.WithEmergencyThreshold(0.95);
+        var withoutEmergencyThreshold = builder.WithoutEmergencyThreshold();
         var withSlidingWindowOptions = builder.WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 4));
         var withOverrunTolerance = builder.WithOverrunTolerance(0.10);
 
@@ -181,6 +182,7 @@ public sealed class ConversationConfigBuilderTests
         withMaxTokens.Should().BeSameAs(builder);
         withCompactionThreshold.Should().BeSameAs(builder);
         withEmergencyThreshold.Should().BeSameAs(builder);
+        withoutEmergencyThreshold.Should().BeSameAs(builder);
         withSlidingWindowOptions.Should().BeSameAs(builder);
         withOverrunTolerance.Should().BeSameAs(builder);
     }
@@ -238,6 +240,53 @@ public sealed class ConversationConfigBuilderTests
 
         // Assert
         configuration.Budget.OverrunTolerance.Should().Be(tolerance);
+    }
+
+    [Fact]
+    public void Build_WhenEmergencyThresholdNotConfigured_UsesLibraryDefault()
+    {
+        // Arrange
+
+        // Act
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(10_000)
+            .Build();
+
+        // Assert
+        configuration.Budget.EmergencyThreshold.Should().Be(1.0);
+        configuration.Budget.EmergencyTriggerTokens.Should().Be(10_000);
+    }
+
+    [Fact]
+    public void WithoutEmergencyThreshold_DisablesEmergencyTruncation()
+    {
+        // Arrange
+
+        // Act
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(10_000)
+            .WithoutEmergencyThreshold()
+            .Build();
+
+        // Assert
+        configuration.Budget.EmergencyThreshold.Should().BeNull();
+        configuration.Budget.EmergencyTriggerTokens.Should().BeNull();
+    }
+
+    [Fact]
+    public void WithEmergencyThreshold_AfterWithoutEmergencyThreshold_ReEnablesEmergencyTruncation()
+    {
+        // Arrange
+
+        // Act
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(10_000)
+            .WithoutEmergencyThreshold()
+            .WithEmergencyThreshold(0.95)
+            .Build();
+
+        // Assert
+        configuration.Budget.EmergencyThreshold.Should().Be(0.95);
     }
 
     private static ContextMessage CreateToolResultMessage(string callId, string toolName, string payload)

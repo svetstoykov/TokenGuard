@@ -453,8 +453,9 @@ public sealed class ConversationContext : IConversationContext
     /// <remarks>
     /// <para>
     /// The method returns immediately with no-op when <see cref="ContextBudget.EmergencyThreshold"/> is
-    /// <see langword="null"/>, because emergency truncation is opt-in. Configure it on the budget only when
-    /// hard message-dropping under extreme token pressure is acceptable for the target use case.
+    /// <see langword="null"/>. Disable emergency truncation by calling
+    /// <see cref="Configuration.ConversationConfigBuilder.WithoutEmergencyThreshold"/> on the builder; by default
+    /// the library applies a <c>1.0</c> threshold so the emergency pass fires only at the absolute token limit.
     /// </para>
     /// <para>
     /// When enabled, the method identifies eligible drop candidates by excluding pinned messages, which are never

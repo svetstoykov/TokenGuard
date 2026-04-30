@@ -40,8 +40,8 @@ public static class ServiceCollectionExtensions
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
     /// <remarks>
     /// Registers <see cref="IConversationContextFactory"/> as a singleton using the library default
-    /// profile: 25,000 max tokens, 0.80 compaction, no emergency truncation, 0 reserved tokens,
-    /// TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation, and
+    /// profile: 25,000 max tokens, 0.80 compaction, 1.0 emergency truncation as a last-resort safety net,
+    /// 0 reserved tokens, TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation, and
     /// <see cref="Strategies.SlidingWindowStrategy"/>.
     /// For non-DI scenarios, construct <see cref="ConversationContextFactory"/> directly instead.
     /// </remarks>

@@ -91,35 +91,35 @@ dotnet add package TokenGuard.Extensions.OpenAI      # or Anthropic
 
 ```csharp
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(100_000)
-    .WithCompactionThreshold(0.80)
-    .WithEmergencyThreshold(0.95));
+    .WithMaxTokens(25_000)
+    .WithCompactionThreshold(0.80));
 ```
+
+Emergency truncation is **on by default at 1.0** (fires only at the absolute token limit as a last-resort safety net).
+Override with `WithEmergencyThreshold(0.95)` to trigger earlier, or call `WithoutEmergencyThreshold()` to disable it
+entirely. Disabling is an option, but we advise against it for long-running sessions — the safety net is there precisely
+for the cases where compaction alone is not enough.
 
 Multiple named profiles work too:
 
 ```csharp
 services.AddConversationContext("analysis", builder => builder
     .WithMaxTokens(200_000)
-    .WithCompactionThreshold(0.75)
-    .WithEmergencyThreshold(0.90));
+    .WithCompactionThreshold(0.75));
 ```
-
-`WithEmergencyThreshold` is optional. Skip it and there's no fallback once masking saturates — fine for short sessions,
-risky for anything long-running.
 
 Sliding-window masking is always active. Add provider-backed summarization only through the provider extension packages:
 
 ```csharp
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(100_000)
+    .WithMaxTokens(25_000)
     .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 12))
     .UseLlmSummarization(chatClient));
 ```
 
 ```csharp
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(100_000)
+    .WithMaxTokens(25_000)
     .UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest"));
 ```
 
@@ -195,8 +195,8 @@ Two ordered tiers:
 the active window. Recent turns stay intact, structure is preserved, message count doesn't change. This runs first
 whenever the soft threshold is crossed.
 
-**2. Emergency truncation** *(optional)*. If the masked payload still exceeds the emergency threshold, TokenGuard drops
-the oldest unpinned messages until it fits.
+**2. Emergency truncation** *(on by default, opt-out with `WithoutEmergencyThreshold()`)*. If the masked payload still
+exceeds the emergency threshold, TokenGuard drops the oldest unpinned messages until it fits.
 
 ---
 
@@ -239,7 +239,7 @@ If you're not using a container, construct a factory directly:
 ```csharp
 var factory = new ConversationContextFactory(
     new ConversationConfigBuilder()
-        .WithMaxTokens(100_000)
+        .WithMaxTokens(25_000)
         .WithCompactionThreshold(0.80)
         .Build())
     .AddNamed("analysis", new ConversationConfigBuilder()
@@ -305,8 +305,8 @@ dotnet build ./src/Codexplorer.csproj
 What is current:
 
 - sliding-window observation masking is implemented and usable now
-- masking is implemented for normal pressure, and optional emergency truncation is available when an emergency threshold
-  is configured
+- masking is implemented for normal pressure, and emergency truncation is **on by default at 1.0** (last-resort safety
+  net, disable with `WithoutEmergencyThreshold()`)
 - pinned messages are implemented and survive both compaction tiers
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available

@@ -13,11 +13,14 @@ namespace TokenGuard.Core.Models;
 /// derived integer trigger values used by the runtime.
 /// </para>
 /// <para>
-/// Emergency truncation is opt-in. When <see cref="EmergencyThreshold"/> is <see langword="null"/> — the default — the
-/// runtime never applies the emergency pass. Configure it only when hard message-dropping under extreme pressure is
-/// acceptable, because the pass removes whole turn groups oldest-first and cannot be reversed. Without it, a conversation
-/// that the configured compaction strategy cannot bring within budget will surface a degraded or exhausted
-/// <see cref="Enums.PrepareOutcome"/> instead.
+/// Emergency truncation is opt-out when using the library's default profile. <see cref="ContextBudget.For(int)"/>
+/// and <see cref="ConversationConfigBuilder"/> both apply a default <see cref="EmergencyThreshold"/> of
+/// <c>1.0</c>, which fires only when the context reaches the absolute token limit and acts as a last-resort safety
+/// net. When <see cref="EmergencyThreshold"/> is explicitly set to <see langword="null"/> the runtime never
+/// applies the emergency pass; a conversation that the configured compaction strategy cannot bring within budget
+/// will instead surface a degraded or exhausted <see cref="Enums.PrepareOutcome"/>. The raw
+/// <see cref="ContextBudget"/> constructor defaults <c>emergencyThreshold</c> to <see langword="null"/> for
+/// callers that build budgets directly without the library defaults.
 /// </para>
 /// </remarks>
 public readonly record struct ContextBudget
@@ -34,7 +37,9 @@ public readonly record struct ContextBudget
     /// <param name="compactionThreshold">The fraction of <see cref="MaxTokens"/> at which normal compaction begins.</param>
     /// <param name="emergencyThreshold">
     /// The fraction of <see cref="MaxTokens"/> at which emergency truncation begins, or
-    /// <see langword="null"/> to disable emergency truncation entirely. Defaults to <see langword="null"/>.
+    /// <see langword="null"/> to disable emergency truncation entirely. Defaults to <see langword="null"/>
+    /// in this constructor. Use <see cref="For(int)"/> or <see cref="ConversationConfigBuilder"/> to obtain
+    /// a budget with the library's opinionated default of <c>1.0</c>.
     /// </param>
     /// <param name="overrunTolerance">
     /// The fraction of <paramref name="maxTokens"/> by which a prepared result may exceed the budget and still be
@@ -71,14 +76,16 @@ public readonly record struct ContextBudget
     /// <remarks>
     /// <para>
     /// Emergency truncation is destructive: it drops whole turn groups oldest-first until the context fits within the
-    /// threshold or nothing further can be removed. Configure this value only when that behavior is acceptable for the
-    /// target use case.
+    /// threshold or nothing further can be removed. The library default profile sets this to <c>1.0</c>, so the
+    /// emergency pass only fires when the context reaches the absolute token limit — acting as a last-resort safety net
+    /// after the primary compaction strategy has already run.
     /// </para>
     /// <para>
     /// When <see langword="null"/>, the runtime skips the emergency pass entirely after the primary compaction strategy
     /// runs. A conversation that still exceeds the budget at that point surfaces as
     /// <see cref="Enums.PrepareOutcome.Degraded"/> or <see cref="Enums.PrepareOutcome.ContextExhausted"/> instead of
-    /// having messages silently dropped.
+    /// having messages silently dropped. Disable it by calling
+    /// <see cref="Configuration.ConversationConfigBuilder.WithoutEmergencyThreshold"/> on the builder.
     /// </para>
     /// </remarks>
     public double? EmergencyThreshold { get; }
@@ -122,19 +129,22 @@ public readonly record struct ContextBudget
     /// </summary>
     public int? EmergencyTriggerTokens => this.EmergencyThreshold.HasValue
         ? (int)Math.Floor(this.MaxTokens * this.EmergencyThreshold.Value)
-        : null;
+        : null; 
 
     /// <summary>
     /// Creates a <see cref="ContextBudget"/> that uses the library's default threshold policy.
     /// </summary>
     /// <remarks>
-    /// This helper is used by <see cref="ConversationConfigBuilder"/> and by callers that want a sensible budget for a
-    /// known model window without choosing compaction thresholds explicitly. The library default threshold policy is
-    /// 0.80 compaction and no emergency truncation.
+    /// This helper is used by <see cref="ConversationConfigBuilder"/> and by callers that want a sensible
+    /// budget for a known model window without choosing compaction thresholds explicitly. The library
+    /// default threshold policy is 0.80 compaction and a 1.0 emergency threshold — emergency truncation
+    /// fires only when the context reaches the absolute token limit and acts as a last-resort safety net.
+    /// To construct a budget without emergency truncation, use the constructor directly and pass
+    /// <see langword="null"/> for <c>emergencyThreshold</c>.
     /// </remarks>
     /// <param name="maxTokens">The maximum number of tokens allowed in the conversation.</param>
-    /// <returns>A <see cref="ContextBudget"/> configured with 0.80 compaction and no emergency truncation.</returns>
-    public static ContextBudget For(int maxTokens) => new(maxTokens);
+    /// <returns>A <see cref="ContextBudget"/> configured with 0.80 compaction and 1.0 emergency truncation.</returns>
+    public static ContextBudget For(int maxTokens) => new(maxTokens, emergencyThreshold: ConversationDefaults.EmergencyThreshold);
 
     private static int ValidateMaxTokens(int value, string paramName)
     {

@@ -27,7 +27,7 @@ public sealed class ConversationConfigBuilder
 {
     private int? _maxTokens;
     private double? _compactionThreshold;
-    private double? _emergencyThreshold;
+    private double? _emergencyThreshold = ConversationDefaults.EmergencyThreshold;
     private double? _overrunTolerance;
     private SlidingWindowOptions? _slidingWindowOptions;
     private Func<ILlmSummarizer>? _llmSummarizerFactory;
@@ -86,13 +86,12 @@ public sealed class ConversationConfigBuilder
     ///     Sets the fraction of available tokens at which emergency truncation starts.
     /// </summary>
     /// <remarks>
+    ///     When not configured, the library default value from <see cref="ConversationDefaults"/> is used
+    ///     (<c>1.0</c> — emergency fires only when the context reaches the absolute token limit). To disable
+    ///     emergency truncation entirely, call <see cref="WithoutEmergencyThreshold"/> instead.
     ///     <para>
-    ///         When not configured, emergency truncation is disabled and the resulting budget has a
-    ///         <see langword="null"/> <see cref="ContextBudget.EmergencyThreshold"/>.
-    ///     </para>
-    ///     <para>
-    ///         Emergency truncation is destructive: it drops whole turn groups oldest-first until the context fits or
-    ///         nothing further can be removed. Enable it only when that behavior is acceptable for the target use case.
+    ///         Emergency truncation is destructive: it drops whole turn groups oldest-first and cannot be reversed.
+    ///         Prefer keeping the default unless you need a more aggressive trigger point.
     ///     </para>
     /// </remarks>
     /// <param name="emergencyThreshold">The emergency truncation trigger threshold.</param>
@@ -100,6 +99,31 @@ public sealed class ConversationConfigBuilder
     public ConversationConfigBuilder WithEmergencyThreshold(double emergencyThreshold)
     {
         this._emergencyThreshold = emergencyThreshold;
+        return this;
+    }
+
+    /// <summary>
+    ///     Disables emergency truncation so the runtime never drops messages after the primary compaction strategy runs.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Emergency truncation is a last-resort safety net: it fires at <c>1.0</c> of
+    ///         <see cref="ContextBudget.MaxTokens"/> by default and drops whole turn groups oldest-first when the primary
+    ///         compaction strategy cannot bring the context within budget. Our tests show that truncating older messages
+    ///         is rarely required in normal operation, so disabling the safety net is safe in practice — but when it
+    ///         does trigger, it prevents silent context overflow.
+    ///     </para>
+    ///     <para>
+    ///         When emergency truncation is disabled, a conversation that the compaction strategy cannot resolve returns
+    ///         <see cref="Enums.PrepareOutcome.Degraded"/> or <see cref="Enums.PrepareOutcome.ContextExhausted"/>
+    ///         instead of silently dropping messages. Use this overload only when those outcomes are preferable to
+    ///         message loss — for example, when the caller needs to detect and handle overflow explicitly.
+    ///     </para>
+    /// </remarks>
+    /// <returns>The current builder instance.</returns>
+    public ConversationConfigBuilder WithoutEmergencyThreshold()
+    {
+        this._emergencyThreshold = null;
         return this;
     }
 
