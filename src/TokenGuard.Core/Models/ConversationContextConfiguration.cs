@@ -4,7 +4,7 @@ using TokenGuard.Core.Configuration;
 namespace TokenGuard.Core.Models;
 
 /// <summary>
-/// An immutable construction recipe for the three services and budget that define the behaviour of a
+/// An immutable construction recipe for the built-in token counter, the compaction services, and the budget that define the behaviour of a
 /// <see cref="ConversationContext"/>.
 /// </summary>
 /// <remarks>
@@ -14,10 +14,12 @@ namespace TokenGuard.Core.Models;
 /// fresh context instances on demand without re-running the builder defaults logic each time.
 /// </para>
 /// <para>
-/// <paramref name="CounterFactory"/>, <paramref name="StrategyFactory"/>, and <paramref name="ObserverFactory"/>
-/// are each invoked exactly once per <see cref="Abstractions.IConversationContextFactory.Create()"/> or
-/// <see cref="Abstractions.IConversationContextFactory.Create(string)"/> call. No object produced by those delegates
-/// is shared across conversation-context lifetimes created through the built-in factory.
+/// TokenGuard's built-in <see cref="ITokenCounter"/> implementation is constructed exactly once per
+/// <see cref="Abstractions.IConversationContextFactory.Create()"/> or
+/// <see cref="Abstractions.IConversationContextFactory.Create(string)"/> call.
+/// <paramref name="StrategyFactory"/> and <paramref name="ObserverFactory"/> are also each invoked exactly once per
+/// factory call. No object produced for one context lifetime is shared with another context created through the
+/// built-in factory.
 /// </para>
 /// <para>
 /// The record is intentionally minimal — it contains only what is needed to construct a
@@ -28,10 +30,6 @@ namespace TokenGuard.Core.Models;
 /// <param name="Budget">
 /// Defines the token limits for conversations created from this configuration, including the
 /// compaction trigger threshold and the number of tokens reserved for the next model response.
-/// </param>
-/// <param name="CounterFactory">
-/// Creates the <see cref="ITokenCounter"/> used by one conversation-context instance. The built-in factory invokes
-/// this delegate once for each created context so token-counting state is never shared across context lifetimes.
 /// </param>
 /// <param name="StrategyFactory">
 /// Creates the <see cref="ICompactionStrategy"/> used by one conversation-context instance. The built-in factory
@@ -44,6 +42,5 @@ namespace TokenGuard.Core.Models;
 /// </param>
 public sealed record ConversationContextConfiguration(
     ContextBudget Budget,
-    Func<ITokenCounter> CounterFactory,
     Func<ICompactionStrategy> StrategyFactory,
     Func<ICompactionObserver?> ObserverFactory);

@@ -355,9 +355,8 @@ Model behavior under compaction is empirically validated, not theoretically guar
 
 ```csharp
 // One-liner: 200k context window, default 0.80 compaction threshold,
-// EstimatedTokenCounter, SlidingWindowStrategy
+// built-in token counting, SlidingWindowStrategy
 var config = ConversationConfigBuilder.Default(maxTokens: 200_000);
-var context = new ConversationContext(config.Budget, config.Counter, config.Strategy);
 ```
 
 ### Full builder
@@ -372,7 +371,6 @@ var config = new ConversationConfigBuilder()
         protectedWindowFraction: 0.70,  // protected window can use up to 70% of available tokens
         placeholderFormat: "[cleared: {0} / {1}]"
     ))
-    .WithTokenCounter(new EstimatedTokenCounter())
     .WithCompactionObserver(myObserver)
     .Build();
 ```
@@ -399,7 +397,7 @@ var config = new ConversationConfigBuilder()
 ### Agent loop integration pattern
 
 ```csharp
-using var context = new ConversationContext(config.Budget, config.Counter, config.Strategy);
+using var context = conversationContextFactory.Create();
 
 context.SetSystemPrompt("You are an agent...");
 context.AddUserMessage(taskText);

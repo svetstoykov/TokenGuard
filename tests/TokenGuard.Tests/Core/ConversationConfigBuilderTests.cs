@@ -9,7 +9,6 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
-using TokenGuard.Core.TokenCounting;
 using TokenGuard.Extensions.Anthropic;
 using TokenGuard.Extensions.OpenAI;
 
@@ -28,7 +27,6 @@ public sealed class ConversationConfigBuilderTests
 
         // Assert
         configuration.Budget.Should().Be(expected);
-        configuration.CounterFactory().Should().BeOfType<EstimatedTokenCounter>();
         configuration.StrategyFactory().Should().BeOfType<TieredCompactionStrategy>();
     }
 
@@ -43,7 +41,6 @@ public sealed class ConversationConfigBuilderTests
 
         // Assert
         configuration.Budget.MaxTokens.Should().Be(maxTokens);
-        configuration.CounterFactory().Should().BeOfType<EstimatedTokenCounter>();
         configuration.StrategyFactory().Should().BeOfType<TieredCompactionStrategy>();
     }
 
@@ -61,7 +58,6 @@ public sealed class ConversationConfigBuilderTests
 
         // Assert
         configuration.Budget.Should().Be(expectedBudget);
-        configuration.CounterFactory().Should().BeOfType<EstimatedTokenCounter>();
         configuration.StrategyFactory().Should().BeOfType<TieredCompactionStrategy>();
     }
 
@@ -74,17 +70,12 @@ public sealed class ConversationConfigBuilderTests
             .Build();
 
         // Act
-        var firstCounter = configuration.CounterFactory();
-        var secondCounter = configuration.CounterFactory();
         var firstStrategy = configuration.StrategyFactory();
         var secondStrategy = configuration.StrategyFactory();
         var firstObserver = configuration.ObserverFactory();
         var secondObserver = configuration.ObserverFactory();
 
         // Assert
-        firstCounter.Should().BeOfType<EstimatedTokenCounter>();
-        secondCounter.Should().BeOfType<EstimatedTokenCounter>();
-        firstCounter.Should().NotBeSameAs(secondCounter);
         firstStrategy.Should().BeOfType<TieredCompactionStrategy>();
         secondStrategy.Should().BeOfType<TieredCompactionStrategy>();
         firstStrategy.Should().NotBeSameAs(secondStrategy);
@@ -106,30 +97,20 @@ public sealed class ConversationConfigBuilderTests
         counter.Set(oldest2, 50);
         counter.Set(keep1, 5);
         counter.Set(keep2, 5);
-        var customCounterFactoryCalls = 0;
-
         // Act
         var configuration = new ConversationConfigBuilder()
             .WithMaxTokens(8_192)
             .WithCompactionThreshold(0.65)
             .WithEmergencyThreshold(0.90)
-            .WithTokenCounter(() =>
-            {
-                customCounterFactoryCalls++;
-                return new StubTokenCounter();
-            })
             .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20))
             .Build();
         var strategy = configuration.StrategyFactory();
         var compacted = await strategy.CompactAsync(messages, 11, counter);
-        var builtCounter = configuration.CounterFactory();
 
         // Assert
         configuration.Budget.MaxTokens.Should().Be(8_192);
         configuration.Budget.CompactionThreshold.Should().Be(0.65);
         configuration.Budget.EmergencyThreshold.Should().Be(0.90);
-        builtCounter.Should().BeOfType<StubTokenCounter>();
-        customCounterFactoryCalls.Should().Be(1);
         strategy.Should().BeOfType<TieredCompactionStrategy>();
         compacted.Messages.Should().HaveCount(4);
         compacted.Messages[0].State.Should().Be(CompactionState.Masked);
@@ -185,31 +166,15 @@ public sealed class ConversationConfigBuilderTests
     }
 
     [Fact]
-    public void WithTokenCounter_WhenFactoryIsNull_ThrowsArgumentNullException()
-    {
-        // Arrange
-        var builder = new ConversationConfigBuilder();
-
-        // Act
-        Action act = () => builder.WithTokenCounter(null!);
-
-        // Assert
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("tokenCounterFactory");
-    }
-
-    [Fact]
     public void FluentMethods_ReturnSameBuilderInstance()
     {
         // Arrange
         var builder = new ConversationConfigBuilder();
-        Func<ITokenCounter> counterFactory = () => new StubTokenCounter();
 
         // Act
         var withMaxTokens = builder.WithMaxTokens(4_096);
         var withCompactionThreshold = builder.WithCompactionThreshold(0.70);
         var withEmergencyThreshold = builder.WithEmergencyThreshold(0.95);
-        var withTokenCounter = builder.WithTokenCounter(counterFactory);
         var withSlidingWindowOptions = builder.WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 4));
         var withOverrunTolerance = builder.WithOverrunTolerance(0.10);
 
@@ -217,7 +182,6 @@ public sealed class ConversationConfigBuilderTests
         withMaxTokens.Should().BeSameAs(builder);
         withCompactionThreshold.Should().BeSameAs(builder);
         withEmergencyThreshold.Should().BeSameAs(builder);
-        withTokenCounter.Should().BeSameAs(builder);
         withSlidingWindowOptions.Should().BeSameAs(builder);
         withOverrunTolerance.Should().BeSameAs(builder);
     }
@@ -289,19 +253,6 @@ public sealed class ConversationConfigBuilderTests
         // Assert
         act.Should().Throw<ArgumentNullException>()
             .WithParameterName("observerFactory");
-    }
-
-    private sealed class StubTokenCounter : ITokenCounter
-    {
-        public int Count(ContextMessage contextMessage)
-        {
-            return 0;
-        }
-
-        public int Count(IEnumerable<ContextMessage> messages)
-        {
-            return 0;
-        }
     }
 
     private static ContextMessage CreateToolResultMessage(string callId, string toolName, string payload)

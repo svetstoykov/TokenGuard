@@ -79,8 +79,7 @@ public static class ServiceCollectionExtensions
             builder
                 .WithMaxTokens(budgetOptions.ContextWindowTokens)
                 .WithCompactionThreshold(budgetOptions.SoftThresholdRatio)
-                .WithEmergencyThreshold(budgetOptions.HardThresholdRatio)
-                .WithTokenCounter(static () => new EstimatedTokenCounter());
+                .WithEmergencyThreshold(budgetOptions.HardThresholdRatio);
         });
 
         services.AddHttpClient(WebFetchTool.HttpClientName, client =>

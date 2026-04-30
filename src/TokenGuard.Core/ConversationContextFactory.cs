@@ -1,6 +1,7 @@
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Models;
+using TokenGuard.Core.TokenCounting;
 
 namespace TokenGuard.Core;
 
@@ -83,8 +84,9 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// </returns>
     /// <remarks>
     /// Each call returns a distinct instance that shares no history or state with any other context
-    /// produced by this factory. The configured counter, strategy, and observer delegates are each
-    /// invoked for every call so no produced dependency instance is reused across contexts.
+    /// produced by this factory. A fresh built-in token counter is constructed for every call, and the
+    /// configured strategy and observer delegates are invoked for every call, so no produced dependency
+    /// instance is reused across contexts.
     /// </remarks>
     public IConversationContext Create() => CreateContext(this._default);
 
@@ -101,9 +103,9 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// </returns>
     /// <remarks>
     /// Each call returns a distinct instance that shares no history or state with any other context
-    /// produced by this factory, even when the same name is supplied repeatedly. The configured
-    /// counter, strategy, and observer delegates are each invoked for every call so no produced
-    /// dependency instance is reused across contexts.
+    /// produced by this factory, even when the same name is supplied repeatedly. A fresh built-in
+    /// token counter is constructed for every call, and the configured strategy and observer delegates
+    /// are invoked for every call, so no produced dependency instance is reused across contexts.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// Thrown when no configuration has been registered under <paramref name="name"/>. The exception
@@ -119,7 +121,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
 
     private static ConversationContext CreateContext(ConversationContextConfiguration config)
     {
-        var counter = config.CounterFactory();
+        var counter = new EstimatedTokenCounter();
         var strategy = config.StrategyFactory();
         var observer = config.ObserverFactory();
 

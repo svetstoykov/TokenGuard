@@ -3,7 +3,6 @@ using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
-using TokenGuard.Core.TokenCounting;
 
 namespace TokenGuard.Core.Configuration;
 
@@ -13,7 +12,7 @@ namespace TokenGuard.Core.Configuration;
 /// <remarks>
 ///     <para>
 ///         Use <see cref="ConversationConfigBuilder"/> when a conversation-context configuration needs to be composed from
-///         a token budget, a token counter, and TokenGuard's built-in compaction pipeline without constructing the
+///         a token budget and TokenGuard's built-in compaction pipeline without constructing the
 ///         underlying <see cref="ContextBudget"/> manually.
 ///     </para>
 ///     <para>
@@ -43,7 +42,7 @@ public sealed class ConversationConfigBuilder
     ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
     ///     the resulting configuration uses the library default profile: 100,000 tokens, a 0.80 compaction
-    ///     threshold, no emergency truncation, the built-in heuristic <see cref="ITokenCounter"/>, and
+    ///     threshold, no emergency truncation, TokenGuard's built-in heuristic token counting, and
     ///     <see cref="TieredCompactionStrategy"/> with <see cref="SlidingWindowOptions.Default"/> and no LLM stage.
 /// </remarks>
     /// <param name="maxTokens">
@@ -177,8 +176,7 @@ public sealed class ConversationConfigBuilder
     ///         no emergency truncation, and 0 reserved tokens.
     ///     </para>
     ///     <para>
-    ///         If no token counter factory has been configured, this method uses TokenGuard's built-in
-    ///         heuristic <see cref="ITokenCounter"/> implementation.
+    ///         Token counting always uses TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation.
     ///         Compaction always uses a freshly created <see cref="TieredCompactionStrategy"/> with configured
     ///         <see cref="SlidingWindowOptions"/> and an optional provider-backed <see cref="LlmSummarizationStrategy"/>.
     ///     </para>
@@ -210,7 +208,7 @@ public sealed class ConversationConfigBuilder
             this._llmSummarizerFactory,
             this._llmSummarizationOptions);
 
-        return new ConversationContextConfiguration(budget, CounterFactory: () => new EstimatedTokenCounter(), strategyFactory, observerFactory);
+        return new ConversationContextConfiguration(budget, strategyFactory, observerFactory);
     }
 
     /// <summary>
@@ -225,7 +223,7 @@ public sealed class ConversationConfigBuilder
     /// </param>
     /// <returns>The current builder instance.</returns>
     /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="summarizer"/> is <see langword="null"/>.
+    /// Thrown when <paramref name="summarizerFactory"/> is <see langword="null"/>.
     /// </exception>
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="providerName"/> is <see langword="null"/>, empty, or whitespace.

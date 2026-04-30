@@ -11,8 +11,8 @@ namespace TokenGuard.Core.TokenCounting;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="EstimatedTokenCounter"/> is used internally when no provider-specific counter is supplied through
-/// <see cref="ConversationConfigBuilder"/>. It stays dependency-free while producing estimates that are more stable for
+/// <see cref="EstimatedTokenCounter"/> is used internally by TokenGuard's built-in configuration and factory paths.
+/// It stays dependency-free while producing estimates that are more stable for
 /// prose, code, JSON, punctuation, and mixed Unicode text than a plain character-count heuristic.
 /// </para>
 /// <para>
@@ -23,8 +23,8 @@ namespace TokenGuard.Core.TokenCounting;
 /// <para>
 /// Each counted <see cref="ContextMessage"/> includes a fixed framing overhead, and tool-call segments add their own
 /// JSON-wrapping overhead, so TokenGuard budgets remain closer to real chat payload costs than segment-only counting
-/// would provide. Callers that require exact provider accounting should still replace this implementation with a
-/// provider-backed <see cref="ITokenCounter"/>.
+/// would provide. Applications that require exact provider accounting can still bypass the built-in configuration path
+/// and construct <see cref="ConversationContext"/> directly with a provider-backed <see cref="ITokenCounter"/>.
 /// </para>
 /// </remarks>
 internal sealed class EstimatedTokenCounter : ITokenCounter
