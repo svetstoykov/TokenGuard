@@ -1,7 +1,7 @@
-using TokenGuard.Core.Abstractions;
 using FluentAssertions;
 using System.Reflection;
 using TokenGuard.Core;
+using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Models;
 
@@ -24,22 +24,16 @@ public sealed class ConversationContextFactoryTests
     }
 
     [Fact]
-    public void Create_InvokesFreshFactoriesOnEachCall()
+    public void Create_InvokesFreshDependenciesOnEachCall()
     {
         // Arrange
         var strategyCalls = 0;
-        var observerCalls = 0;
         var factory = new ConversationContextFactory(new ConversationContextConfiguration(
             ContextBudget.For(100_000),
             () =>
             {
                 strategyCalls++;
                 return new StubCompactionStrategy();
-            },
-            () =>
-            {
-                observerCalls++;
-                return new StubCompactionObserver();
             }));
 
         // Act
@@ -50,10 +44,8 @@ public sealed class ConversationContextFactoryTests
 
         // Assert
         strategyCalls.Should().Be(2);
-        observerCalls.Should().Be(2);
         firstCounter.Should().NotBeSameAs(secondCounter);
         GetPrivateField<ICompactionStrategy>(first, "_strategy").Should().NotBeSameAs(GetPrivateField<ICompactionStrategy>(second, "_strategy"));
-        GetPrivateField<ICompactionObserver?>(first, "_observer").Should().NotBeSameAs(GetPrivateField<ICompactionObserver?>(second, "_observer"));
     }
 
     [Fact]
@@ -178,14 +170,14 @@ public sealed class ConversationContextFactoryTests
         private readonly Dictionary<string, ConversationContextConfiguration> _named = new(StringComparer.Ordinal);
 
         public IConversationContext Create() =>
-            new ConversationContext(_default.Budget, new TokenGuard.Core.TokenCounting.EstimatedTokenCounter(), _default.StrategyFactory(), _default.ObserverFactory());
+            new ConversationContext(_default.Budget, new TokenGuard.Core.TokenCounting.EstimatedTokenCounter(), _default.StrategyFactory());
 
         public IConversationContext Create(string name)
         {
             if (!_named.TryGetValue(name, out var config))
                 throw new InvalidOperationException($"No configuration registered for context name '{name}'.");
 
-            return new ConversationContext(config.Budget, new TokenGuard.Core.TokenCounting.EstimatedTokenCounter(), config.StrategyFactory(), config.ObserverFactory());
+            return new ConversationContext(config.Budget, new TokenGuard.Core.TokenCounting.EstimatedTokenCounter(), config.StrategyFactory());
         }
 
         public TestConversationContextFactory AddNamed(string name, ConversationContextConfiguration config)
@@ -220,12 +212,5 @@ public sealed class ConversationContextFactoryTests
             ITokenCounter tokenCounter,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(StubCompactionStrategy)));
-    }
-
-    private sealed class StubCompactionObserver : ICompactionObserver
-    {
-        public void OnCompaction(CompactionEvent compactionEvent)
-        {
-        }
     }
 }

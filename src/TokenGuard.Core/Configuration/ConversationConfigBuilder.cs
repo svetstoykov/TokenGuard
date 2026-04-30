@@ -33,8 +33,6 @@ public sealed class ConversationConfigBuilder
     private Func<ILlmSummarizer>? _llmSummarizerFactory;
     private LlmSummarizationOptions? _llmSummarizationOptions;
     private string? _llmSummarizationProviderName;
-    private Func<ICompactionObserver?>? _observerFactory;
-
     /// <summary>
     ///     Creates a <see cref="ConversationContextConfiguration"/> using the default builder configuration.
     /// </summary>
@@ -146,26 +144,6 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
-    ///     Sets the observer that is notified after each compaction cycle that modifies the history.
-    /// </summary>
-    /// <remarks>
-    ///     The observer is optional. When not configured, no compaction notifications are emitted and
-    ///     <see cref="ConversationContextConfiguration.ObserverFactory"/> returns <see langword="null"/>.
-    /// </remarks>
-    /// <param name="observerFactory">
-    /// A factory that creates the observer for each conversation context built from the resulting
-    /// configuration. Return <see langword="null"/> to disable notifications for that context.
-    /// </param>
-    /// <returns>The current builder instance.</returns>
-    public ConversationConfigBuilder WithCompactionObserver(Func<ICompactionObserver?> observerFactory)
-    {
-        ArgumentNullException.ThrowIfNull(observerFactory);
-
-        this._observerFactory = observerFactory;
-        return this;
-    }
-
-    /// <summary>
     ///     Captures an immutable construction recipe from the current builder state as a
     ///     <see cref="ConversationContextConfiguration"/>.
     /// </summary>
@@ -202,13 +180,12 @@ public sealed class ConversationConfigBuilder
             this._emergencyThreshold,
             this._overrunTolerance ?? ConversationDefaults.OverrunTolerance);
 
-        var observerFactory = this._observerFactory ?? CreateDefaultObserver;
         var strategyFactory = BuildStrategyFactory(
             this._slidingWindowOptions ?? SlidingWindowOptions.Default,
             this._llmSummarizerFactory,
             this._llmSummarizationOptions);
 
-        return new ConversationContextConfiguration(budget, strategyFactory, observerFactory);
+        return new ConversationContextConfiguration(budget, strategyFactory);
     }
 
     /// <summary>
@@ -272,8 +249,6 @@ public sealed class ConversationConfigBuilder
             return new TieredCompactionStrategy(slidingWindowOptions, llmStrategy);
         };
     }
-
-    private static ICompactionObserver? CreateDefaultObserver() => null;
 
     private static string BuildProviderConflictMessage(string existingProviderName, string conflictingProviderName)
     {

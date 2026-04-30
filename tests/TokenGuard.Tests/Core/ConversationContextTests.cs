@@ -711,35 +711,6 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenCompactionApplied_InvokesObserverExactlyOnceWithCorrectMetrics()
-    {
-        // Arrange
-        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
-        var counter = new TrackingTokenCounter();
-        counter.SetByText("original", 800);
-        counter.Set(compacted, 100);
-
-        var compactionResult = new CompactionResult([compacted], 800, 100, 3, "TestStrategy");
-        var strategy = new TrackingCompactionStrategy(compactionResult);
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, observer);
-
-        engine.AddUserMessage("original");
-
-        // Act
-        var result = await engine.PrepareAsync();
-
-        // Assert
-        observer.Events.Should().HaveCount(1);
-        var evt = observer.Events[0];
-        evt.Result.TokensBefore.Should().Be(800);
-        evt.Result.TokensAfter.Should().Be(100);
-        evt.Result.MessagesAffected.Should().Be(3);
-
-        result.MessagesDropped.Should().Be(0);
-    }
-
-    [Fact]
     public async Task PrepareAsync_WhenEmergencyTruncationDropsMessages_ReportsExplicitStageDiagnostics()
     {
         // Arrange
@@ -759,8 +730,7 @@ public sealed class ConversationContextTests
 
         var strategyResult = new CompactionResult([olderMsg, newerMsg], 600, 1100, 2, "TestStrategy");
         var strategy = new TrackingCompactionStrategy(strategyResult);
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(budget, counter, strategy, observer);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("original");
 
@@ -770,13 +740,6 @@ public sealed class ConversationContextTests
 
         // Assert — emergency truncation drops olderMsg; only newerMsg remains
         prepared.Should().ContainSingle().Which.Should().BeSameAs(newerMsg);
-
-        observer.Events.Should().HaveCount(1);
-        var evt = observer.Events[0];
-        evt.Trigger.Should().Be(CompactionTrigger.Emergency);
-        evt.Result.TokensBefore.Should().Be(600);
-        evt.Result.TokensAfter.Should().Be(500);
-        evt.Result.MessagesAffected.Should().Be(3);
 
         result.MessagesCompacted.Should().Be(3);
         result.MessagesDropped.Should().Be(1);
@@ -795,8 +758,7 @@ public sealed class ConversationContextTests
 
         // Strategy returns input unchanged, but result still exceeds emergencyTrigger
         var strategy = new TrackingCompactionStrategy();
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(budget, counter, strategy, observer);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("u1");
         engine.AddUserMessage("u2");
@@ -804,10 +766,7 @@ public sealed class ConversationContextTests
         // Act
         var result = await engine.PrepareAsync();
 
-        // Assert — emergency truncation drops u1; observer is notified even though strategy did not apply
-        observer.Events.Should().HaveCount(1);
-        var evt = observer.Events[0];
-        evt.Trigger.Should().Be(CompactionTrigger.Emergency);
+        // Assert — emergency truncation drops u1 even though strategy did not apply
         result.MessagesDropped.Should().Be(1);
         result.MessagesCompacted.Should().Be(1);
     }
@@ -864,8 +823,7 @@ public sealed class ConversationContextTests
 
         var strategyResult = new CompactionResult([compacted1, compacted2], 600, 700, 1, "TestStrategy");
         var strategy = new TrackingCompactionStrategy(strategyResult);
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(budget, counter, strategy, observer);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("original");
 
@@ -877,8 +835,6 @@ public sealed class ConversationContextTests
         prepared.Should().HaveCount(2);
         prepared[0].Should().BeSameAs(compacted1);
         prepared[1].Should().BeSameAs(compacted2);
-        observer.Events.Should().HaveCount(1);
-        observer.Events[0].Trigger.Should().Be(CompactionTrigger.Normal);
         result.MessagesDropped.Should().Be(0);
     }
 
@@ -904,8 +860,7 @@ public sealed class ConversationContextTests
             "TestStrategy");
 
         var strategy = new TrackingCompactionStrategy(strategyResult);
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(budget, counter, strategy, observer);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("original");
 
@@ -920,8 +875,6 @@ public sealed class ConversationContextTests
         result.TokensAfterCompaction.Should().Be(1100);
         result.DegradationReason.Should().NotBeNull();
 
-        observer.Events.Should().HaveCount(1);
-        observer.Events[0].Trigger.Should().Be(CompactionTrigger.Normal);
     }
 
     [Fact]
@@ -1002,25 +955,6 @@ public sealed class ConversationContextTests
         prepared.Should().NotContain(newestUser);
         prepared.Should().NotContain(newestModel);
         prepared.Sum(message => message.TokenCount ?? 0).Should().Be(400);
-    }
-
-    [Fact]
-    public async Task PrepareAsync_WhenCompactionNotRequired_DoesNotInvokeObserver()
-    {
-        // Arrange
-        var counter = new TrackingTokenCounter();
-        var strategy = new TrackingCompactionStrategy();
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, observer);
-
-        engine.AddUserMessage("hello");
-        counter.Set(engine.History[0], 0);
-
-        // Act
-        var _ = await engine.PrepareAsync();
-
-        // Assert
-        observer.Events.Should().BeEmpty();
     }
 
     [Fact]
@@ -1473,13 +1407,6 @@ public sealed class ConversationContextTests
 
             return messages.Sum(this.Count);
         }
-    }
-
-    private sealed class TrackingCompactionObserver : ICompactionObserver
-    {
-        public List<CompactionEvent> Events { get; } = [];
-
-        public void OnCompaction(CompactionEvent compactionEvent) => this.Events.Add(compactionEvent);
     }
 
     private sealed class ReferenceEqualityComparer : IEqualityComparer<ContextMessage>

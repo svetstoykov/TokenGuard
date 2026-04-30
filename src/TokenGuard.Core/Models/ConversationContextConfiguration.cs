@@ -17,9 +17,8 @@ namespace TokenGuard.Core.Models;
 /// TokenGuard's built-in <see cref="ITokenCounter"/> implementation is constructed exactly once per
 /// <see cref="Abstractions.IConversationContextFactory.Create()"/> or
 /// <see cref="Abstractions.IConversationContextFactory.Create(string)"/> call.
-/// <paramref name="StrategyFactory"/> and <paramref name="ObserverFactory"/> are also each invoked exactly once per
-/// factory call. No object produced for one context lifetime is shared with another context created through the
-/// built-in factory.
+/// <paramref name="StrategyFactory"/> is invoked exactly once per factory call. No object produced for one context
+/// lifetime is shared with another context created through the built-in factory.
 /// </para>
 /// <para>
 /// The record is intentionally minimal — it contains only what is needed to construct a
@@ -35,12 +34,6 @@ namespace TokenGuard.Core.Models;
 /// Creates the <see cref="ICompactionStrategy"/> used by one conversation-context instance. The built-in factory
 /// invokes this delegate once for each created context so compaction state is never shared across context lifetimes.
 /// </param>
-/// <param name="ObserverFactory">
-/// Creates the optional <see cref="ICompactionObserver"/> used by one conversation-context instance. The built-in
-/// factory invokes this delegate once for each created context; when the delegate returns <see langword="null"/>,
-/// that context emits no compaction notifications.
-/// </param>
 public sealed record ConversationContextConfiguration(
     ContextBudget Budget,
-    Func<ICompactionStrategy> StrategyFactory,
-    Func<ICompactionObserver?> ObserverFactory);
+    Func<ICompactionStrategy> StrategyFactory);

@@ -85,8 +85,8 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// <remarks>
     /// Each call returns a distinct instance that shares no history or state with any other context
     /// produced by this factory. A fresh built-in token counter is constructed for every call, and the
-    /// configured strategy and observer delegates are invoked for every call, so no produced dependency
-    /// instance is reused across contexts.
+    /// configured strategy delegate is invoked for every call, so no produced dependency instance is
+    /// reused across contexts.
     /// </remarks>
     public IConversationContext Create() => CreateContext(this._default);
 
@@ -104,8 +104,8 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// <remarks>
     /// Each call returns a distinct instance that shares no history or state with any other context
     /// produced by this factory, even when the same name is supplied repeatedly. A fresh built-in
-    /// token counter is constructed for every call, and the configured strategy and observer delegates
-    /// are invoked for every call, so no produced dependency instance is reused across contexts.
+    /// token counter is constructed for every call, and the configured strategy delegate is invoked for
+    /// every call, so no produced dependency instance is reused across contexts.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// Thrown when no configuration has been registered under <paramref name="name"/>. The exception
@@ -123,8 +123,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     {
         var counter = new EstimatedTokenCounter();
         var strategy = config.StrategyFactory();
-        var observer = config.ObserverFactory();
 
-        return new ConversationContext(config.Budget, counter, strategy, observer);
+        return new ConversationContext(config.Budget, counter, strategy);
     }
 }

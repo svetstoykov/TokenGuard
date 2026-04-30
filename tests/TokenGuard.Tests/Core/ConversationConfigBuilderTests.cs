@@ -62,7 +62,7 @@ public sealed class ConversationConfigBuilderTests
     }
 
     [Fact]
-    public void Build_WhenOnlyMaxTokensProvided_ReturnsFreshFactories()
+    public void Build_WhenOnlyMaxTokensProvided_ReturnsFreshStrategyInstances()
     {
         // Arrange
         var configuration = new ConversationConfigBuilder()
@@ -72,15 +72,9 @@ public sealed class ConversationConfigBuilderTests
         // Act
         var firstStrategy = configuration.StrategyFactory();
         var secondStrategy = configuration.StrategyFactory();
-        var firstObserver = configuration.ObserverFactory();
-        var secondObserver = configuration.ObserverFactory();
-
-        // Assert
         firstStrategy.Should().BeOfType<TieredCompactionStrategy>();
         secondStrategy.Should().BeOfType<TieredCompactionStrategy>();
         firstStrategy.Should().NotBeSameAs(secondStrategy);
-        firstObserver.Should().BeNull();
-        secondObserver.Should().BeNull();
     }
 
     [Fact]
@@ -239,20 +233,6 @@ public sealed class ConversationConfigBuilderTests
 
         // Assert
         configuration.Budget.OverrunTolerance.Should().Be(tolerance);
-    }
-
-    [Fact]
-    public void WithCompactionObserver_WhenFactoryIsNull_ThrowsArgumentNullException()
-    {
-        // Arrange
-        var builder = new ConversationConfigBuilder();
-
-        // Act
-        Action act = () => builder.WithCompactionObserver(null!);
-
-        // Assert
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("observerFactory");
     }
 
     private static ContextMessage CreateToolResultMessage(string callId, string toolName, string payload)

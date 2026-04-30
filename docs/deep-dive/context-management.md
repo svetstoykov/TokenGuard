@@ -371,7 +371,6 @@ var config = new ConversationConfigBuilder()
         protectedWindowFraction: 0.70,  // protected window can use up to 70% of available tokens
         placeholderFormat: "[cleared: {0} / {1}]"
     ))
-    .WithCompactionObserver(myObserver)
     .Build();
 ```
 

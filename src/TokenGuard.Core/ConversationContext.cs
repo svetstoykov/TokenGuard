@@ -41,8 +41,6 @@ public sealed class ConversationContext : IConversationContext
     private readonly ContextBudget _budget;
     private readonly ITokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
-    private readonly ICompactionObserver? _observer;
-
     private readonly List<ContextMessage> _history = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
@@ -78,16 +76,11 @@ public sealed class ConversationContext : IConversationContext
     /// Produces a smaller message list when the current history no longer fits comfortably within
     /// the configured budget.
     /// </param>
-    /// <param name="observer">
-    /// An optional observer notified after each compaction cycle that modifies the history.
-    /// When <see langword="null"/>, no compaction notifications are emitted.
-    /// </param>
-    public ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy, ICompactionObserver? observer = null)
+    public ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy)
     {
         this._budget = budget;
         this._counter = counter;
         this._strategy = strategy;
-        this._observer = observer;
     }
 
     /// <summary>
@@ -382,22 +375,6 @@ public sealed class ConversationContext : IConversationContext
         var finalTokens = estimatedFinalTokens + this._anchorCorrection;
         var emergencyMessagesDropped = emergencyApplied ? prepared.Count - final.Count : 0;
         var messagesCompacted = compacted.MessagesAffected + emergencyMessagesDropped;
-
-        if (emergencyApplied)
-        {
-            var mergedResult = new CompactionResult(
-                final,
-                compacted.TokensBefore,
-                finalTokens,
-                messagesCompacted,
-                compacted.StrategyName);
-
-            this._observer?.OnCompaction(new CompactionEvent(mergedResult, DateTimeOffset.UtcNow, CompactionTrigger.Emergency, this._budget));
-        }
-        else if (compacted.MessagesAffected > 0)
-        {
-            this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, CompactionTrigger.Normal, this._budget));
-        }
 
         this._lastEstimatedTotalTokens = estimatedFinalTokens;
         this._anchorCorrection = 0;

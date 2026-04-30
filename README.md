@@ -32,7 +32,6 @@ var preparedMessages = await conversationContext.PrepareAsync(cancellationToken)
 - **Pins durable context** that survives both compaction tiers: system prompts, task constraints, repository rules, any
   message you need to live forever
 - **Stays provider-agnostic** in core, with first-class adapter helpers for OpenAI and Anthropic
-- **Emits compaction events** through `ICompactionObserver` for observability, logging, and diagnostics
 - **Integrates in minutes** via `AddConversationContext(...)` and a standard DI factory
 
 ---
@@ -233,20 +232,6 @@ builder.UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest");
 
 ---
 
-## Observability
-
-```csharp
-services.AddConversationContext(builder => builder
-    .WithMaxTokens(100_000)
-    .WithCompactionThreshold(0.80)
-    .WithObserver(new MyCompactionObserver()));
-```
-
-`ICompactionObserver` fires on each compaction event with message counts and before/after token totals. Wire it to your
-logger, metrics pipeline, or dashboard.
-
----
-
 ## Without DI
 
 If you're not using a container, construct directly:
@@ -317,8 +302,6 @@ What is current:
 - OpenAI and Anthropic adapter helpers are available
 - runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`,
   `PrepareAsync(...)`, `RecordModelResponse(...)`, and `RecordToolResult(...)`
-- compaction observer callbacks are available through `ICompactionObserver`
-
 What remains planned:
 
 - summarization-based compaction
