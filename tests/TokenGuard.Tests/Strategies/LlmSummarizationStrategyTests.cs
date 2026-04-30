@@ -154,11 +154,433 @@ public sealed class LlmSummarizationStrategyTests
             new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
 
         // Act
-        _ = await strategy.CompactAsync(messages, 10);
-        _ = await strategy.CompactAsync(messages, 10);
+        var first = await strategy.CompactAsync(messages, 10);
+        var second = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Equal(first.Messages.Count, second.Messages.Count);
+        Assert.Equal(ReadText(first.Messages[0]), ReadText(second.Messages[0]));
+        Assert.Same(first.Messages[1], second.Messages[1]);
+    }
+
+    [Fact]
+    public async Task CompactAsync_TailGrowth_ReusesCheckpointWithZeroNewCalls()
+    {
+        // Arrange
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var b = ContextMessage.FromText(MessageRole.Model, "B");
+        var c = ContextMessage.FromText(MessageRole.User, "C");
+        var d = ContextMessage.FromText(MessageRole.Model, "D");
+        var e = ContextMessage.FromText(MessageRole.User, "E");
+
+        var summarizer = new TrackingSummarizer(invocation => Task.FromResult($"summary-{invocation.CallNumber}"));
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(b, 2);
+        tokenCounter.Set(c, 2);
+        tokenCounter.Set(d, 2);
+        tokenCounter.Set(e, 2);
+        tokenCounter.SetByText("summary-1", 1);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        _ = await strategy.CompactAsync([a, b, c, d], 8);
+        var compacted = await strategy.CompactAsync([a, b, c, d, e], 8);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Collection(
+            compacted.Messages,
+            summary => Assert.Equal("summary-1", ReadText(summary)),
+            message => Assert.Same(c, message),
+            message => Assert.Same(d, message),
+            message => Assert.Same(e, message));
+    }
+
+    [Fact]
+    public async Task CompactAsync_OverflowAfterTailGrowth_PromotesCheckpointWithOneNewCall()
+    {
+        // Arrange
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var b = ContextMessage.FromText(MessageRole.Model, "B");
+        var c = ContextMessage.FromText(MessageRole.User, "C");
+        var d = ContextMessage.FromText(MessageRole.Model, "D");
+        var e = ContextMessage.FromText(MessageRole.User, "E");
+
+        var summarizer = new TrackingSummarizer(invocation => Task.FromResult($"summary-{invocation.CallNumber}"));
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(b, 2);
+        tokenCounter.Set(c, 2);
+        tokenCounter.Set(d, 2);
+        tokenCounter.Set(e, 2);
+        tokenCounter.SetByText("summary-1", 1);
+        tokenCounter.SetByText("summary-2", 1);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        _ = await strategy.CompactAsync([a, b, c, d], 6);
+        var compacted = await strategy.CompactAsync([a, b, c, d, e], 6);
 
         // Assert
         Assert.Equal(2, summarizer.CallCount);
+        Assert.Equal([a, b, c], summarizer.Calls[1].Messages);
+        Assert.Collection(
+            compacted.Messages,
+            summary => Assert.Equal("summary-2", ReadText(summary)),
+            message => Assert.Same(d, message),
+            message => Assert.Same(e, message));
+    }
+
+    [Fact]
+    public async Task CompactAsync_DoublePromotion_TriggersOneCallPerPromotion()
+    {
+        // Arrange
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var b = ContextMessage.FromText(MessageRole.Model, "B");
+        var c = ContextMessage.FromText(MessageRole.User, "C");
+        var d = ContextMessage.FromText(MessageRole.Model, "D");
+        var e = ContextMessage.FromText(MessageRole.User, "E");
+        var f = ContextMessage.FromText(MessageRole.Model, "F");
+
+        var summarizer = new TrackingSummarizer(invocation => Task.FromResult($"summary-{invocation.CallNumber}"));
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(b, 2);
+        tokenCounter.Set(c, 2);
+        tokenCounter.Set(d, 2);
+        tokenCounter.Set(e, 2);
+        tokenCounter.Set(f, 2);
+        tokenCounter.SetByText("summary-1", 1);
+        tokenCounter.SetByText("summary-2", 1);
+        tokenCounter.SetByText("summary-3", 1);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        _ = await strategy.CompactAsync([a, b, c, d], 6);
+        _ = await strategy.CompactAsync([a, b, c, d, e], 6);
+        _ = await strategy.CompactAsync([a, b, c, d, e], 6);
+        var compacted = await strategy.CompactAsync([a, b, c, d, e, f], 6);
+
+        // Assert
+        Assert.Equal(3, summarizer.CallCount);
+        Assert.Equal([a, b], summarizer.Calls[0].Messages);
+        Assert.Equal([a, b, c], summarizer.Calls[1].Messages);
+        Assert.Equal([a, b, c, d], summarizer.Calls[2].Messages);
+        Assert.Collection(
+            compacted.Messages,
+            summary => Assert.Equal("summary-3", ReadText(summary)),
+            message => Assert.Same(e, message),
+            message => Assert.Same(f, message));
+    }
+
+    [Fact]
+    public async Task CompactAsync_UnrelatedConversation_InvalidatesCheckpointAndResummarizes()
+    {
+        // Arrange
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var x = ContextMessage.FromText(MessageRole.User, "X");
+        var keep = ContextMessage.FromText(MessageRole.Model, "keep");
+
+        var summarizer = new TrackingSummarizer(invocation => Task.FromResult($"summary-{invocation.CallNumber}"));
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(x, 2);
+        tokenCounter.Set(keep, 2);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        _ = await strategy.CompactAsync([a, keep], 10);
+        var compacted = await strategy.CompactAsync([x, keep], 10);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Equal([x], summarizer.Calls[1].Messages);
+        Assert.Equal("summary-2", ReadText(compacted.Messages[0]));
+    }
+
+    [Fact]
+    public async Task CompactAsync_TruncatedHistory_InvalidatesCheckpointAndReturnsRawMessages()
+    {
+        // Arrange
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var b = ContextMessage.FromText(MessageRole.Model, "B");
+        var c = ContextMessage.FromText(MessageRole.User, "C");
+        var d = ContextMessage.FromText(MessageRole.Model, "D");
+        var e = ContextMessage.FromText(MessageRole.User, "E");
+
+        var summarizer = new TrackingSummarizer("summary");
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(b, 2);
+        tokenCounter.Set(c, 2);
+        tokenCounter.Set(d, 2);
+        tokenCounter.Set(e, 2);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        _ = await strategy.CompactAsync([a, b, c, d, e], 10);
+        var truncated = new List<ContextMessage> { a, b };
+        var compacted = await strategy.CompactAsync(truncated, 10);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Same(truncated, compacted.Messages);
+        var checkpoint = ReadCheckpoint(strategy);
+        Assert.Equal(0, checkpoint.CoveredCount);
+        Assert.Equal(0L, checkpoint.Fingerprint);
+        Assert.Null(checkpoint.Summary);
+    }
+
+    [Fact]
+    public async Task CompactAsync_SummarizerThrowsOnFirstCall_LeavesCheckpointAtDefaults()
+    {
+        // Arrange
+        var old = ContextMessage.FromText(MessageRole.User, "old");
+        var keep = ContextMessage.FromText(MessageRole.Model, "keep");
+
+        var summarizer = new TrackingSummarizer(invocation => invocation.CallNumber == 1
+            ? Task.FromException<string>(new InvalidOperationException("boom"))
+            : Task.FromResult("summary-2"));
+
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(old, 4);
+        tokenCounter.Set(keep, 4);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        await Assert.ThrowsAsync<InvalidOperationException>(() => strategy.CompactAsync([old, keep], 10));
+        var afterFailure = ReadCheckpoint(strategy);
+        _ = await strategy.CompactAsync([old, keep], 10);
+        var afterSuccess = ReadCheckpoint(strategy);
+
+        // Assert
+        Assert.Equal(0, afterFailure.CoveredCount);
+        Assert.Equal(0L, afterFailure.Fingerprint);
+        Assert.Null(afterFailure.Summary);
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Equal(1, afterSuccess.CoveredCount);
+        Assert.NotNull(afterSuccess.Summary);
+    }
+
+    [Fact]
+    public async Task CompactAsync_SummarizerThrowsDuringPromotion_PreservesOriginalCheckpoint()
+    {
+        // Arrange
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var b = ContextMessage.FromText(MessageRole.Model, "B");
+        var c = ContextMessage.FromText(MessageRole.User, "C");
+        var d = ContextMessage.FromText(MessageRole.Model, "D");
+        var e = ContextMessage.FromText(MessageRole.User, "E");
+
+        var summarizer = new TrackingSummarizer(invocation => invocation.CallNumber switch
+        {
+            1 => Task.FromResult("summary-1"),
+            2 => Task.FromException<string>(new InvalidOperationException("promotion failed")),
+            _ => Task.FromResult("summary-3"),
+        });
+
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(b, 2);
+        tokenCounter.Set(c, 2);
+        tokenCounter.Set(d, 2);
+        tokenCounter.Set(e, 2);
+        tokenCounter.SetByText("summary-1", 1);
+        tokenCounter.SetByText("summary-3", 1);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        _ = await strategy.CompactAsync([a, b, c, d], 6);
+        var checkpointBeforePromotion = ReadCheckpoint(strategy);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => strategy.CompactAsync([a, b, c, d, e], 6));
+        var checkpointAfterFailure = ReadCheckpoint(strategy);
+        _ = await strategy.CompactAsync([a, b, c, d, e], 6);
+        var checkpointAfterRetry = ReadCheckpoint(strategy);
+
+        // Assert
+        Assert.Equal(3, summarizer.CallCount);
+        Assert.Equal(checkpointBeforePromotion.CoveredCount, checkpointAfterFailure.CoveredCount);
+        Assert.Equal(checkpointBeforePromotion.Fingerprint, checkpointAfterFailure.Fingerprint);
+        Assert.Same(checkpointBeforePromotion.Summary, checkpointAfterFailure.Summary);
+        Assert.Equal(3, checkpointAfterRetry.CoveredCount);
+        Assert.Equal("summary-3", ReadText(checkpointAfterRetry.Summary!));
+    }
+
+    [Fact]
+    public async Task CompactAsync_CancellationBeforeLlmCall_ThrowsAndLeavesCheckpointUntouched()
+    {
+        // Arrange
+        var old = ContextMessage.FromText(MessageRole.User, "old");
+        var keep = ContextMessage.FromText(MessageRole.Model, "keep");
+        var summarizer = new TrackingSummarizer("unused");
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(old, 4);
+        tokenCounter.Set(keep, 4);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        // Act
+        await Assert.ThrowsAsync<OperationCanceledException>(() => strategy.CompactAsync([old, keep], 10, cts.Token));
+        var checkpoint = ReadCheckpoint(strategy);
+
+        // Assert
+        Assert.Equal(0, summarizer.CallCount);
+        Assert.Equal(0, checkpoint.CoveredCount);
+        Assert.Equal(0L, checkpoint.Fingerprint);
+        Assert.Null(checkpoint.Summary);
+    }
+
+    [Fact]
+    public async Task CompactAsync_CancellationDuringPromotion_PreservesCheckpointFromPriorCall()
+    {
+        // Arrange
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var b = ContextMessage.FromText(MessageRole.Model, "B");
+        var c = ContextMessage.FromText(MessageRole.User, "C");
+        var d = ContextMessage.FromText(MessageRole.Model, "D");
+        var e = ContextMessage.FromText(MessageRole.User, "E");
+
+        var summarizer = new TrackingSummarizer(async (invocation, cancellationToken) =>
+        {
+            if (invocation.CallNumber == 1)
+            {
+                return "summary-1";
+            }
+
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return "unreachable";
+        });
+
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(b, 2);
+        tokenCounter.Set(c, 2);
+        tokenCounter.Set(d, 2);
+        tokenCounter.Set(e, 2);
+        tokenCounter.SetByText("summary-1", 1);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        _ = await strategy.CompactAsync([a, b, c, d], 6);
+        var checkpointBeforeCancellation = ReadCheckpoint(strategy);
+
+        using var cts = new CancellationTokenSource();
+
+        // Act
+        var compactionTask = strategy.CompactAsync([a, b, c, d, e], 6, cts.Token);
+        await cts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => compactionTask);
+        var checkpointAfterCancellation = ReadCheckpoint(strategy);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Equal(checkpointBeforeCancellation.CoveredCount, checkpointAfterCancellation.CoveredCount);
+        Assert.Equal(checkpointBeforeCancellation.Fingerprint, checkpointAfterCancellation.Fingerprint);
+        Assert.Same(checkpointBeforeCancellation.Summary, checkpointAfterCancellation.Summary);
+    }
+
+    [Fact]
+    public async Task CompactAsync_SameBoundaryResumarization_UpdatesSyntheticSummaryOnly()
+    {
+        // Arrange
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var b = ContextMessage.FromText(MessageRole.Model, "B");
+        var c = ContextMessage.FromText(MessageRole.User, "C");
+        var d = ContextMessage.FromText(MessageRole.Model, "D");
+
+        var summarizer = new TrackingSummarizer(invocation => Task.FromResult($"summary-{invocation.CallNumber}"));
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(b, 2);
+        tokenCounter.Set(c, 2);
+        tokenCounter.Set(d, 2);
+        tokenCounter.SetByText("summary-1", 1);
+        tokenCounter.SetByText("summary-2", 1);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        _ = await strategy.CompactAsync([a, b, c, d], 10);
+        var before = ReadCheckpoint(strategy);
+        var compacted = await strategy.CompactAsync([a, b, c, d], 4);
+        var after = ReadCheckpoint(strategy);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Equal([a, b], summarizer.Calls[1].Messages);
+        Assert.Equal(before.CoveredCount, after.CoveredCount);
+        Assert.Equal(before.Fingerprint, after.Fingerprint);
+        Assert.NotSame(before.Summary, after.Summary);
+        Assert.Equal("summary-2", ReadText(compacted.Messages[0]));
+    }
+
+    [Fact]
+    public async Task CompactAsync_MessageWithNullContent_ComputesFingerprintWithoutThrowing()
+    {
+        // Arrange
+        var summarize = ContextMessage.FromContent(MessageRole.User, new TextContent("seed") { Content = null! });
+        var keep = ContextMessage.FromText(MessageRole.Model, "keep");
+
+        var summarizer = new TrackingSummarizer("summary");
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(summarize, 4);
+        tokenCounter.Set(keep, 4);
+        tokenCounter.SetByText("summary", 1);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        _ = await strategy.CompactAsync([summarize, keep], 10);
+        var compacted = await strategy.CompactAsync([summarize, keep], 10);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Equal("summary", ReadText(compacted.Messages[0]));
     }
 
     [Fact]
@@ -366,50 +788,98 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Equal(50, summarizer.LastTargetTokens);
     }
 
+    private static (int CoveredCount, long Fingerprint, ContextMessage? Summary) ReadCheckpoint(LlmSummarizationStrategy strategy)
+    {
+        var strategyType = typeof(LlmSummarizationStrategy);
+        var coveredCount = (int)strategyType
+            .GetField("_checkpointCoveredCount", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(strategy)!;
+        var fingerprint = (long)strategyType
+            .GetField("_checkpointPrefixFingerprint", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(strategy)!;
+        var summary = (ContextMessage?)strategyType
+            .GetField("_checkpointSyntheticSummary", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(strategy);
+
+        return (coveredCount, fingerprint, summary);
+    }
+
+    private static string ReadText(ContextMessage message)
+    {
+        return Assert.IsType<TextContent>(Assert.Single(message.Segments)).Content!;
+    }
+
     private sealed class TrackingSummarizer : ILlmSummarizer
     {
-        private readonly string _summary;
+        private readonly Func<SummarizerCall, CancellationToken, Task<string>> _handler;
 
         public TrackingSummarizer(string summary)
+            : this(_ => Task.FromResult(summary))
         {
-            this._summary = summary;
         }
 
-        public int CallCount { get; private set; }
+        public TrackingSummarizer(Func<SummarizerCall, Task<string>> handler)
+            : this((call, _) => handler(call))
+        {
+        }
 
-        public IReadOnlyList<ContextMessage> LastMessages { get; private set; } = [];
+        public TrackingSummarizer(Func<SummarizerCall, CancellationToken, Task<string>> handler)
+        {
+            this._handler = handler;
+        }
 
-        public int LastTargetTokens { get; private set; }
+        public int CallCount => this.Calls.Count;
 
-        public Task<string> SummarizeAsync(
+        public List<SummarizerCall> Calls { get; } = [];
+
+        public IReadOnlyList<ContextMessage> LastMessages => this.Calls.Count == 0 ? [] : this.Calls[^1].Messages;
+
+        public int LastTargetTokens => this.Calls.Count == 0 ? 0 : this.Calls[^1].TargetTokens;
+
+        public async Task<string> SummarizeAsync(
             IReadOnlyList<ContextMessage> messages,
             int targetTokens,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            this.CallCount++;
-            this.LastMessages = messages.ToArray();
-            this.LastTargetTokens = targetTokens;
-
-            return Task.FromResult(this._summary);
+            var call = new SummarizerCall(this.Calls.Count + 1, messages.ToArray(), targetTokens);
+            this.Calls.Add(call);
+            return await this._handler(call, cancellationToken);
         }
     }
 
     private sealed class TrackingTokenCounter : ITokenCounter
     {
         private readonly Dictionary<ContextMessage, int> _counts = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<string, int> _textCounts = new(StringComparer.Ordinal);
 
         public void Set(ContextMessage contextMessage, int count)
         {
             this._counts[contextMessage] = count;
         }
 
+        public void SetByText(string text, int count)
+        {
+            this._textCounts[text] = count;
+        }
+
         public int Count(ContextMessage contextMessage)
         {
-            return this._counts.TryGetValue(contextMessage, out var value)
-                ? value
-                : 1;
+            if (this._counts.TryGetValue(contextMessage, out var value))
+            {
+                return value;
+            }
+
+            if (contextMessage.Segments.Count == 1
+                && contextMessage.Segments[0] is TextContent text
+                && text.Content is not null
+                && this._textCounts.TryGetValue(text.Content, out value))
+            {
+                return value;
+            }
+
+            return 1;
         }
 
         public int Count(IEnumerable<ContextMessage> messages)
@@ -440,4 +910,6 @@ public sealed class LlmSummarizationStrategyTests
             return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
         }
     }
+
+    private sealed record SummarizerCall(int CallNumber, IReadOnlyList<ContextMessage> Messages, int TargetTokens);
 }

@@ -177,6 +177,43 @@ public sealed class TieredCompactionStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_RepeatedCallsWithSameMessages_ReusesSummaryCheckpoint()
+    {
+        // Arrange
+        var oldest1 = CreateToolResultMessage("call_1", "search", "full-tool-output-1");
+        var oldest2 = CreateToolResultMessage("call_2", "search", "full-tool-output-2");
+        var keep = ContextMessage.FromText(MessageRole.User, "keep");
+        var messages = new List<ContextMessage> { oldest1, oldest2, keep };
+
+        var summarizer = new TrackingSummarizer("summary-text");
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(oldest1, 50);
+        tokenCounter.Set(oldest2, 50);
+        tokenCounter.Set(keep, 4);
+
+        var strategy = new TieredCompactionStrategy(
+            tokenCounter,
+            new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
+            new LlmSummarizationStrategy(
+                summarizer,
+                tokenCounter,
+                new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100)));
+
+        // Act
+        var first = await strategy.CompactAsync(messages, 5);
+        var second = await strategy.CompactAsync(messages, 5);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Equal(nameof(TieredCompactionStrategy), first.StrategyName);
+        Assert.Equal(nameof(TieredCompactionStrategy), second.StrategyName);
+        Assert.Equal(2, first.Messages.Count);
+        Assert.Equal(2, second.Messages.Count);
+        Assert.Equal("summary-text", Assert.IsType<TextContent>(Assert.Single(first.Messages[0].Segments)).Content);
+        Assert.Equal("summary-text", Assert.IsType<TextContent>(Assert.Single(second.Messages[0].Segments)).Content);
+    }
+
+    [Fact]
     public async Task CompactAsync_WhenSummarizationBudgetBelowMinimum_SkipsCallAndReturnsProtectedTailOnly()
     {
         // Arrange

@@ -15,11 +15,21 @@ namespace TokenGuard.Core.Strategies;
 /// <see cref="ILlmSummarizer"/>, and the returned summary is inserted at the front of the compacted result.
 /// </para>
 /// <para>
+/// After one successful summarization pass the strategy stores a lightweight checkpoint for the summarized raw prefix.
+/// Later calls validate that checkpoint against the incoming raw prefix, reconstruct a synthetic summary plus raw tail,
+/// and reuse or promote that checkpoint without requiring any state from <see cref="TieredCompactionStrategy"/> or
+/// <see cref="ConversationContext"/>.
+/// </para>
+/// <para>
 /// Before invoking the summarizer the strategy computes <c>remainingBudget = availableTokens - protectedTailTokens</c>
 /// and enforces the configured bounds. When <c>remainingBudget</c> is less than
 /// <see cref="LlmSummarizationOptions.MinSummaryTokens"/> summarization is skipped and only the protected tail is
 /// returned. Otherwise the summarizer receives <c>Math.Min(remainingBudget, MaxSummaryTokens)</c> as its target,
 /// ensuring <c>targetTokens</c> is always a positive, bounded value.
+/// </para>
+/// <para>
+/// Checkpoint reuse is intentionally stateful and sequential. One <see cref="LlmSummarizationStrategy"/> instance is
+/// expected to serve exactly one conversation flow at a time; concurrent use of the same instance is undefined.
 /// </para>
 /// </remarks>
 internal sealed class LlmSummarizationStrategy : ICompactionStrategy
@@ -27,6 +37,9 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     private readonly ILlmSummarizer _summarizer;
     private readonly ITokenCounter _tokenCounter;
     private readonly LlmSummarizationOptions _options;
+    private int _checkpointCoveredCount;
+    private long _checkpointPrefixFingerprint;
+    private ContextMessage? _checkpointSyntheticSummary;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LlmSummarizationStrategy"/> class with default options.
@@ -80,6 +93,11 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         var tokensBefore = CountTokens(messages, this._tokenCounter);
         var boundary = Math.Max(0, messages.Count - this._options.WindowSize);
 
+        if (this._checkpointCoveredCount > 0 && messages.Count < this._checkpointCoveredCount)
+        {
+            this.ClearCheckpoint();
+        }
+
         if (boundary == 0)
         {
             return new CompactionResult(
@@ -94,6 +112,36 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         for (var i = boundary; i < messages.Count; i++)
         {
             protectedTailTokens += messages[i].TokenCount ?? this._tokenCounter.Count(messages[i]);
+        }
+
+        if (this.TryGetValidatedCheckpoint(messages, out var checkpointCoveredCount, out var checkpointSyntheticSummary))
+        {
+            var cachedResult = BuildCompactedMessages(messages, checkpointCoveredCount, checkpointSyntheticSummary);
+            var cachedTokensAfter = CountTokens(cachedResult, this._tokenCounter);
+
+            if (cachedTokensAfter <= availableTokens)
+            {
+                return new CompactionResult(
+                    cachedResult,
+                    tokensBefore,
+                    cachedTokensAfter,
+                    checkpointCoveredCount,
+                    nameof(LlmSummarizationStrategy));
+            }
+
+            var checkpointTargetTokens = ComputeCheckpointTargetTokens(availableTokens - protectedTailTokens, this._options.MaxSummaryTokens);
+
+            if (boundary > checkpointCoveredCount)
+            {
+                var promotedFingerprint = ComputeFingerprint(messages, boundary);
+                var promotedSummaryMessage = await this.SummarizePrefixAsync(messages, boundary, checkpointTargetTokens, cancellationToken);
+                this.SetCheckpoint(boundary, promotedFingerprint, promotedSummaryMessage);
+                return CreateCompactionResult(messages, tokensBefore, boundary, promotedSummaryMessage, this._tokenCounter);
+            }
+
+            var refreshedSummaryMessage = await this.SummarizePrefixAsync(messages, checkpointCoveredCount, checkpointTargetTokens, cancellationToken);
+            this._checkpointSyntheticSummary = refreshedSummaryMessage;
+            return CreateCompactionResult(messages, tokensBefore, checkpointCoveredCount, refreshedSummaryMessage, this._tokenCounter);
         }
 
         var remainingBudget = availableTokens - protectedTailTokens;
@@ -112,25 +160,11 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         }
 
         var targetTokens = Math.Min(remainingBudget, this._options.MaxSummaryTokens);
-        var messagesToSummarize = messages.Take(boundary).ToArray();
-        var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+        var checkpointFingerprint = ComputeFingerprint(messages, boundary);
+        var summaryMessage = await this.SummarizePrefixAsync(messages, boundary, targetTokens, cancellationToken);
+        this.SetCheckpoint(boundary, checkpointFingerprint, summaryMessage);
 
-        var result = new ContextMessage[messages.Count - boundary + 1];
-        result[0] = ContextMessage.FromText(MessageRole.User, summary) with { State = CompactionState.Summarized };
-
-        for (var i = boundary; i < messages.Count; i++)
-        {
-            result[(i - boundary) + 1] = messages[i];
-        }
-
-        var tokensAfter = CountTokens(result, this._tokenCounter);
-
-        return new CompactionResult(
-            result,
-            tokensBefore,
-            tokensAfter,
-            boundary,
-            nameof(LlmSummarizationStrategy));
+        return CreateCompactionResult(messages, tokensBefore, boundary, summaryMessage, this._tokenCounter);
     }
 
     private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)
@@ -142,5 +176,124 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         }
 
         return count;
+    }
+
+    private static CompactionResult CreateCompactionResult(
+        IReadOnlyList<ContextMessage> messages,
+        int tokensBefore,
+        int summarizedCount,
+        ContextMessage summaryMessage,
+        ITokenCounter tokenCounter)
+    {
+        var compactedMessages = BuildCompactedMessages(messages, summarizedCount, summaryMessage);
+        var tokensAfter = CountTokens(compactedMessages, tokenCounter);
+
+        return new CompactionResult(
+            compactedMessages,
+            tokensBefore,
+            tokensAfter,
+            summarizedCount,
+            nameof(LlmSummarizationStrategy));
+    }
+
+    private static ContextMessage[] BuildCompactedMessages(
+        IReadOnlyList<ContextMessage> messages,
+        int summarizedCount,
+        ContextMessage summaryMessage)
+    {
+        var result = new ContextMessage[messages.Count - summarizedCount + 1];
+        result[0] = summaryMessage;
+
+        for (var i = summarizedCount; i < messages.Count; i++)
+        {
+            result[(i - summarizedCount) + 1] = messages[i];
+        }
+
+        return result;
+    }
+
+    private static long ComputeFingerprint(IReadOnlyList<ContextMessage> messages, int count)
+    {
+        long fingerprint = 0;
+
+        for (var i = 0; i < count; i++)
+        {
+            fingerprint = HashCode.Combine((int)fingerprint, messages[i].Role, GetFingerprintContent(messages[i]));
+        }
+
+        return fingerprint;
+    }
+
+    private static int ComputeCheckpointTargetTokens(int remainingBudget, int maxSummaryTokens)
+    {
+        return Math.Min(Math.Max(remainingBudget, 1), maxSummaryTokens);
+    }
+
+    private static string GetFingerprintContent(ContextMessage message)
+    {
+        return message.Segments.Count switch
+        {
+            0 => string.Empty,
+            1 => message.Segments[0].Content,
+            _ => string.Join("\n", message.Segments.Select(static segment => segment.Content)),
+        };
+    }
+
+    private void ClearCheckpoint()
+    {
+        this._checkpointCoveredCount = 0;
+        this._checkpointPrefixFingerprint = 0;
+        this._checkpointSyntheticSummary = null;
+    }
+
+    private void SetCheckpoint(int coveredCount, long prefixFingerprint, ContextMessage summaryMessage)
+    {
+        this._checkpointCoveredCount = coveredCount;
+        this._checkpointPrefixFingerprint = prefixFingerprint;
+        this._checkpointSyntheticSummary = summaryMessage;
+    }
+
+    private async Task<ContextMessage> SummarizePrefixAsync(
+        IReadOnlyList<ContextMessage> messages,
+        int boundary,
+        int targetTokens,
+        CancellationToken cancellationToken)
+    {
+        var messagesToSummarize = messages.Take(boundary).ToArray();
+        var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+        return ContextMessage.FromText(MessageRole.User, summary) with { State = CompactionState.Summarized };
+    }
+
+    private bool TryGetValidatedCheckpoint(
+        IReadOnlyList<ContextMessage> messages,
+        out int coveredCount,
+        out ContextMessage summaryMessage)
+    {
+        coveredCount = 0;
+        summaryMessage = null!;
+
+        if (this._checkpointCoveredCount == 0
+            && this._checkpointPrefixFingerprint == 0
+            && this._checkpointSyntheticSummary is null)
+        {
+            return false;
+        }
+
+        if (this._checkpointCoveredCount <= 0 || this._checkpointSyntheticSummary is null)
+        {
+            this.ClearCheckpoint();
+            return false;
+        }
+
+        if (messages.Count < this._checkpointCoveredCount
+            || ComputeFingerprint(messages, this._checkpointCoveredCount) != this._checkpointPrefixFingerprint)
+        {
+            this.ClearCheckpoint();
+            return false;
+        }
+
+        coveredCount = this._checkpointCoveredCount;
+        summaryMessage = this._checkpointSyntheticSummary;
+        return true;
     }
 }
