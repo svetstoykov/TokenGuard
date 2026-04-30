@@ -34,15 +34,19 @@ namespace TokenGuard.Core.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the conversation-context factory using the library's default configuration.
+    /// Registers <see cref="IConversationContextFactory"/> so that services can call
+    /// <see cref="IConversationContextFactory.Create()"/> to obtain <see cref="ConversationContext"/> instances.
+    /// Uses the library's default configuration.
     /// </summary>
     /// <param name="services">The service collection to update.</param>
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
     /// <remarks>
-    /// Registers <see cref="IConversationContextFactory"/> as a singleton using the library default
-    /// profile: 25,000 max tokens, 0.80 compaction, 1.0 emergency truncation as a last-resort safety net,
-    /// 0 reserved tokens, TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation, and
-    /// <see cref="Strategies.SlidingWindowStrategy"/>.
+    /// Follows the same pattern as <c>AddHttpClient</c>: the method is named after the product
+    /// (<see cref="ConversationContext"/>), while the injected abstraction is the factory
+    /// (<see cref="IConversationContextFactory"/>). Registers the factory as a singleton using the
+    /// library default profile: 25,000 max tokens, 0.80 compaction, 1.0 emergency truncation as a
+    /// last-resort safety net, 0 reserved tokens, TokenGuard's built-in heuristic
+    /// <see cref="ITokenCounter"/> implementation, and <see cref="Strategies.SlidingWindowStrategy"/>.
     /// For non-DI scenarios, construct <see cref="ConversationContextFactory"/> directly instead.
     /// </remarks>
     /// <exception cref="ArgumentNullException">
@@ -65,7 +69,9 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers the conversation-context factory with a custom default configuration.
+    /// Registers <see cref="IConversationContextFactory"/> so that services can call
+    /// <see cref="IConversationContextFactory.Create()"/> to obtain <see cref="ConversationContext"/> instances.
+    /// Uses a custom default configuration supplied via <paramref name="configure"/>.
     /// </summary>
     /// <param name="services">The service collection to update.</param>
     /// <param name="configure">
@@ -74,9 +80,8 @@ public static class ServiceCollectionExtensions
     /// </param>
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
     /// <remarks>
-    /// The <see cref="IConversationContextFactory"/> abstraction is registered once as a singleton
-    /// pointing to a <see cref="ConversationContextFactory"/> built from the supplied recipe. Named
-    /// profiles can be added afterward using
+    /// <see cref="IConversationContextFactory"/> is registered once as a singleton. Named profiles can
+    /// be added afterward using
     /// <see cref="AddConversationContext(IServiceCollection, string, Action{ConversationConfigBuilder})"/>.
     /// </remarks>
     /// <exception cref="ArgumentNullException">
@@ -102,7 +107,9 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers a named conversation-context profile alongside the singleton factory.
+    /// Adds a named profile to the registered <see cref="IConversationContextFactory"/>, so that
+    /// services can call <see cref="IConversationContextFactory.Create(string)"/> with
+    /// <paramref name="name"/> to obtain a configured <see cref="ConversationContext"/> instance.
     /// </summary>
     /// <param name="services">The service collection to update.</param>
     /// <param name="name">
