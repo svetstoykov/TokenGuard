@@ -134,10 +134,7 @@ public readonly record struct ContextBudget
     /// </remarks>
     /// <param name="maxTokens">The maximum number of tokens allowed in the conversation.</param>
     /// <returns>A <see cref="ContextBudget"/> configured with 0.80 compaction and no emergency truncation.</returns>
-    public static ContextBudget For(int maxTokens)
-    {
-        return ConversationDefaults.CreateBudget(maxTokens);
-    }
+    public static ContextBudget For(int maxTokens) => new(maxTokens);
 
     private static int ValidateMaxTokens(int value, string paramName)
     {

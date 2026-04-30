@@ -13,9 +13,10 @@ namespace TokenGuard.Core.Extensions;
 /// <remarks>
 /// <para>
 /// These extensions are the supported dependency-injection entry point for conversation-context
-/// creation. They register the built-in factory once and then allow later calls to update the
-/// unnamed default profile or add additional named profiles without duplicating the singleton
-/// registration.
+/// creation. Call one of the default-registration overloads exactly once per service collection,
+/// then add any number of named profiles with
+/// <see cref="ServiceCollectionExtensions.AddConversationContext(IServiceCollection, string, Action{ConversationConfigBuilder})"/>.
+/// Calling a default-registration overload more than once throws <see cref="InvalidOperationException"/>.
 /// </para>
 /// <para>
 /// Each registration callback receives a fresh <see cref="ConversationConfigBuilder"/>. The builder
@@ -24,9 +25,10 @@ namespace TokenGuard.Core.Extensions;
 /// <see cref="IConversationContextFactory.Create()"/> call still receives freshly constructed dependencies.
 /// </para>
 /// <para>
-/// Applications that do not use dependency injection can still construct <see cref="ConversationContext"/>
-/// directly. The built-in factory implementation itself remains internal so the supported container
-/// setup stays centered on these registration methods and <see cref="IConversationContextFactory"/>.
+/// Applications that do not use dependency injection can still construct
+/// <see cref="ConversationContextFactory"/> manually. These registration methods remain the preferred
+/// path when a container is available because they keep all factory configuration in one startup flow
+/// while exposing only <see cref="IConversationContextFactory"/> to consuming services.
 /// </para>
 /// </remarks>
 public static class ServiceCollectionExtensions
@@ -37,37 +39,33 @@ public static class ServiceCollectionExtensions
     /// <param name="services">The service collection to update.</param>
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
     /// <remarks>
-    /// This overload ensures <see cref="IConversationContextFactory"/> is available as a singleton
-    /// while preserving any previously registered named profiles. The library default profile uses
-    /// 100,000 max tokens, 0.80 compaction, 0.95 emergency, 0 reserved tokens,
+    /// Registers <see cref="IConversationContextFactory"/> as a singleton using the library default
+    /// profile: 25,000 max tokens, 0.80 compaction, no emergency truncation, 0 reserved tokens,
     /// TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation, and
     /// <see cref="Strategies.SlidingWindowStrategy"/>.
-    /// For non-DI scenarios, construct <see cref="ConversationContext"/> directly instead of registering
-    /// custom factory instances.
+    /// For non-DI scenarios, construct <see cref="ConversationContextFactory"/> directly instead.
     /// </remarks>
     /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="services"/> is null.
+    /// Thrown when <paramref name="services"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a conversation-context factory has already been registered on
+    /// <paramref name="services"/>. Call this overload at most once per service collection.
+    /// To add named profiles after the default registration, use
+    /// <see cref="AddConversationContext(IServiceCollection, string, Action{ConversationConfigBuilder})"/>.
     /// </exception>
     public static IServiceCollection AddConversationContext(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ThrowIfFactoryAlreadyRegistered(services);
 
-        var existingFactory = services.GetRegisteredConversationContextFactory();
-        if (existingFactory is null)
-        {
-            var defaultConfig = ConversationConfigBuilder.Default();
-            var factory = new ConversationContextFactory(defaultConfig);
-            services.AddSingleton(factory);
-        }
-
-        services.TryAddSingleton<IConversationContextFactory>(static serviceProvider =>
-            serviceProvider.GetRequiredService<ConversationContextFactory>());
+        RegisterFactory(services, new ConversationContextFactory(ConversationConfigBuilder.Default()));
 
         return services;
     }
 
     /// <summary>
-    /// Registers the conversation-context factory and replaces the unnamed default configuration.
+    /// Registers the conversation-context factory with a custom default configuration.
     /// </summary>
     /// <param name="services">The service collection to update.</param>
     /// <param name="configure">
@@ -76,13 +74,17 @@ public static class ServiceCollectionExtensions
     /// </param>
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
     /// <remarks>
-    /// Repeated calls remain idempotent with respect to singleton registration: the factory is
-    /// registered only once, and each call updates the default configuration recipe stored by that
-    /// singleton. This keeps application startup on a single supported registration path while still
-    /// allowing direct <see cref="ConversationContext"/> construction outside the container.
+    /// The <see cref="IConversationContextFactory"/> abstraction is registered once as a singleton
+    /// pointing to a <see cref="ConversationContextFactory"/> built from the supplied recipe. Named
+    /// profiles can be added afterward using
+    /// <see cref="AddConversationContext(IServiceCollection, string, Action{ConversationConfigBuilder})"/>.
     /// </remarks>
     /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="services"/> or <paramref name="configure"/> is null.
+    /// Thrown when <paramref name="services"/> or <paramref name="configure"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a conversation-context factory has already been registered on
+    /// <paramref name="services"/>. Call this overload at most once per service collection.
     /// </exception>
     public static IServiceCollection AddConversationContext(
         this IServiceCollection services,
@@ -90,13 +92,11 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
+        ThrowIfFactoryAlreadyRegistered(services);
 
-        services.AddConversationContext();
-
-        var factory = services.GetConversationContextFactory();
         var builder = new ConversationConfigBuilder();
         configure(builder);
-        factory.SetDefault(builder.Build());
+        RegisterFactory(services, new ConversationContextFactory(builder.Build()));
 
         return services;
     }
@@ -115,13 +115,13 @@ public static class ServiceCollectionExtensions
     /// </param>
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
     /// <remarks>
-    /// Re-registering the same <paramref name="name"/> replaces the previous named recipe. This
-    /// allows a single container registration flow to manage all named profiles exposed through
-    /// <see cref="IConversationContextFactory.Create(string)"/>.
+    /// If no factory is registered yet, this overload creates a default factory using the library's
+    /// default profile before adding the named configuration. Re-registering the same
+    /// <paramref name="name"/> replaces the previous named recipe.
     /// </remarks>
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="services"/>, <paramref name="name"/>, or <paramref name="configure"/>
-    /// is null.
+    /// is <see langword="null"/>.
     /// </exception>
     public static IServiceCollection AddConversationContext(
         this IServiceCollection services,
@@ -132,7 +132,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(configure);
 
-        services.AddConversationContext();
+        EnsureDefaultFactoryRegistered(services);
 
         var factory = services.GetConversationContextFactory();
         var builder = new ConversationConfigBuilder();
@@ -142,12 +142,36 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    private static void ThrowIfFactoryAlreadyRegistered(IServiceCollection services)
+    {
+        if (services.GetRegisteredConversationContextFactory() is not null)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(AddConversationContext)} has already been called. " +
+                "Register the conversation-context factory at most once per service collection.");
+        }
+    }
+
+    private static void EnsureDefaultFactoryRegistered(IServiceCollection services)
+    {
+        if (services.GetRegisteredConversationContextFactory() is not null)
+            return;
+
+        RegisterFactory(services, new ConversationContextFactory(ConversationConfigBuilder.Default()));
+    }
+
+    private static void RegisterFactory(IServiceCollection services, ConversationContextFactory factory)
+    {
+        services.AddSingleton(factory);
+        services.TryAddSingleton<IConversationContextFactory>(static sp =>
+            sp.GetRequiredService<ConversationContextFactory>());
+    }
+
     private static ConversationContextFactory GetConversationContextFactory(this IServiceCollection services)
     {
-        var factory = services.GetRegisteredConversationContextFactory();
-
-        return factory ?? throw new InvalidOperationException(
-            $"{nameof(ConversationContextFactory)} must be registered before configuration is applied.");
+        return services.GetRegisteredConversationContextFactory()
+            ?? throw new InvalidOperationException(
+                $"{nameof(ConversationContextFactory)} must be registered before configuration is applied.");
     }
 
     private static ConversationContextFactory? GetRegisteredConversationContextFactory(this IServiceCollection services)

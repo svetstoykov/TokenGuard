@@ -23,8 +23,8 @@ namespace TokenGuard.Core.TokenCounting;
 /// <para>
 /// Each counted <see cref="ContextMessage"/> includes a fixed framing overhead, and tool-call segments add their own
 /// JSON-wrapping overhead, so TokenGuard budgets remain closer to real chat payload costs than segment-only counting
-/// would provide. Applications that require exact provider accounting can still bypass the built-in configuration path
-/// and construct <see cref="ConversationContext"/> directly with a provider-backed <see cref="ITokenCounter"/>.
+/// would provide. Applications that require different creation flows can bypass dependency injection and construct
+/// <see cref="ConversationContextFactory"/> directly, but the built-in factory path always uses this heuristic counter.
 /// </para>
 /// </remarks>
 internal sealed class EstimatedTokenCounter : ITokenCounter

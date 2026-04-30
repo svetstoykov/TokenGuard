@@ -76,7 +76,7 @@ public sealed class ConversationContext : IConversationContext
     /// Produces a smaller message list when the current history no longer fits comfortably within
     /// the configured budget.
     /// </param>
-    public ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy)
+    internal ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy)
     {
         this._budget = budget;
         this._counter = counter;

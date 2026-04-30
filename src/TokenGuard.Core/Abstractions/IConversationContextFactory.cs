@@ -20,10 +20,9 @@ namespace TokenGuard.Core.Abstractions;
 /// time it is needed.
 /// </para>
 /// <para>
-/// Applications that do not use a container can construct <see cref="ConversationContext"/>
-/// directly. The built-in factory implementation is intentionally hidden so the supported
-/// dependency-injection path stays centered on this abstraction rather than direct concrete-type
-/// registration.
+/// Applications that do not use a container can construct <see cref="ConversationContextFactory"/>
+/// directly and then create contexts through it. The same per-conversation lifetime rule applies:
+/// each call must produce a fresh context instance rather than sharing one across sessions.
 /// </para>
 /// <para>
 /// Named configurations allow multiple distinct context profiles — for example, a large-window
@@ -44,7 +43,7 @@ public interface IConversationContextFactory
     /// <remarks>
     /// Every call produces a distinct instance. Contexts returned by this method are never reused
     /// or shared with other callers. Unless startup registration replaced it, the library default profile
-    /// uses 100,000 max tokens, 0.80 compaction, 0.95 emergency, 0 reserved tokens,
+    /// uses 25,000 max tokens, 0.80 compaction, no emergency truncation, 0 reserved tokens,
     /// TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation, and
     /// <see cref="Strategies.SlidingWindowStrategy"/>.
     /// </remarks>

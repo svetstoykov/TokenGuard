@@ -5,51 +5,47 @@ using TokenGuard.Core.TokenCounting;
 
 namespace TokenGuard.Core;
 
-internal sealed class ConversationContextFactory : IConversationContextFactory
+/// <summary>
+/// Creates fresh <see cref="IConversationContext"/> instances from one default configuration and optional named profiles.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="ConversationContextFactory"/> is TokenGuard's manual-construction entry point for applications that do
+/// not use dependency injection. Supply a default <see cref="ConversationContextConfiguration"/> at construction time,
+/// then call <see cref="Create()"/> to obtain a new conversation state object for each session.
+/// </para>
+/// <para>
+/// The factory remains mutable only for named profiles through <see cref="AddNamed(string, ConversationContextConfiguration)"/>.
+/// The default profile is supplied through the constructor, and each create call still constructs a fresh token counter
+/// and strategy instance so no per-conversation state is shared across calls.
+/// </para>
+/// <para>
+/// Dependency injection remains the strongly encouraged path. When a container is available, prefer
+/// <c>AddConversationContext(...)</c> and consume <see cref="IConversationContextFactory"/> instead of constructing
+/// this type manually.
+/// </para>
+/// </remarks>
+public sealed class ConversationContextFactory : IConversationContextFactory
 {
-    private ConversationContextConfiguration _default;
+    private readonly ConversationContextConfiguration _default;
     private readonly Dictionary<string, ConversationContextConfiguration> _named = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Initialises the factory with the standard default configuration: a 100,000-token budget,
-    /// 0.80 compaction threshold, 0.95 emergency threshold, 0 reserved tokens,
-    /// TokenGuard's built-in heuristic <see cref="Abstractions.ITokenCounter"/> implementation, and
-    /// <see cref="Strategies.SlidingWindowStrategy"/>.
-    /// </summary>
-    /// <remarks>
-    /// The default configuration is identical to the library default profile produced by
-    /// <c>new ConversationConfigBuilder().WithMaxTokens(100_000).Build()</c>.
-    /// It can be overridden per call site by registering a named configuration with
-    /// <see cref="AddNamed"/> and calling <see cref="Create(string)"/> instead.
-    /// </remarks>
-    internal ConversationContextFactory(ConversationContextConfiguration config)
-    {
-        this._default = config;
-    }
-
-    /// <summary>
-    /// Replaces the default configuration used by <see cref="Create()"/>.
+    /// Initialises a new <see cref="ConversationContextFactory"/> with the supplied default configuration.
     /// </summary>
     /// <param name="config">
-    /// The immutable configuration recipe to use for unnamed context creation.
+    /// The immutable configuration recipe used for <see cref="Create()"/> calls.
     /// </param>
-    /// <returns>
-    /// This factory instance, enabling fluent startup configuration alongside
-    /// <see cref="AddNamed(string, ConversationContextConfiguration)"/>.
-    /// </returns>
     /// <remarks>
-    /// This method exists primarily for dependency-injection registration flows where repeated
-    /// calls to a service-collection extension should be able to configure the singleton factory
-    /// without replacing the singleton registration itself.
+    /// The default configuration is identical to the library default profile when <paramref name="config"/> comes from
+    /// <see cref="ConversationConfigBuilder.Default(int)"/>. Additional named profiles can be attached later with
+    /// <see cref="AddNamed(string, ConversationContextConfiguration)"/>.
     /// </remarks>
-    /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="config"/> is null.
-    /// </exception>
-    internal ConversationContextFactory SetDefault(ConversationContextConfiguration config)
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="config"/> is <see langword="null"/>.</exception>
+    public ConversationContextFactory(ConversationContextConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(config);
         this._default = config;
-        return this;
     }
 
     /// <summary>
@@ -67,7 +63,7 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="name"/> or <paramref name="config"/> is null.
     /// </exception>
-    internal ConversationContextFactory AddNamed(string name, ConversationContextConfiguration config)
+    public ConversationContextFactory AddNamed(string name, ConversationContextConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(config);
@@ -118,6 +114,8 @@ internal sealed class ConversationContextFactory : IConversationContextFactory
 
         return CreateContext(config);
     }
+
+    internal IEnumerable<KeyValuePair<string, ConversationContextConfiguration>> NamedConfigurations => this._named;
 
     private static ConversationContext CreateContext(ConversationContextConfiguration config)
     {

@@ -234,14 +234,24 @@ builder.UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest");
 
 ## Without DI
 
-If you're not using a container, construct directly:
+If you're not using a container, construct a factory directly:
 
 ```csharp
-var budget = new ContextBudget(maxTokens: 100_000, compactionThreshold: 0.80);
-var context = new ConversationContext(budget, tokenCounter, compactionStrategy);
+var factory = new ConversationContextFactory(
+    new ConversationConfigBuilder()
+        .WithMaxTokens(100_000)
+        .WithCompactionThreshold(0.80)
+        .Build())
+    .AddNamed("analysis", new ConversationConfigBuilder()
+        .WithMaxTokens(200_000)
+        .WithCompactionThreshold(0.75)
+        .Build());
+
+using var context = factory.Create();
+using var analysisContext = factory.Create("analysis");
 ```
 
-DI is the recommended path. Direct construction is there for tests and constrained environments.
+DI is the recommended path. Public factory is manual fallback when you don't want a container.
 
 ---
 

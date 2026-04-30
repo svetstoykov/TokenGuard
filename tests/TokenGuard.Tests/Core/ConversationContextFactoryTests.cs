@@ -188,13 +188,6 @@ public sealed class ConversationContextFactoryTests
             return this;
         }
 
-        public TestConversationContextFactory SetDefault(ConversationContextConfiguration config)
-        {
-            ArgumentNullException.ThrowIfNull(config);
-            _default = config;
-            return this;
-        }
-
         private static ConversationContext CreateContext(ConversationContextConfiguration config)
         {
             var counter = new TokenGuard.Core.TokenCounting.EstimatedTokenCounter();
