@@ -168,7 +168,7 @@ public sealed class TieredCompactionStrategyTests
         Assert.Equal(3, compacted.Messages.Count);
 
         var summaryMessage = compacted.Messages[0];
-        Assert.Equal(MessageRole.User, summaryMessage.Role);
+        Assert.Equal(MessageRole.Model, summaryMessage.Role);
         Assert.Equal(CompactionState.Summarized, summaryMessage.State);
         Assert.Equal("summary-text", Assert.IsType<TextContent>(Assert.Single(summaryMessage.Segments)).Content);
 

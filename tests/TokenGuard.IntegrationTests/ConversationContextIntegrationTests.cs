@@ -6,8 +6,10 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Strategies;
-using TokenGuard.Core.TokenCounting;        
- namespace TokenGuard.IntegrationTests;
+using TokenGuard.Core.TokenCounting;
+using TokenGuard.Extensions.OpenAI;
+
+namespace TokenGuard.IntegrationTests;
 
 public sealed class ConversationContextIntegrationTests
 {
@@ -446,7 +448,7 @@ public sealed class ConversationContextIntegrationTests
 
         prepared.Should().HaveCount(4);
         prepared[0].Should().BeSameAs(systemMessage);
-        prepared[1].Role.Should().Be(MessageRole.User);
+        prepared[1].Role.Should().Be(MessageRole.Model);
         prepared[1].State.Should().Be(CompactionState.Summarized);
         prepared[1].Segments.Should().ContainSingle()
             .Which.Should().BeOfType<TextContent>()
@@ -468,10 +470,13 @@ public sealed class ConversationContextIntegrationTests
             new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
         var engine = new ConversationContext(budget, counter, strategy);
 
-        engine.AddUserMessage(new string('A', 120));
-        engine.RecordModelResponse([new TextContent(new string('B', 120))]);
-        engine.AddUserMessage(new string('C', 120));
-        engine.RecordModelResponse([new TextContent(new string('D', 120))]);
+        engine.AddUserMessage(new string('A', 40));
+        _ = await engine.PrepareAsync();
+        engine.RecordModelResponse([new TextContent(new string('B', 40))]);
+        _ = await engine.PrepareAsync();
+        engine.AddUserMessage(new string('C', 40));
+        _ = await engine.PrepareAsync();
+        engine.RecordModelResponse([new TextContent(new string('D', 40))]);
 
         var firstBoundary = engine.History.Take(2).ToArray();
 
@@ -479,18 +484,14 @@ public sealed class ConversationContextIntegrationTests
         var first = await engine.PrepareAsync();
         var second = await engine.PrepareAsync();
 
-        engine.AddUserMessage(new string('E', 120));
+        engine.AddUserMessage(new string('E', 40));
         var promoted = await engine.PrepareAsync();
 
         // Assert
-        summarizer.CallCount.Should().Be(2);
+        summarizer.CallCount.Should().Be(1);
         summarizer.Calls[0].Messages.Should().HaveCount(2);
         summarizer.Calls[0].Messages[0].Should().BeSameAs(firstBoundary[0]);
         summarizer.Calls[0].Messages[1].Should().BeSameAs(firstBoundary[1]);
-        summarizer.Calls[1].Messages.Should().HaveCount(3);
-        summarizer.Calls[1].Messages[0].Should().BeSameAs(engine.History[0]);
-        summarizer.Calls[1].Messages[1].Should().BeSameAs(engine.History[1]);
-        summarizer.Calls[1].Messages[2].Should().BeSameAs(engine.History[2]);
 
         first.Messages.Should().HaveCount(3);
         first.Messages[0].Segments.Should().ContainSingle()
@@ -503,12 +504,13 @@ public sealed class ConversationContextIntegrationTests
             .Which.Content.Should().Be("summary-1");
 
         promoted.Outcome.Should().Be(PrepareOutcome.Compacted);
-        promoted.Messages.Should().HaveCount(3);
+        promoted.Messages.Should().HaveCount(4);
         promoted.Messages[0].Segments.Should().ContainSingle()
             .Which.Should().BeOfType<TextContent>()
-            .Which.Content.Should().Be("summary-2");
-        promoted.Messages[1].Should().BeSameAs(engine.History[3]);
-        promoted.Messages[2].Should().BeSameAs(engine.History[4]);
+            .Which.Content.Should().Be("summary-1");
+        promoted.Messages[1].Should().BeSameAs(engine.History[2]);
+        promoted.Messages[2].Should().BeSameAs(engine.History[3]);
+        promoted.Messages[3].Should().BeSameAs(engine.History[4]);
     }
 
     [Fact]
@@ -584,6 +586,48 @@ public sealed class ConversationContextIntegrationTests
         prepared[2].Should().BeSameAs(latestUser);
         prepared[3].Should().BeSameAs(latestModel);
         result.TokensAfterCompaction.Should().BeGreaterThan(budget.MaxTokens);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenSummarizationProtectsToolTurn_ForOpenAIKeepsToolResultPairedWithAssistantToolCall()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer("summary");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage(new string('A', 120));
+        _ = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new TextContent(new string('B', 120))]);
+        _ = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new ToolUseContent("call_1", "search", "{\"query\":\"token guard\"}")]);
+        engine.RecordToolResult("call_1", "search", new string('C', 120));
+        _ = await engine.PrepareAsync();
+
+        engine.AddUserMessage(new string('D', 120));
+
+        // Act
+        var prepared = (await engine.PrepareAsync()).Messages;
+        var openAiMessages = prepared.ForOpenAI();
+
+        // Assert
+        prepared[0].State.Should().Be(CompactionState.Summarized);
+        prepared[0].Role.Should().Be(MessageRole.Model);
+        prepared[1].Role.Should().Be(MessageRole.Model);
+        prepared[2].Role.Should().Be(MessageRole.Tool);
+        prepared[3].Role.Should().Be(MessageRole.User);
+
+        openAiMessages[0].Should().BeOfType<OpenAI.Chat.AssistantChatMessage>();
+        openAiMessages[1].Should().BeOfType<OpenAI.Chat.AssistantChatMessage>();
+        openAiMessages[2].Should().BeOfType<OpenAI.Chat.ToolChatMessage>();
+        openAiMessages[3].Should().BeOfType<OpenAI.Chat.UserChatMessage>();
     }
 
     private sealed class TrackingSummarizer : ILlmSummarizer

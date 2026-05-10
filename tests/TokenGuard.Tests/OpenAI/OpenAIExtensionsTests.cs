@@ -271,6 +271,56 @@ public sealed class OpenAIExtensionsTests
     }
 
     [Fact]
+    public void ForOpenAI_WhenToolResultHasNoPrecedingAssistantToolCall_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            ContextMessage.FromText(MessageRole.Model, "summary"),
+            new ContextMessage
+            {
+                Role = MessageRole.Tool,
+                Segments =
+                [
+                    new ToolResultContent("call_1", "search", "tool result"),
+                ],
+            },
+        ];
+
+        // Act
+        Action act = () => messages.ForOpenAI();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*call_1*");
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenAssistantToolCallIsNotAnsweredBeforeNextUserMessage_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            new ContextMessage
+            {
+                Role = MessageRole.Model,
+                Segments =
+                [
+                    new ToolUseContent("call_1", "search", "{}"),
+                ],
+            },
+            ContextMessage.FromText(MessageRole.User, "continue"),
+        ];
+
+        // Act
+        Action act = () => messages.ForOpenAI();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*matching tool results*");
+    }
+
+    [Fact]
     public void ForOpenAI_WhenMessagesIsNull_ThrowsArgumentNullException()
     {
         // Arrange

@@ -844,7 +844,7 @@ public sealed class ConversationContextTests
         // Arrange
         var budget = new ContextBudget(1000, 0.5, 0.9);
 
-        var summary = ContextMessage.FromText(MessageRole.User, "summary") with { State = CompactionState.Summarized };
+        var summary = ContextMessage.FromText(MessageRole.Model, "summary") with { State = CompactionState.Summarized };
         var protectedTail = ContextMessage.FromText(MessageRole.User, "tail");
         var counter = new TrackingTokenCounter();
 

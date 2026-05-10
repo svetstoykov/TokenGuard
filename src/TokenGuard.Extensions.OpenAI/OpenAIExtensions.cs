@@ -25,26 +25,34 @@ public static class OpenAIExtensions
     /// <param name="messages">The prepared TokenGuard messages.</param>
     /// <returns>A list of OpenAI <see cref="ChatMessage"/> instances ready to pass to <c>CompleteChatAsync</c>.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the prepared history contains unresolved tool calls or orphaned tool results that would produce an
+    /// invalid OpenAI/OpenRouter request.
+    /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when a message has an unrecognized role.</exception>
     public static IReadOnlyList<ChatMessage> ForOpenAI(this IReadOnlyList<ContextMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
 
         List<ChatMessage> result = new(messages.Count);
+        HashSet<string> pendingToolCallIds = [];
 
         foreach (var message in messages)
         {
             switch (message.Role)
             {
                 case MessageRole.System:
+                    EnsureNoPendingToolCalls(message.Role, pendingToolCallIds);
                     result.Add(new SystemChatMessage(ExtractText(message)));
                     break;
 
                 case MessageRole.User:
+                    EnsureNoPendingToolCalls(message.Role, pendingToolCallIds);
                     result.Add(new UserChatMessage(ExtractText(message)));
                     break;
 
                 case MessageRole.Model:
+                    EnsureNoPendingToolCalls(message.Role, pendingToolCallIds);
                     AssistantChatMessage assistant = new(ExtractText(message));
 
                     foreach (var toolUse in message.Segments.OfType<ToolUseContent>())
@@ -55,6 +63,10 @@ public static class OpenAIExtensions
                             BinaryData.FromString(toolUse.Content)));
                     }
 
+                    pendingToolCallIds = assistant.ToolCalls
+                        .Select(static toolCall => toolCall.Id)
+                        .ToHashSet(StringComparer.Ordinal);
+
                     result.Add(assistant);
                     break;
 
@@ -62,7 +74,15 @@ public static class OpenAIExtensions
                     var toolResult = message.Segments.OfType<ToolResultContent>().FirstOrDefault();
 
                     if (toolResult is not null)
+                    {
+                        if (!pendingToolCallIds.Remove(toolResult.ToolCallId))
+                        {
+                            throw new InvalidOperationException(
+                                $"Tool result '{toolResult.ToolCallId}' has no preceding assistant tool call in the prepared history.");
+                        }
+
                         result.Add(new ToolChatMessage(toolResult.ToolCallId, toolResult.Content));
+                    }
 
                     break;
 
@@ -148,4 +168,15 @@ public static class OpenAIExtensions
 
     private static string ExtractText(ContextMessage contextMessage) =>
         contextMessage.Segments.OfType<TextContent>().FirstOrDefault()?.Content ?? string.Empty;
+
+    private static void EnsureNoPendingToolCalls(MessageRole nextRole, IReadOnlyCollection<string> pendingToolCallIds)
+    {
+        if (pendingToolCallIds.Count == 0)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Assistant tool calls must be followed by matching tool results before the next {nextRole} message.");
+    }
 }

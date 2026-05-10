@@ -90,7 +90,7 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Equal(7, summarizer.LastTargetTokens);
 
         var summaryMessage = compacted.Messages[0];
-        Assert.Equal(MessageRole.User, summaryMessage.Role);
+        Assert.Equal(MessageRole.Model, summaryMessage.Role);
         Assert.Equal(CompactionState.Summarized, summaryMessage.State);
         Assert.Equal("summary-text", Assert.IsType<TextContent>(Assert.Single(summaryMessage.Segments)).Content);
 
@@ -131,6 +131,57 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Equal(2, compacted.Messages.Count);
         Assert.Same(keep1, compacted.Messages[0]);
         Assert.Same(keep2, compacted.Messages[1]);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenMessageBoundaryFallsInsideToolSequence_MovesBoundaryToAssistantToolCall()
+    {
+        // Arrange
+        var oldUser = ContextMessage.FromText(MessageRole.User, "old-user");
+        var oldModel = ContextMessage.FromText(MessageRole.Model, "old-model");
+        var toolCall = new ContextMessage
+        {
+            Role = MessageRole.Model,
+            Segments =
+            [
+                new ToolUseContent("call_1", "search", "{\"query\":\"token guard\"}"),
+            ],
+        };
+        var toolResult = new ContextMessage
+        {
+            Role = MessageRole.Tool,
+            Segments =
+            [
+                new ToolResultContent("call_1", "search", "tool output"),
+            ],
+        };
+        var keep = ContextMessage.FromText(MessageRole.User, "keep");
+        var messages = new List<ContextMessage> { oldUser, oldModel, toolCall, toolResult, keep };
+
+        var summarizer = new TrackingSummarizer("summary-text");
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(oldUser, 2);
+        tokenCounter.Set(oldModel, 2);
+        tokenCounter.Set(toolCall, 2);
+        tokenCounter.Set(toolResult, 2);
+        tokenCounter.Set(keep, 2);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 12);
+
+        // Assert
+        Assert.Equal([oldUser, oldModel], summarizer.LastMessages);
+        Assert.Collection(
+            compacted.Messages,
+            summary => Assert.Equal(MessageRole.Model, summary.Role),
+            message => Assert.Same(toolCall, message),
+            message => Assert.Same(toolResult, message),
+            message => Assert.Same(keep, message));
     }
 
     [Fact]

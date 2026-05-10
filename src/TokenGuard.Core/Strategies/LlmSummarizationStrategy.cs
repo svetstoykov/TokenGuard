@@ -91,7 +91,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         cancellationToken.ThrowIfCancellationRequested();
 
         var tokensBefore = CountTokens(messages, this._tokenCounter);
-        var boundary = Math.Max(0, messages.Count - this._options.WindowSize);
+        var boundary = ComputeBoundary(messages, this._options.WindowSize);
 
         if (this._checkpointCoveredCount > 0 && messages.Count < this._checkpointCoveredCount)
         {
@@ -229,6 +229,61 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         return Math.Min(Math.Max(remainingBudget, 1), maxSummaryTokens);
     }
 
+    private static int ComputeBoundary(IReadOnlyList<ContextMessage> messages, int windowSize)
+    {
+        var boundary = Math.Max(0, messages.Count - windowSize);
+        if (boundary == 0)
+        {
+            return 0;
+        }
+
+        if (HasTurnMarkers(messages))
+        {
+            var turn = messages[boundary].Turn;
+            while (boundary > 0 && messages[boundary - 1].Turn == turn)
+            {
+                boundary--;
+            }
+
+            return boundary;
+        }
+
+        return RepairToolBoundary(messages, boundary);
+    }
+
+    private static bool HasTurnMarkers(IReadOnlyList<ContextMessage> messages)
+    {
+        for (var i = 1; i < messages.Count; i++)
+        {
+            if (messages[i - 1].Turn != messages[i].Turn)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int RepairToolBoundary(IReadOnlyList<ContextMessage> messages, int boundary)
+    {
+        if (boundary == 0 || messages[boundary].Role != MessageRole.Tool)
+        {
+            return boundary;
+        }
+
+        while (boundary > 0 && messages[boundary - 1].Role == MessageRole.Tool)
+        {
+            boundary--;
+        }
+
+        if (boundary > 0 && messages[boundary - 1].Role == MessageRole.Model)
+        {
+            return boundary - 1;
+        }
+
+        return 0;
+    }
+
     private static string GetFingerprintContent(ContextMessage message)
     {
         return message.Segments.Count switch
@@ -261,7 +316,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     {
         var messagesToSummarize = messages.Take(boundary).ToArray();
         var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
-        return ContextMessage.FromText(MessageRole.User, summary) with { State = CompactionState.Summarized };
+        return ContextMessage.FromText(MessageRole.Model, summary) with { State = CompactionState.Summarized };
     }
 
     private bool TryGetValidatedCheckpoint(
