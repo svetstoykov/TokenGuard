@@ -1,4 +1,5 @@
 using Codexplorer.Agent;
+using TokenGuard.Core.Options;
 
 namespace Codexplorer.Configuration;
 
@@ -57,6 +58,11 @@ public sealed record CodexplorerOptions
     /// Gets Brave Search settings used by the optional <c>web_search</c> tool.
     /// </summary>
     public BraveSearchOptions? BraveSearch { get; init; } = new();
+
+    /// <summary>
+    /// Gets optional LLM summarization settings used by TokenGuard's fallback compaction stage.
+    /// </summary>
+    public LlmSummarizationSettings? LlmSummarization { get; init; } = new();
 }
 
 /// <summary>
@@ -118,11 +124,6 @@ public sealed record ModelOptions
     /// Gets upper bound for model-generated output tokens.
     /// </summary>
     public int MaxOutputTokens { get; init; } = 2_048;
-
-    /// <summary>
-    /// Gets sampling temperature used for model generation.
-    /// </summary>
-    public double Temperature { get; init; } = 0.0;
 }
 
 /// <summary>
@@ -212,4 +213,42 @@ public sealed record BraveSearchOptions
     /// Gets Brave Search API key used to authenticate web search requests.
     /// </summary>
     public string? ApiKey { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Represents optional LLM summarization settings for Codexplorer's TokenGuard pipeline.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Sliding-window masking remains always active. This section only controls whether Codexplorer adds
+/// TokenGuard's provider-backed fallback summarization stage after masking proves insufficient.
+/// </para>
+/// <para>
+/// Defaults mirror <see cref="TokenGuard.Core.Options.LlmSummarizationOptions.Default"/> so the sample
+/// picks up safe library defaults even when <c>Codexplorer:LlmSummarization</c> is omitted entirely.
+/// Setting <see cref="Enabled"/> to <see langword="false"/> disables provider summarization while leaving
+/// masking behavior unchanged.
+/// </para>
+/// </remarks>
+public sealed record LlmSummarizationSettings
+{
+    /// <summary>
+    /// Gets value indicating whether Codexplorer should register provider-backed LLM summarization.
+    /// </summary>
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>
+    /// Gets exact number of newest messages preserved verbatim when summarization runs.
+    /// </summary>
+    public int WindowSize { get; init; } = LlmSummarizationOptions.Default.WindowSize;
+
+    /// <summary>
+    /// Gets minimum remaining token budget required before Codexplorer issues summarization request.
+    /// </summary>
+    public int MinSummaryTokens { get; init; } = LlmSummarizationOptions.Default.MinSummaryTokens;
+
+    /// <summary>
+    /// Gets maximum token budget passed to summarizer as its target summary size.
+    /// </summary>
+    public int MaxSummaryTokens { get; init; } = LlmSummarizationOptions.Default.MaxSummaryTokens;
 }

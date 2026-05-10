@@ -3,13 +3,11 @@ using Codexplorer.CLI;
 using Codexplorer.Configuration;
 using Codexplorer.Sessions;
 using Codexplorer.Tools;
-using OpenAI;
 using OpenAI.Chat;
 using Microsoft.Extensions.Options;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models.Content;
-using TokenGuard.Extensions.OpenAI;
 using WorkspaceModel = Codexplorer.Workspace.Workspace;
 
 namespace Codexplorer.Agent;
@@ -24,8 +22,6 @@ namespace Codexplorer.Agent;
 /// </remarks>
 internal sealed class ExplorerAgent : IExplorerAgent
 {
-    private static readonly Uri OpenRouterEndpoint = new("https://openrouter.ai/api/v1");
-
     private readonly IConversationContextFactory _conversationContextFactory;
     private readonly ISessionLoggerFactory _sessionLoggerFactory;
     private readonly IToolRegistry _toolRegistry;
@@ -111,26 +107,7 @@ internal sealed class ExplorerAgent : IExplorerAgent
 
     private static ChatClient CreateChatClient(CodexplorerOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
-
-        var openRouterOptions = options.OpenRouter
-            ?? throw new InvalidOperationException("Codexplorer OpenRouter options are not configured.");
-        var modelOptions = options.Model
-            ?? throw new InvalidOperationException("Codexplorer model options are not configured.");
-        var apiKey = openRouterOptions.ApiKey;
-
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new InvalidOperationException("Codexplorer OpenRouter API key is not configured.");
-        }
-
-        var modelName = modelOptions.Name
-            ?? throw new InvalidOperationException("Codexplorer model name is not configured.");
-        var client = new OpenAIClient(
-            new System.ClientModel.ApiKeyCredential(apiKey),
-            new OpenAIClientOptions { Endpoint = OpenRouterEndpoint });
-
-        return client.GetChatClient(modelName);
+        return OpenRouterChatClientFactory.Create(options);
     }
 
     private static ChatTool CreateChatTool(ToolSchema schema)
