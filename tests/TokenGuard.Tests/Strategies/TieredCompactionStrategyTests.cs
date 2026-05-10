@@ -214,7 +214,7 @@ public sealed class TieredCompactionStrategyTests
     }
 
     [Fact]
-    public async Task CompactAsync_WhenSummarizationBudgetBelowMinimum_SkipsCallAndReturnsProtectedTailOnly()
+    public async Task CompactAsync_WhenSummarizationBudgetBelowMinimum_SkipsCallAndReturnsOriginalMessages()
     {
         // Arrange
         var oldest = ContextMessage.FromText(MessageRole.User, "old");
@@ -242,10 +242,11 @@ public sealed class TieredCompactionStrategyTests
         // Assert
         Assert.Equal(0, summarizer.CallCount);
         Assert.Equal(nameof(TieredCompactionStrategy), compacted.StrategyName);
-        Assert.Equal(1, compacted.MessagesAffected);
-        Assert.Equal(2, compacted.Messages.Count);
-        Assert.Same(keep1, compacted.Messages[0]);
-        Assert.Same(keep2, compacted.Messages[1]);
+        Assert.Equal(0, compacted.MessagesAffected);
+        Assert.Equal(3, compacted.Messages.Count);
+        Assert.Same(oldest, compacted.Messages[0]);
+        Assert.Same(keep1, compacted.Messages[1]);
+        Assert.Same(keep2, compacted.Messages[2]);
     }
 
     [Fact]

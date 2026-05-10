@@ -514,10 +514,10 @@ public sealed class ConversationContextIntegrationTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenRemainingBudgetFallsBelowMinSummaryTokens_SkipsSummarizerAndReturnsProtectedTailOnly()
+    public async Task PrepareAsync_WhenRemainingBudgetFallsBelowMinSummaryTokens_SkipsSummarizerAndLetsEmergencyTruncationDropOldestMessage()
     {
         // Arrange
-        var budget = new ContextBudget(maxTokens: 45, compactionThreshold: 0.50);
+        var budget = new ContextBudget(maxTokens: 45, compactionThreshold: 0.50, emergencyThreshold: 1.0);
         var counter = new EstimatedTokenCounter();
         var summarizer = new TrackingSummarizer("unused");
         var strategy = new LlmSummarizationStrategy(

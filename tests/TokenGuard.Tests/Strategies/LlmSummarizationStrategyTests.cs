@@ -101,7 +101,7 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
-    public async Task CompactAsync_WhenRemainingBudgetBelowMinimum_SkipsSummarizationAndReturnsProtectedTailOnly()
+    public async Task CompactAsync_WhenRemainingBudgetBelowMinimum_SkipsSummarizationAndReturnsOriginalMessages()
     {
         // Arrange
         var summarize = ContextMessage.FromText(MessageRole.User, "old");
@@ -125,12 +125,14 @@ public sealed class LlmSummarizationStrategyTests
 
         // Assert
         Assert.Equal(0, summarizer.CallCount);
-        Assert.Equal(1, compacted.MessagesAffected);
+        Assert.Equal(0, compacted.MessagesAffected);
         Assert.Equal(17, compacted.TokensBefore);
-        Assert.Equal(15, compacted.TokensAfter);
-        Assert.Equal(2, compacted.Messages.Count);
-        Assert.Same(keep1, compacted.Messages[0]);
-        Assert.Same(keep2, compacted.Messages[1]);
+        Assert.Equal(17, compacted.TokensAfter);
+        Assert.Same(messages, compacted.Messages);
+        Assert.Equal(3, compacted.Messages.Count);
+        Assert.Same(summarize, compacted.Messages[0]);
+        Assert.Same(keep1, compacted.Messages[1]);
+        Assert.Same(keep2, compacted.Messages[2]);
     }
 
     [Fact]
@@ -185,7 +187,7 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
-    public async Task CompactAsync_RepeatedCallsWithSameMessages_InvokeSummarizerEachTime()
+    public async Task CompactAsync_RepeatedCallsWithSameMessages_ReusesCheckpoint()
     {
         // Arrange
         var messages = new List<ContextMessage>
@@ -368,7 +370,7 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
-    public async Task CompactAsync_TruncatedHistory_InvalidatesCheckpointAndReturnsRawMessages()
+    public async Task CompactAsync_WhenShortHistoryFitsProtectedWindow_ReturnsRawMessagesWithoutUsingCheckpoint()
     {
         // Arrange
         var a = ContextMessage.FromText(MessageRole.User, "A");
@@ -398,10 +400,9 @@ public sealed class LlmSummarizationStrategyTests
         // Assert
         Assert.Equal(1, summarizer.CallCount);
         Assert.Same(truncated, compacted.Messages);
-        var checkpoint = ReadCheckpoint(strategy);
-        Assert.Equal(0, checkpoint.CoveredCount);
-        Assert.Equal(0L, checkpoint.Fingerprint);
-        Assert.Null(checkpoint.Summary);
+        Assert.Equal(4, compacted.TokensBefore);
+        Assert.Equal(4, compacted.TokensAfter);
+        Assert.Equal(0, compacted.MessagesAffected);
     }
 
     [Fact]
@@ -842,15 +843,19 @@ public sealed class LlmSummarizationStrategyTests
     private static (int CoveredCount, long Fingerprint, ContextMessage? Summary) ReadCheckpoint(LlmSummarizationStrategy strategy)
     {
         var strategyType = typeof(LlmSummarizationStrategy);
-        var coveredCount = (int)strategyType
-            .GetField("_checkpointCoveredCount", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .GetValue(strategy)!;
-        var fingerprint = (long)strategyType
-            .GetField("_checkpointPrefixFingerprint", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .GetValue(strategy)!;
-        var summary = (ContextMessage?)strategyType
-            .GetField("_checkpointSyntheticSummary", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+        var checkpoint = strategyType
+            .GetField("_checkpoint", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .GetValue(strategy);
+
+        if (checkpoint is null)
+        {
+            return (0, 0L, null);
+        }
+
+        var checkpointType = checkpoint.GetType();
+        var coveredCount = (int)checkpointType.GetProperty("SummarizedMessageCount")!.GetValue(checkpoint)!;
+        var fingerprint = (long)checkpointType.GetProperty("Fingerprint")!.GetValue(checkpoint)!;
+        var summary = (ContextMessage?)checkpointType.GetProperty("SummaryMessage")!.GetValue(checkpoint);
 
         return (coveredCount, fingerprint, summary);
     }

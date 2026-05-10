@@ -42,7 +42,7 @@ public readonly record struct LlmSummarizationOptions
     /// <param name="windowSize">The exact number of newest messages to preserve verbatim when summarization runs.</param>
     /// <param name="minSummaryTokens">
     /// The minimum remaining token budget required before a summarization request is issued. When the budget falls
-    /// below this value the strategy returns only the protected tail without calling the summarizer.
+    /// below this value the strategy returns the original messages without calling the summarizer.
     /// </param>
     /// <param name="maxSummaryTokens">
     /// The maximum token budget forwarded to the summarizer as a target. The actual target is

@@ -11,7 +11,7 @@ namespace TokenGuard.Core.Strategies;
 /// <remarks>
 /// <para>
 /// <see cref="LlmSummarizationStrategy"/> protects exactly <see cref="LlmSummarizationOptions.WindowSize"/> newest
-/// compactable messages when that many exist. Messages before that boundary are passed verbatim to an injected
+/// compactable messages when that many exist. Messages before the protected tail are passed verbatim to an injected
 /// <see cref="ILlmSummarizer"/>, and the returned summary is inserted at the front of the compacted result.
 /// </para>
 /// <para>
@@ -23,9 +23,9 @@ namespace TokenGuard.Core.Strategies;
 /// <para>
 /// Before invoking the summarizer the strategy computes <c>remainingBudget = availableTokens - protectedTailTokens</c>
 /// and enforces the configured bounds. When <c>remainingBudget</c> is less than
-/// <see cref="LlmSummarizationOptions.MinSummaryTokens"/> summarization is skipped and only the protected tail is
-/// returned. Otherwise the summarizer receives <c>Math.Min(remainingBudget, MaxSummaryTokens)</c> as its target,
-/// ensuring <c>targetTokens</c> is always a positive, bounded value.
+/// <see cref="LlmSummarizationOptions.MinSummaryTokens"/> summarization is skipped and the original messages are
+/// returned unchanged. Otherwise the summarizer receives <c>Math.Min(remainingBudget, MaxSummaryTokens)</c> as its
+/// target, ensuring <c>targetTokens</c> is always a positive, bounded value.
 /// </para>
 /// <para>
 /// Checkpoint reuse is intentionally stateful and sequential. One <see cref="LlmSummarizationStrategy"/> instance is
@@ -37,9 +37,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     private readonly ILlmSummarizer _summarizer;
     private readonly ITokenCounter _tokenCounter;
     private readonly LlmSummarizationOptions _options;
-    private int _checkpointCoveredCount;
-    private long _checkpointPrefixFingerprint;
-    private ContextMessage? _checkpointSyntheticSummary;
+    private SummaryCheckpoint? _checkpoint;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LlmSummarizationStrategy"/> class with default options.
@@ -90,15 +88,14 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         ArgumentNullException.ThrowIfNull(messages);
         cancellationToken.ThrowIfCancellationRequested();
 
+        // Measure the original list first so the result can say how much compaction helped.
         var tokensBefore = CountTokens(messages, this._tokenCounter);
-        var boundary = ComputeBoundary(messages, this._options.WindowSize);
 
-        if (this._checkpointCoveredCount > 0 && messages.Count < this._checkpointCoveredCount)
-        {
-            this.ClearCheckpoint();
-        }
+        // Pick the newest messages that must stay unchanged.
+        var protectedTail = this.GetProtectedTail(messages);
 
-        if (boundary == 0)
+        // Nothing is old enough to summarize, so return the input exactly as it came in.
+        if (protectedTail.FirstIndex == 0)
         {
             return new CompactionResult(
                 messages,
@@ -108,150 +105,231 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
                 nameof(LlmSummarizationStrategy));
         }
 
-        var protectedTailTokens = 0;
-        for (var i = boundary; i < messages.Count; i++)
+        // Use the saved summary when the old part of the conversation has not changed.
+        if (this.TryGetValidCheckpoint(messages, out var checkpoint))
         {
-            protectedTailTokens += messages[i].TokenCount ?? this._tokenCounter.Count(messages[i]);
-        }
-
-        if (this.TryGetValidatedCheckpoint(messages, out var checkpointCoveredCount, out var checkpointSyntheticSummary))
-        {
-            var cachedResult = BuildCompactedMessages(messages, checkpointCoveredCount, checkpointSyntheticSummary);
-            var cachedTokensAfter = CountTokens(cachedResult, this._tokenCounter);
-
-            if (cachedTokensAfter <= availableTokens)
-            {
-                return new CompactionResult(
-                    cachedResult,
-                    tokensBefore,
-                    cachedTokensAfter,
-                    checkpointCoveredCount,
-                    nameof(LlmSummarizationStrategy));
-            }
-
-            var checkpointTargetTokens = ComputeCheckpointTargetTokens(availableTokens - protectedTailTokens, this._options.MaxSummaryTokens);
-
-            if (boundary > checkpointCoveredCount)
-            {
-                var promotedFingerprint = ComputeFingerprint(messages, boundary);
-                var promotedSummaryMessage = await this.SummarizePrefixAsync(messages, boundary, checkpointTargetTokens, cancellationToken);
-                this.SetCheckpoint(boundary, promotedFingerprint, promotedSummaryMessage);
-                return CreateCompactionResult(messages, tokensBefore, boundary, promotedSummaryMessage, this._tokenCounter);
-            }
-
-            var refreshedSummaryMessage = await this.SummarizePrefixAsync(messages, checkpointCoveredCount, checkpointTargetTokens, cancellationToken);
-            this._checkpointSyntheticSummary = refreshedSummaryMessage;
-            return CreateCompactionResult(messages, tokensBefore, checkpointCoveredCount, refreshedSummaryMessage, this._tokenCounter);
-        }
-
-        var remainingBudget = availableTokens - protectedTailTokens;
-
-        if (remainingBudget < this._options.MinSummaryTokens)
-        {
-            var protectedTail = messages.Skip(boundary).ToArray();
-            var tokensAfterSkip = CountTokens(protectedTail, this._tokenCounter);
-
-            return new CompactionResult(
-                protectedTail,
+            return await this.CompactWithCheckpointAsync(
+                messages,
                 tokensBefore,
-                tokensAfterSkip,
-                boundary,
+                availableTokens,
+                protectedTail,
+                checkpoint,
+                cancellationToken);
+        }
+
+        // No saved summary fits this history, so try to create the first one.
+        return await this.CompactWithoutCheckpointAsync(messages, tokensBefore, availableTokens, protectedTail, cancellationToken);
+    }
+
+    /// <summary>
+    /// Finds the newest messages that must stay unchanged and counts their tokens.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The protected tail is the safe part at the end of the conversation. The strategy never rewrites these messages.
+    /// Everything before <see cref="ProtectedTail.FirstIndex"/> can be summarized.
+    /// </para>
+    /// <para>
+    /// This method also counts the tail because later code needs to know how much room is left for a summary.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <returns>The first message in the tail and the number of tokens used by the tail.</returns>
+    private ProtectedTail GetProtectedTail(IReadOnlyList<ContextMessage> messages)
+    {
+        var firstProtectedTailIndex = FindFirstProtectedTailIndex(messages, this._options.WindowSize);
+        var tokenCount = 0;
+
+        for (var i = firstProtectedTailIndex; i < messages.Count; i++)
+        {
+            tokenCount += messages[i].TokenCount ?? this._tokenCounter.Count(messages[i]);
+        }
+
+        return new ProtectedTail(firstProtectedTailIndex, tokenCount);
+    }
+
+    /// <summary>
+    /// Uses a saved summary when the old part of the conversation still matches it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A checkpoint is like a bookmark. It says, "these first messages already became this summary."
+    /// </para>
+    /// <para>
+    /// If that summary plus the newer messages fits, the method reuses it. If more messages became old, it makes a new
+    /// bigger summary. If the old summary is too large, it asks the LLM for a smaller summary of the same old messages.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="tokensBefore">The token count before compaction.</param>
+    /// <param name="availableTokens">The maximum token budget for the compacted result.</param>
+    /// <param name="protectedTail">The tail that must remain verbatim.</param>
+    /// <param name="checkpoint">The validated checkpoint for the current raw prefix.</param>
+    /// <param name="cancellationToken">A token that can cancel the summarization operation.</param>
+    /// <returns>The compacted result built from the checkpoint path.</returns>
+    private async Task<CompactionResult> CompactWithCheckpointAsync(
+        IReadOnlyList<ContextMessage> messages,
+        int tokensBefore,
+        int availableTokens,
+        ProtectedTail protectedTail,
+        SummaryCheckpoint checkpoint,
+        CancellationToken cancellationToken)
+    {
+        // First try the cheapest path: reuse the saved summary and keep the raw tail.
+        var cachedResult = CreateSummaryPlusTail(messages, checkpoint.SummarizedMessageCount, checkpoint.SummaryMessage);
+        var cachedTokensAfter = CountTokens(cachedResult, this._tokenCounter);
+
+        if (cachedTokensAfter <= availableTokens)
+        {
+            return new CompactionResult(
+                cachedResult,
+                tokensBefore,
+                cachedTokensAfter,
+                checkpoint.SummarizedMessageCount,
                 nameof(LlmSummarizationStrategy));
         }
 
-        var targetTokens = Math.Min(remainingBudget, this._options.MaxSummaryTokens);
-        var checkpointFingerprint = ComputeFingerprint(messages, boundary);
-        var summaryMessage = await this.SummarizePrefixAsync(messages, boundary, targetTokens, cancellationToken);
-        this.SetCheckpoint(boundary, checkpointFingerprint, summaryMessage);
+        // Reuse did not fit, so ask for a smaller or newer summary.
+        var targetTokens = ChooseTargetTokensForCheckpointRewrite(
+            availableTokens - protectedTail.TokenCount,
+            this._options.MaxSummaryTokens);
 
-        return CreateCompactionResult(messages, tokensBefore, boundary, summaryMessage, this._tokenCounter);
-    }
-
-    private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)
-    {
-        var count = 0;
-        foreach (var message in messages)
+        // The tail moved forward. More messages are now old, so include them in the next summary.
+        if (protectedTail.FirstIndex > checkpoint.SummarizedMessageCount)
         {
-            count += message.TokenCount ?? tokenCounter.Count(message);
+            var promotedFingerprint = ComputeFingerprint(messages, protectedTail.FirstIndex);
+            var promotedSummaryMessage = await this.SummarizePrefixAsync(
+                messages,
+                protectedTail.FirstIndex,
+                targetTokens,
+                cancellationToken);
+            this.SetCheckpoint(protectedTail.FirstIndex, promotedFingerprint, promotedSummaryMessage);
+            return CreateSummaryResult(
+                messages,
+                tokensBefore,
+                protectedTail.FirstIndex,
+                promotedSummaryMessage,
+                this._tokenCounter);
         }
 
-        return count;
+        // Same old messages, but the saved summary is too large for this budget.
+        var refreshedSummaryMessage = await this.SummarizePrefixAsync(
+            messages,
+            checkpoint.SummarizedMessageCount,
+            targetTokens,
+            cancellationToken);
+        this._checkpoint = checkpoint with { SummaryMessage = refreshedSummaryMessage };
+        return CreateSummaryResult(
+            messages,
+            tokensBefore,
+            checkpoint.SummarizedMessageCount,
+            refreshedSummaryMessage,
+            this._tokenCounter);
     }
 
-    private static CompactionResult CreateCompactionResult(
+    /// <summary>
+    /// Creates the first summary when there is enough room for one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the cold path. The strategy has raw messages only. It must decide whether there is enough room for a new
+    /// summary, then save that summary as the first checkpoint. If there is not enough room, it returns the messages
+    /// unchanged because emergency truncation belongs to <see cref="ConversationContext"/>.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="tokensBefore">The token count before compaction.</param>
+    /// <param name="availableTokens">The maximum token budget for the compacted result.</param>
+    /// <param name="protectedTail">The tail that must remain verbatim.</param>
+    /// <param name="cancellationToken">A token that can cancel the summarization operation.</param>
+    /// <returns>The compacted result built without a prior checkpoint.</returns>
+    private async Task<CompactionResult> CompactWithoutCheckpointAsync(
         IReadOnlyList<ContextMessage> messages,
         int tokensBefore,
-        int summarizedCount,
-        ContextMessage summaryMessage,
-        ITokenCounter tokenCounter)
+        int availableTokens,
+        ProtectedTail protectedTail,
+        CancellationToken cancellationToken)
     {
-        var compactedMessages = BuildCompactedMessages(messages, summarizedCount, summaryMessage);
-        var tokensAfter = CountTokens(compactedMessages, tokenCounter);
+        // The tail must stay unchanged, so only leftover tokens can be used for the summary.
+        var remainingBudget = availableTokens - protectedTail.TokenCount;
 
-        return new CompactionResult(
-            compactedMessages,
+        // Not enough room for a useful first summary. Return the input unchanged.
+        if (remainingBudget < this._options.MinSummaryTokens)
+        {
+            return CreateUnchangedResult(messages, tokensBefore);
+        }
+
+        // Ask for a summary that fits the leftover space and the configured maximum.
+        var targetTokens = Math.Min(remainingBudget, this._options.MaxSummaryTokens);
+        var checkpointFingerprint = ComputeFingerprint(messages, protectedTail.FirstIndex);
+        var summaryMessage = await this.SummarizePrefixAsync(
+            messages,
+            protectedTail.FirstIndex,
+            targetTokens,
+            cancellationToken);
+        this.SetCheckpoint(protectedTail.FirstIndex, checkpointFingerprint, summaryMessage);
+
+        return CreateSummaryResult(
+            messages,
             tokensBefore,
-            tokensAfter,
-            summarizedCount,
-            nameof(LlmSummarizationStrategy));
+            protectedTail.FirstIndex,
+            summaryMessage,
+            this._tokenCounter);
     }
 
-    private static ContextMessage[] BuildCompactedMessages(
-        IReadOnlyList<ContextMessage> messages,
-        int summarizedCount,
-        ContextMessage summaryMessage)
+    /// <summary>
+    /// Finds where the unchanged tail starts.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The returned number is an index. Messages at that index and after it stay unchanged. Messages before it can be
+    /// summarized.
+    /// </para>
+    /// <para>
+    /// <see cref="ConversationContext"/> marks turns, so the method can keep whole turns together. Manually created
+    /// messages often do not have useful turn values, so the method falls back to tool-call repair.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="windowSize">The configured newest-message floor to protect.</param>
+    /// <returns>The first index kept verbatim in the protected tail.</returns>
+    private static int FindFirstProtectedTailIndex(IReadOnlyList<ContextMessage> messages, int windowSize)
     {
-        var result = new ContextMessage[messages.Count - summarizedCount + 1];
-        result[0] = summaryMessage;
-
-        for (var i = summarizedCount; i < messages.Count; i++)
-        {
-            result[(i - summarizedCount) + 1] = messages[i];
-        }
-
-        return result;
-    }
-
-    private static long ComputeFingerprint(IReadOnlyList<ContextMessage> messages, int count)
-    {
-        long fingerprint = 0;
-
-        for (var i = 0; i < count; i++)
-        {
-            fingerprint = HashCode.Combine((int)fingerprint, messages[i].Role, GetFingerprintContent(messages[i]));
-        }
-
-        return fingerprint;
-    }
-
-    private static int ComputeCheckpointTargetTokens(int remainingBudget, int maxSummaryTokens)
-    {
-        return Math.Min(Math.Max(remainingBudget, 1), maxSummaryTokens);
-    }
-
-    private static int ComputeBoundary(IReadOnlyList<ContextMessage> messages, int windowSize)
-    {
-        var boundary = Math.Max(0, messages.Count - windowSize);
-        if (boundary == 0)
+        var firstProtectedTailIndex = Math.Max(0, messages.Count - windowSize);
+        if (firstProtectedTailIndex == 0)
         {
             return 0;
         }
 
-        if (HasTurnMarkers(messages))
+        if (HasRecordedTurnBoundaries(messages))
         {
-            var turn = messages[boundary].Turn;
-            while (boundary > 0 && messages[boundary - 1].Turn == turn)
+            var turn = messages[firstProtectedTailIndex].Turn;
+
+            // WindowSize is a floor; keep whole turns when ConversationContext recorded turn markers.
+            while (firstProtectedTailIndex > 0 && messages[firstProtectedTailIndex - 1].Turn == turn)
             {
-                boundary--;
+                firstProtectedTailIndex--;
             }
 
-            return boundary;
+            return firstProtectedTailIndex;
         }
 
-        return RepairToolBoundary(messages, boundary);
+        // Manual messages may not have reliable Turn markers, so repair only tool-call pairing.
+        return MoveBoundaryBeforeToolCallIfNeeded(messages, firstProtectedTailIndex);
     }
 
-    private static bool HasTurnMarkers(IReadOnlyList<ContextMessage> messages)
+    /// <summary>
+    /// Checks whether messages have real turn numbers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// When every message has the same turn, the strategy treats turn data as missing. This happens often in tests and
+    /// direct strategy calls.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <returns><see langword="true"/> when at least one adjacent message crosses a recorded turn boundary.</returns>
+    private static bool HasRecordedTurnBoundaries(IReadOnlyList<ContextMessage> messages)
     {
         for (var i = 1; i < messages.Count; i++)
         {
@@ -264,26 +342,292 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         return false;
     }
 
-    private static int RepairToolBoundary(IReadOnlyList<ContextMessage> messages, int boundary)
+    /// <summary>
+    /// Moves the tail start before a model tool call when the tail starts on a tool result.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Tool calls and tool results belong together. If the tail starts with a tool result, this method moves the tail
+    /// start backward so the model message that asked for the tool stays with it.
+    /// </para>
+    /// <para>
+    /// If the method cannot find the model tool call, it returns <c>0</c>. That keeps the full history and avoids a bad
+    /// message sequence.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="firstProtectedTailIndex">The first candidate index kept verbatim in the protected tail.</param>
+    /// <returns>The repaired first protected tail index.</returns>
+    private static int MoveBoundaryBeforeToolCallIfNeeded(
+        IReadOnlyList<ContextMessage> messages,
+        int firstProtectedTailIndex)
     {
-        if (boundary == 0 || messages[boundary].Role != MessageRole.Tool)
+        if (firstProtectedTailIndex == 0 || messages[firstProtectedTailIndex].Role != MessageRole.Tool)
         {
-            return boundary;
+            return firstProtectedTailIndex;
         }
 
-        while (boundary > 0 && messages[boundary - 1].Role == MessageRole.Tool)
+        while (firstProtectedTailIndex > 0 && messages[firstProtectedTailIndex - 1].Role == MessageRole.Tool)
         {
-            boundary--;
+            firstProtectedTailIndex--;
         }
 
-        if (boundary > 0 && messages[boundary - 1].Role == MessageRole.Model)
+        if (firstProtectedTailIndex > 0 && messages[firstProtectedTailIndex - 1].Role == MessageRole.Model)
         {
-            return boundary - 1;
+            return firstProtectedTailIndex - 1;
         }
 
+        // Preserve full history when the strategy cannot keep tool-call/tool-result pairing valid.
         return 0;
     }
 
+    /// <summary>
+    /// Returns the saved summary only when it still describes the current old messages.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The fingerprint is the quick check. If the current old messages do not match the saved fingerprint, the saved
+    /// summary may be about the wrong conversation and must be cleared.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="checkpoint">The validated checkpoint when one is available.</param>
+    /// <returns><see langword="true"/> when the current checkpoint can be used for this history.</returns>
+    private bool TryGetValidCheckpoint(IReadOnlyList<ContextMessage> messages, out SummaryCheckpoint checkpoint)
+    {
+        if (this._checkpoint is null)
+        {
+            checkpoint = null!;
+            return false;
+        }
+
+        if (messages.Count < this._checkpoint.SummarizedMessageCount
+            || ComputeFingerprint(messages, this._checkpoint.SummarizedMessageCount) != this._checkpoint.Fingerprint)
+        {
+            this.ClearCheckpoint();
+            checkpoint = null!;
+            return false;
+        }
+
+        checkpoint = this._checkpoint;
+        return true;
+    }
+
+    /// <summary>
+    /// Picks the requested summary size when rewriting a saved checkpoint.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Saved summaries may need repair under heavy pressure. This method allows a target as small as <c>1</c> for that
+    /// repair path. First-time summaries still use <see cref="LlmSummarizationOptions.MinSummaryTokens"/>.
+    /// </para>
+    /// </remarks>
+    /// <param name="remainingBudget">The token budget left after the protected tail.</param>
+    /// <param name="maxSummaryTokens">The configured maximum summary target.</param>
+    /// <returns>The target token count to request from the summarizer.</returns>
+    private static int ChooseTargetTokensForCheckpointRewrite(int remainingBudget, int maxSummaryTokens)
+    {
+        return Math.Min(Math.Max(remainingBudget, 1), maxSummaryTokens);
+    }
+
+    /// <summary>
+    /// Removes the saved summary.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The next compaction cannot reuse old summary state after this runs. It must act like there is no checkpoint.
+    /// </para>
+    /// </remarks>
+    private void ClearCheckpoint()
+    {
+        this._checkpoint = null;
+    }
+
+    /// <summary>
+    /// Saves a summary so a later compaction can reuse it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The saved checkpoint stores how many messages the summary covers, the fingerprint for those messages, and the
+    /// summary message itself.
+    /// </para>
+    /// </remarks>
+    /// <param name="summarizedMessageCount">The number of raw messages covered by the summary.</param>
+    /// <param name="fingerprint">The fingerprint for the covered raw messages.</param>
+    /// <param name="summaryMessage">The summary message returned by the summarizer.</param>
+    private void SetCheckpoint(int summarizedMessageCount, long fingerprint, ContextMessage summaryMessage)
+    {
+        this._checkpoint = new SummaryCheckpoint(summarizedMessageCount, fingerprint, summaryMessage);
+    }
+
+    /// <summary>
+    /// Builds a result that keeps all messages unchanged.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the fallback when there is no room for a first summary. It leaves the full list alone so the caller can
+    /// decide whether emergency truncation should happen.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="tokensBefore">The token count before compaction.</param>
+    /// <returns>A compaction result containing the original message list.</returns>
+    private static CompactionResult CreateUnchangedResult(
+        IReadOnlyList<ContextMessage> messages,
+        int tokensBefore)
+    {
+        return new CompactionResult(
+            messages,
+            tokensBefore,
+            tokensBefore,
+            0,
+            nameof(LlmSummarizationStrategy));
+    }
+
+    /// <summary>
+    /// Builds a result that has one summary followed by the unchanged tail.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the normal successful shape for LLM summarization. Old messages become one summary message. Newer
+    /// messages remain exactly as they were.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="tokensBefore">The token count before compaction.</param>
+    /// <param name="summarizedMessageCount">The number of messages replaced by the summary.</param>
+    /// <param name="summaryMessage">The summary message placed at the front of the result.</param>
+    /// <param name="tokenCounter">The token counter used to count the compacted result.</param>
+    /// <returns>A compaction result containing the summary and unchanged tail.</returns>
+    private static CompactionResult CreateSummaryResult(
+        IReadOnlyList<ContextMessage> messages,
+        int tokensBefore,
+        int summarizedMessageCount,
+        ContextMessage summaryMessage,
+        ITokenCounter tokenCounter)
+    {
+        var compactedMessages = CreateSummaryPlusTail(messages, summarizedMessageCount, summaryMessage);
+        var tokensAfter = CountTokens(compactedMessages, tokenCounter);
+
+        return new CompactionResult(
+            compactedMessages,
+            tokensBefore,
+            tokensAfter,
+            summarizedMessageCount,
+            nameof(LlmSummarizationStrategy));
+    }
+
+    /// <summary>
+    /// Creates the message list made of one summary plus the unchanged tail.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The first item is the summary. Every message after the summarized prefix is copied after it in the same order.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="summarizedMessageCount">The number of messages replaced by the summary.</param>
+    /// <param name="summaryMessage">The summary message placed at the front.</param>
+    /// <returns>The compacted message list.</returns>
+    private static ContextMessage[] CreateSummaryPlusTail(
+        IReadOnlyList<ContextMessage> messages,
+        int summarizedMessageCount,
+        ContextMessage summaryMessage)
+    {
+        var result = new ContextMessage[messages.Count - summarizedMessageCount + 1];
+        result[0] = summaryMessage;
+
+        for (var i = summarizedMessageCount; i < messages.Count; i++)
+        {
+            result[(i - summarizedMessageCount) + 1] = messages[i];
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Asks the LLM to summarize the old prefix and wraps the text in a message.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The summarizer returns text only. This method turns that text into a model message and marks it as summarized so
+    /// callers can tell it is synthetic.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="summarizedMessageCount">The number of messages to send to the summarizer.</param>
+    /// <param name="targetTokens">The requested summary size.</param>
+    /// <param name="cancellationToken">A token that can cancel the summarizer call.</param>
+    /// <returns>The synthetic summary message.</returns>
+    private async Task<ContextMessage> SummarizePrefixAsync(
+        IReadOnlyList<ContextMessage> messages,
+        int summarizedMessageCount,
+        int targetTokens,
+        CancellationToken cancellationToken)
+    {
+        var messagesToSummarize = messages.Take(summarizedMessageCount).ToArray();
+        var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+        return ContextMessage.FromText(MessageRole.Model, summary) with { State = CompactionState.Summarized };
+    }
+
+    /// <summary>
+    /// Counts the tokens in a message list.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Some messages already know their token count. When they do not, this method asks the configured
+    /// <see cref="ITokenCounter"/>.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The messages to count.</param>
+    /// <param name="tokenCounter">The counter used when a message has no cached token count.</param>
+    /// <returns>The total token count.</returns>
+    private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)
+    {
+        var count = 0;
+        foreach (var message in messages)
+        {
+            count += message.TokenCount ?? tokenCounter.Count(message);
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// Creates a small identity value for the old raw messages.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The fingerprint helps decide whether a checkpoint still matches the current conversation. It uses message roles
+    /// and text content because those are the parts the summary depends on.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="count">The number of messages from the start to include.</param>
+    /// <returns>The fingerprint for the requested prefix.</returns>
+    private static long ComputeFingerprint(IReadOnlyList<ContextMessage> messages, int count)
+    {
+        long fingerprint = 0;
+
+        for (var i = 0; i < count; i++)
+        {
+            fingerprint = HashCode.Combine((int)fingerprint, messages[i].Role, GetFingerprintContent(messages[i]));
+        }
+
+        return fingerprint;
+    }
+
+    /// <summary>
+    /// Reads the text used when fingerprinting a message.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A message can have no segments, one segment, or many segments. This method turns those cases into one stable
+    /// string for the fingerprint.
+    /// </para>
+    /// </remarks>
+    /// <param name="message">The message whose content is read.</param>
+    /// <returns>The content string used by <see cref="ComputeFingerprint"/>.</returns>
     private static string GetFingerprintContent(ContextMessage message)
     {
         return message.Segments.Count switch
@@ -292,63 +636,5 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             1 => message.Segments[0].Content,
             _ => string.Join("\n", message.Segments.Select(static segment => segment.Content)),
         };
-    }
-
-    private void ClearCheckpoint()
-    {
-        this._checkpointCoveredCount = 0;
-        this._checkpointPrefixFingerprint = 0;
-        this._checkpointSyntheticSummary = null;
-    }
-
-    private void SetCheckpoint(int coveredCount, long prefixFingerprint, ContextMessage summaryMessage)
-    {
-        this._checkpointCoveredCount = coveredCount;
-        this._checkpointPrefixFingerprint = prefixFingerprint;
-        this._checkpointSyntheticSummary = summaryMessage;
-    }
-
-    private async Task<ContextMessage> SummarizePrefixAsync(
-        IReadOnlyList<ContextMessage> messages,
-        int boundary,
-        int targetTokens,
-        CancellationToken cancellationToken)
-    {
-        var messagesToSummarize = messages.Take(boundary).ToArray();
-        var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
-        return ContextMessage.FromText(MessageRole.Model, summary) with { State = CompactionState.Summarized };
-    }
-
-    private bool TryGetValidatedCheckpoint(
-        IReadOnlyList<ContextMessage> messages,
-        out int coveredCount,
-        out ContextMessage summaryMessage)
-    {
-        coveredCount = 0;
-        summaryMessage = null!;
-
-        if (this._checkpointCoveredCount == 0
-            && this._checkpointPrefixFingerprint == 0
-            && this._checkpointSyntheticSummary is null)
-        {
-            return false;
-        }
-
-        if (this._checkpointCoveredCount <= 0 || this._checkpointSyntheticSummary is null)
-        {
-            this.ClearCheckpoint();
-            return false;
-        }
-
-        if (messages.Count < this._checkpointCoveredCount
-            || ComputeFingerprint(messages, this._checkpointCoveredCount) != this._checkpointPrefixFingerprint)
-        {
-            this.ClearCheckpoint();
-            return false;
-        }
-
-        coveredCount = this._checkpointCoveredCount;
-        summaryMessage = this._checkpointSyntheticSummary;
-        return true;
     }
 }
