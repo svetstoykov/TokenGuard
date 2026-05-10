@@ -22,6 +22,7 @@ public sealed class ConversationSummaryPromptTests
             Transcript uses compact markers to save tokens:
             - Message headers use [index|role] where role is sys, user, model, or tool.
             - Segment prefixes use t: for text, u: for tool use, r: for tool result, and c: for any other content.
+            - Tool use and tool result entries include only tool name and call id. Their raw payloads are intentionally omitted.
             Pinned messages are excluded from the transcript because they are not compactable.
 
             When constructing the summary, try to stick to this template:
@@ -88,8 +89,8 @@ public sealed class ConversationSummaryPromptTests
 
             [2|model]
             t:Investigating summarizer.
-            u:view|call-1|{"path":"src/File.cs"}
-            r:view|call-1|file contents
+            u:view|call-1
+            r:view|call-1
             """;
 
         Assert.Equal(expected, prompt);

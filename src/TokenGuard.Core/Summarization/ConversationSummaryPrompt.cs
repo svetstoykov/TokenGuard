@@ -19,6 +19,7 @@ internal static class ConversationSummaryPrompt
         Transcript uses compact markers to save tokens:
         - Message headers use [index|role] where role is sys, user, model, or tool.
         - Segment prefixes use t: for text, u: for tool use, r: for tool result, and c: for any other content.
+        - Tool use and tool result entries include only tool name and call id. Their raw payloads are intentionally omitted.
         Pinned messages are excluded from the transcript because they are not compactable.
 
         When constructing the summary, try to stick to this template:
@@ -84,17 +85,13 @@ internal static class ConversationSummaryPrompt
                         builder.Append("u:")
                             .Append(toolUse.ToolName)
                             .Append('|')
-                            .Append(toolUse.ToolCallId)
-                            .Append('|')
-                            .AppendLine(toolUse.Content);
+                            .AppendLine(toolUse.ToolCallId);
                         break;
                     case ToolResultContent toolResult:
                         builder.Append("r:")
                             .Append(toolResult.ToolName)
                             .Append('|')
-                            .Append(toolResult.ToolCallId)
-                            .Append('|')
-                            .AppendLine(toolResult.Content);
+                            .AppendLine(toolResult.ToolCallId);
                         break;
                     default:
                         builder.Append("c:")
