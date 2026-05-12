@@ -17,7 +17,12 @@ output when pressure builds, drops the oldest unpinned messages when masking isn
 intact. Integration is one call before each provider request.
 
 ```csharp
+conversationContext.AddUserMessage("Fix this, make no mistake.");
+
+// Applies compaction and prepares messages for the provider
 var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
+
+chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(),
 ```
 
 ---
@@ -27,9 +32,10 @@ var preparedMessages = await conversationContext.PrepareAsync(cancellationToken)
 - **Tracks token growth** across the full turn sequence — user, assistant, tool, system, and pinned messages
 - **Masks stale tool results** using a sliding-window strategy when the conversation crosses a configurable soft
   threshold
-- **Falls back to emergency truncation** when masking alone cannot recover enough budget — drops oldest eligible
-  messages, preserves everything pinned
-- **Pins durable context** that survives both compaction tiers: system prompts, task constraints, repository rules, any
+- **Summarizes old history with your LLM** when masking alone isn't enough — collapses older turns into a compact
+  summary message while keeping recent messages verbatim
+- **Falls back to emergency truncation** as a last resort — drops oldest unpinned messages, preserves everything pinned
+- **Pins durable context** that survives all compaction stages: system prompts, task constraints, repository rules, any
   message you need to live forever
 - **Stays provider-agnostic** in core, with first-class adapter helpers for OpenAI and Anthropic
 - **Integrates in minutes** via `AddConversationContext(...)` and a standard DI factory
@@ -96,6 +102,11 @@ services.AddConversationContext(builder => builder
 ```
 
 Emergency truncation is **on by default at 1.0** (fires only at the absolute token limit as a last-resort safety net).
+When it fires, it **permanently drops the oldest unpinned messages** from the history until the context fits. This is
+intentional: long-running sessions accumulate turns that are no longer relevant, and dropping them keeps the session
+alive rather than crashing or stalling. Without this safety net, a context that masking and summarization could not
+recover would terminate the session entirely.
+
 Override with `WithEmergencyThreshold(0.95)` to trigger earlier, or call `WithoutEmergencyThreshold()` to disable it
 entirely. Disabling is an option, but we advise against it for long-running sessions — the safety net is there precisely
 for the cases where compaction alone is not enough.
@@ -142,15 +153,17 @@ using TokenGuard.Extensions.OpenAI;
 var factory = serviceProvider.GetRequiredService<IConversationContextFactory>();
 using var conversationContext = factory.Create("coding-assistant");
 
+// System messages are always added at the beginning.
 conversationContext.SetSystemPrompt("You are a precise coding assistant.");
+
+// Pinned messages can be added in the beginning as a sort of additional context.
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
 while (true)
 {
     var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
-    var response = await chatClient.CompleteChatAsync(
-        preparedMessages.ForOpenAI(), chatOptions, cancellationToken);
+    var response = await chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(), chatOptions, cancellationToken);
 
     conversationContext.RecordModelResponse(
         response.ResponseSegments(),
@@ -189,14 +202,54 @@ They count against the budget so their cost is always accounted for.
 
 Want architecture detail and trade-offs? Read [How TokenGuard Thinks About Context](docs/deep-dive/context-management.md).
 
-Two ordered tiers:
+Three ordered tiers:
 
 **1. Observation masking.** The sliding-window strategy walks backwards through history and masks tool results outside
 the active window. Recent turns stay intact, structure is preserved, message count doesn't change. This runs first
 whenever the soft threshold is crossed.
 
-**2. Emergency truncation** *(on by default, opt-out with `WithoutEmergencyThreshold()`)*. If the masked payload still
-exceeds the emergency threshold, TokenGuard drops the oldest unpinned messages until it fits.
+**2. LLM summarization** *(opt-in — register with `UseLlmSummarization(...)`)*. If masking still leaves the context
+over budget, TokenGuard calls your LLM to collapse older turns into a compact summary message. The newest messages stay
+verbatim. This stage only runs if you registered a provider.
+
+**3. Emergency truncation** *(on by default, opt-out with `WithoutEmergencyThreshold()`)*. If the context is still
+over budget after all previous stages, TokenGuard drops the oldest unpinned messages until it fits.
+
+---
+
+## LLM summarization
+
+When masking alone isn't enough, TokenGuard can use your LLM to replace older history with a single compact summary.
+The newest messages stay verbatim — only older turns are collapsed. The summary is inserted as a regular message so the
+model always has full context on what came before.
+
+Register it with one extra call on your builder:
+
+```csharp
+// OpenAI — model is inferred from the ChatClient
+builder.UseLlmSummarization(chatClient);
+
+// Anthropic — model must be specified explicitly
+builder.UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest");
+```
+
+Defaults keep the last **5 messages** verbatim and bound the summary to **2 048–4 096 tokens**. Override with
+`LlmSummarizationOptions`:
+
+```csharp
+builder.UseLlmSummarization(chatClient, new LlmSummarizationOptions(
+    windowSize: 5,
+    minSummaryTokens: 1024,
+    maxSummaryTokens: 2048));
+```
+
+| Option | What it controls | Default |
+|---|---|---|
+| `WindowSize` | How many newest messages stay verbatim | 5 |
+| `MinSummaryTokens` | Minimum budget required before summarizing (skips if budget is too small) | 2 048 |
+| `MaxSummaryTokens` | Maximum budget forwarded to the summarizer | 4 096 |
+
+Only one provider per builder. Registering both OpenAI and Anthropic on the same builder throws at startup.
 
 ---
 
@@ -207,8 +260,13 @@ The core has no provider dependency. Adapters handle the conversion in both dire
 **OpenAI**
 
 ```csharp
+
+// In-going messages formatting
 var messages = preparedMessages.ForOpenAI();
-conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+
+// Output from the mode that can be formatted for the ConversationContext
+var formattedOutput = response.ResponseSegments();
+conversationContext.RecordModelResponse(formattedOutput, response.InputTokens());
 ```
 
 Optional LLM summarization addon:
@@ -220,7 +278,10 @@ builder.UseLlmSummarization(chatClient);
 **Anthropic**
 
 ```csharp
+// In-going messages formatting
 var messages = preparedMessages.ForAnthropic();
+
+// Output from the mode that can be formatted for the ConversationContext
 conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
 ```
 
@@ -241,14 +302,9 @@ var factory = new ConversationContextFactory(
     new ConversationConfigBuilder()
         .WithMaxTokens(25_000)
         .WithCompactionThreshold(0.80)
-        .Build())
-    .AddNamed("analysis", new ConversationConfigBuilder()
-        .WithMaxTokens(200_000)
-        .WithCompactionThreshold(0.75)
         .Build());
 
 using var context = factory.Create();
-using var analysisContext = factory.Create("analysis");
 ```
 
 DI is the recommended path. Public factory is manual fallback when you don't want a container.
@@ -300,19 +356,20 @@ dotnet build ./src/Codexplorer.csproj
 
 ---
 
-## Current Status 🚧
+## Current Status
 
 What is current:
 
 - sliding-window observation masking is implemented and usable now
 - masking is implemented for normal pressure, and emergency truncation is **on by default at 1.0** (last-resort safety
   net, disable with `WithoutEmergencyThreshold()`)
-- pinned messages are implemented and survive both compaction tiers
+- LLM summarization compaction is implemented for OpenAI and Anthropic via `UseLlmSummarization(...)`
+- pinned messages are implemented and survive all compaction stages
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available
 - runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`,
   `PrepareAsync(...)`, `RecordModelResponse(...)`, and `RecordToolResult(...)`
+
 What remains planned:
 
-- summarization-based compaction
-- broader multi-strategy pipeline expansion beyond current masking + emergency fallback
+- broader multi-strategy pipeline expansion beyond current masking + summarization + emergency fallback
