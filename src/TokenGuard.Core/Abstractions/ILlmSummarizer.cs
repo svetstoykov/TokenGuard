@@ -13,11 +13,11 @@ namespace TokenGuard.Core.Abstractions;
 /// the conversation.
 /// </para>
 /// <para>
-/// The calling strategy enforces system-wide budget policy before invoking the summarizer: it skips the call
-/// entirely when the remaining budget falls below the configured minimum, and clamps the target to the configured
-/// maximum otherwise. Implementations can therefore assume that <c>targetTokens</c> is always a positive, bounded
-/// value that represents a meaningful upper limit for a viable summary, not a directive to consume all leftover
-/// budget. Producing a smaller summary is acceptable and expected.
+/// The calling strategy enforces system-wide budget policy before invoking the summarizer: first-time summaries are
+/// skipped when the remaining budget falls below the configured minimum, and checkpoint rewrites clamp the target to
+/// the configured <c>[MinSummaryTokens, MaxSummaryTokens]</c> range. Implementations can therefore assume that
+/// <c>targetTokens</c> is always a positive, bounded value that represents a meaningful upper limit for a viable
+/// summary, not a directive to consume all leftover budget. Producing a smaller summary is acceptable and expected.
 /// </para>
 /// </remarks>
 internal interface ILlmSummarizer

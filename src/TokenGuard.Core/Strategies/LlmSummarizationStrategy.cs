@@ -1,6 +1,7 @@
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
+using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Options;
 
 namespace TokenGuard.Core.Strategies;
@@ -22,10 +23,10 @@ namespace TokenGuard.Core.Strategies;
 /// </para>
 /// <para>
 /// Before invoking the summarizer the strategy computes <c>remainingBudget = availableTokens - protectedTailTokens</c>
-/// and enforces the configured bounds. When <c>remainingBudget</c> is less than
+/// and enforces the configured bounds. For first-time summaries, when <c>remainingBudget</c> is less than
 /// <see cref="LlmSummarizationOptions.MinSummaryTokens"/> summarization is skipped and the original messages are
-/// returned unchanged. Otherwise the summarizer receives <c>Math.Min(remainingBudget, MaxSummaryTokens)</c> as its
-/// target, ensuring <c>targetTokens</c> is always a positive, bounded value.
+/// returned unchanged. For checkpoint rewrites, the requested target is clamped into the configured
+/// <c>[MinSummaryTokens, MaxSummaryTokens]</c> range so repair requests never ask the provider for a one-token summary.
 /// </para>
 /// <para>
 /// Checkpoint reuse is intentionally stateful and sequential. One <see cref="LlmSummarizationStrategy"/> instance is
@@ -192,6 +193,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         // Reuse did not fit, so ask for a smaller or newer summary.
         var targetTokens = ChooseTargetTokensForCheckpointRewrite(
             availableTokens - protectedTail.TokenCount,
+            this._options.MinSummaryTokens,
             this._options.MaxSummaryTokens);
 
         // The tail moved forward. More messages are now old, so include them in the next summary.
@@ -418,16 +420,19 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Saved summaries may need repair under heavy pressure. This method allows a target as small as <c>1</c> for that
-    /// repair path. First-time summaries still use <see cref="LlmSummarizationOptions.MinSummaryTokens"/>.
+    /// Saved summaries may need repair under heavy pressure. This method still keeps rewrite requests inside the
+    /// configured <c>[MinSummaryTokens, MaxSummaryTokens]</c> range so the provider never receives an unusably small
+    /// target such as <c>1</c>. First-time summaries still use their own skip-path when the remaining budget falls below
+    /// <see cref="LlmSummarizationOptions.MinSummaryTokens"/>.
     /// </para>
     /// </remarks>
     /// <param name="remainingBudget">The token budget left after the protected tail.</param>
+    /// <param name="minSummaryTokens">The configured minimum summary target.</param>
     /// <param name="maxSummaryTokens">The configured maximum summary target.</param>
     /// <returns>The target token count to request from the summarizer.</returns>
-    private static int ChooseTargetTokensForCheckpointRewrite(int remainingBudget, int maxSummaryTokens)
+    private static int ChooseTargetTokensForCheckpointRewrite(int remainingBudget, int minSummaryTokens, int maxSummaryTokens)
     {
-        return Math.Min(Math.Max(remainingBudget, 1), maxSummaryTokens);
+        return Math.Min(Math.Max(remainingBudget, minSummaryTokens), maxSummaryTokens);
     }
 
     /// <summary>
@@ -598,8 +603,10 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The fingerprint helps decide whether a checkpoint still matches the current conversation. It uses message roles
-    /// and text content because those are the parts the summary depends on.
+    /// The fingerprint helps decide whether a checkpoint still matches the current conversation prefix. Each message
+    /// contributes its role and the full semantic fingerprint of its segments, including segment type, content, and
+    /// tool identity fields where applicable. This ensures that histories that share text content but differ in tool
+    /// call identity produce distinct fingerprints and do not incorrectly reuse a stale summary.
     /// </para>
     /// </remarks>
     /// <param name="messages">The ordered compactable message history.</param>
@@ -611,19 +618,20 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
 
         for (var i = 0; i < count; i++)
         {
-            fingerprint = HashCode.Combine((int)fingerprint, messages[i].Role, GetFingerprintContent(messages[i]));
+            fingerprint = HashCode.Combine(fingerprint, messages[i].Role, GetFingerprintContent(messages[i]));
         }
 
         return fingerprint;
     }
 
     /// <summary>
-    /// Reads the text used when fingerprinting a message.
+    /// Produces a stable fingerprint string for a single message.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A message can have no segments, one segment, or many segments. This method turns those cases into one stable
-    /// string for the fingerprint.
+    /// Each segment contributes its concrete type name, content, and — for tool segments — its call identifier and
+    /// tool name. This prevents histories that share identical text payloads but differ in tool identity from
+    /// producing the same fingerprint.
     /// </para>
     /// </remarks>
     /// <param name="message">The message whose content is read.</param>
@@ -633,8 +641,23 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         return message.Segments.Count switch
         {
             0 => string.Empty,
-            1 => message.Segments[0].Content,
-            _ => string.Join("\n", message.Segments.Select(static segment => segment.Content)),
+            1 => GetSegmentFingerprint(message.Segments[0]),
+            _ => string.Join("\n", message.Segments.Select(static segment => GetSegmentFingerprint(segment))),
+        };
+    }
+
+    /// <summary>
+    /// Produces a stable fingerprint string for a single content segment.
+    /// </summary>
+    /// <param name="segment">The segment to fingerprint.</param>
+    /// <returns>A string encoding the segment type, content, and tool identity fields where present.</returns>
+    private static string GetSegmentFingerprint(ContentSegment segment)
+    {
+        return segment switch
+        {
+            ToolUseContent tool => $"tool_use\n{tool.ToolCallId}\n{tool.ToolName}\n{tool.Content}",
+            ToolResultContent result => $"tool_result\n{result.ToolCallId}\n{result.ToolName}\n{result.Content}",
+            _ => $"{segment.GetType().Name}\n{segment.Content}",
         };
     }
 }

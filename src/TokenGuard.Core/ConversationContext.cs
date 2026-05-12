@@ -144,8 +144,20 @@ public sealed class ConversationContext : IConversationContext
     /// <param name="role">The participant role that produced the message.</param>
     /// <param name="text">The plain-text payload to record.</param>
     /// <remarks>
+    /// <para>
     /// Pinned messages remain at their recorded position and are excluded from compaction and emergency truncation.
     /// Use this API for durable constraints or instructions that should survive regardless of where they appear.
+    /// </para>
+    /// <para>
+    /// Pinned messages are intended for setup-time use, such as system-level instructions, static personas, or
+    /// durable policies added before the conversation begins. Adding a pinned message mid-conversation — after
+    /// unpinned turns have already been recorded — is supported but has a known limitation: when
+    /// <see cref="TokenGuard.Core.Strategies.LlmSummarizationStrategy"/> is active, the summarizer receives only
+    /// the compactable (unpinned) stream and cannot observe pinned message boundaries. A summary produced from
+    /// turns that span a mid-conversation pinned message will be placed before that pinned message in the prepared
+    /// output, even if some of the summarized content originally appeared after it. This limitation is by design
+    /// for the current implementation; a boundary-aware summarization path may be added in a future release.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
     public void AddPinnedMessage(MessageRole role, string text)
@@ -164,8 +176,14 @@ public sealed class ConversationContext : IConversationContext
     /// <param name="role">The participant role that produced the message.</param>
     /// <param name="content">The ordered content segments that make up the pinned message payload.</param>
     /// <remarks>
+    /// <para>
     /// This overload preserves multi-segment message structure while still ensuring the recorded message is never masked
     /// or dropped during later preparation.
+    /// </para>
+    /// <para>
+    /// See the single-segment overload <see cref="AddPinnedMessage(MessageRole, string)"/> for the known limitation
+    /// regarding mid-conversation pinning and LLM summarization ordering.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> contains no segments.</exception>

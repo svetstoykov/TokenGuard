@@ -609,6 +609,39 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_CheckpointRewriteBelowMinimum_ClampsTargetToConfiguredMinimum()
+    {
+        // Arrange
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var b = ContextMessage.FromText(MessageRole.Model, "B");
+        var c = ContextMessage.FromText(MessageRole.User, "C");
+        var d = ContextMessage.FromText(MessageRole.Model, "D");
+
+        var summarizer = new TrackingSummarizer(invocation => Task.FromResult($"summary-{invocation.CallNumber}"));
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(b, 2);
+        tokenCounter.Set(c, 2);
+        tokenCounter.Set(d, 2);
+        tokenCounter.SetByText("summary-1", 6);
+        tokenCounter.SetByText("summary-2", 6);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 10, maxSummaryTokens: 100));
+
+        // Act
+        _ = await strategy.CompactAsync([a, b, c, d], 20);
+        _ = await strategy.CompactAsync([a, b, c, d], 4);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Equal([a, b], summarizer.Calls[1].Messages);
+        Assert.Equal(10, summarizer.Calls[1].TargetTokens);
+    }
+
+    [Fact]
     public async Task CompactAsync_MessageWithNullContent_ComputesFingerprintWithoutThrowing()
     {
         // Arrange
