@@ -617,10 +617,15 @@ public sealed class ConversationContext : IConversationContext
         if (newestUnpinnedIndex < 0)
             return prepared.Count;
 
-        var floorStartIndex = newestUnpinnedIndex;
+        var floorStartIndex = this.RepairPreservedFloorStartIndex(prepared, newestUnpinnedIndex);
 
-        // If last message was not a Model message, we should just return it.
-        if (prepared[newestUnpinnedIndex].Role != MessageRole.Model) return floorStartIndex;
+        // Tool-result tails must preserve their originating model turn, but they do not also force
+        // the preceding user message to remain in the irreducible floor.
+        if (floorStartIndex != newestUnpinnedIndex)
+            return floorStartIndex;
+
+        if (prepared[newestUnpinnedIndex].Role != MessageRole.Model)
+            return floorStartIndex;
 
         // Otherwise the conversation ends with a model reply, preserve the triggering user turn too.
         for (var i = newestUnpinnedIndex - 1; i >= 0; i--)
@@ -632,6 +637,58 @@ public sealed class ConversationContext : IConversationContext
                 floorStartIndex = i;
 
             break;
+        }
+
+        return floorStartIndex;
+    }
+
+    /// <summary>
+    /// Repairs the preserved-floor start so emergency truncation never begins inside a trailing
+    /// tool-result tail without the model message that produced it.
+    /// </summary>
+    /// <param name="prepared">The prepared message list produced for the next provider call.</param>
+    /// <param name="newestUnpinnedIndex">The newest unpinned message index in <paramref name="prepared"/>.</param>
+    /// <returns>
+    /// The repaired floor start index. This equals <paramref name="newestUnpinnedIndex"/> when no
+    /// repair is needed.
+    /// </returns>
+    private int RepairPreservedFloorStartIndex(IReadOnlyList<ContextMessage> prepared, int newestUnpinnedIndex)
+    {
+        if (prepared[newestUnpinnedIndex].Role != MessageRole.Tool)
+            return newestUnpinnedIndex;
+
+        var newestMessage = prepared[newestUnpinnedIndex];
+        var turn = newestMessage.Turn;
+        var requiredToolCallIds = new HashSet<string>(
+            newestMessage.Segments
+                .OfType<ToolResultContent>()
+                .Select(static segment => segment.ToolCallId),
+            StringComparer.Ordinal);
+
+        var floorStartIndex = newestUnpinnedIndex;
+
+        for (var i = newestUnpinnedIndex - 1; i >= 0; i--)
+        {
+            var message = prepared[i];
+            if (message.IsPinned || message.Turn != turn)
+                break;
+
+            floorStartIndex = i;
+
+            foreach (var toolResult in message.Segments.OfType<ToolResultContent>())
+            {
+                requiredToolCallIds.Add(toolResult.ToolCallId);
+            }
+
+            if (message.Role != MessageRole.Model)
+                continue;
+
+            var toolCallIds = message.Segments
+                .OfType<ToolUseContent>()
+                .Select(static segment => segment.ToolCallId);
+
+            if (requiredToolCallIds.IsSubsetOf(toolCallIds))
+                return i;
         }
 
         return floorStartIndex;

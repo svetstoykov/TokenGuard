@@ -1,4 +1,5 @@
 using FluentAssertions;
+using OpenAI.Chat;
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Options;
@@ -327,6 +328,37 @@ public sealed class ConversationContextIntegrationTests
                 m.Role == MessageRole.Tool &&
                 m.Segments.OfType<ToolResultContent>().Any(r => r.ToolCallId == "call_1"),
             because: "the tool result paired with the dropped model turn must be removed atomically — leaving it orphaned produces a malformed message sequence that providers reject with HTTP 400");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationHitsTrailingToolResult_PreservesAssistantToolCallPair()
+    {
+        // Arrange
+        // The tool-call arguments are intentionally large enough that dropping only the model message
+        // would satisfy the emergency budget and expose the orphaned tool-result bug.
+        var budget = new ContextBudget(maxTokens: 120, compactionThreshold: 0.50, emergencyThreshold: 0.60);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.10));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.RecordModelResponse([new ToolUseContent("call_1", "search", $"{{\"query\":\"{new string('Q', 600)}\"}}")]);
+        engine.RecordToolResult("call_1", "search", "ok");
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+        var openAiMessages = prepared.ForOpenAI();
+
+        // Assert
+        prepared.Should().HaveCount(2,
+            because: "the preserved emergency floor must widen to keep the assistant tool call paired with its tool result");
+        prepared[0].Role.Should().Be(MessageRole.Model);
+        prepared[1].Role.Should().Be(MessageRole.Tool);
+
+        openAiMessages.Should().HaveCount(2);
+        openAiMessages[0].Should().BeOfType<AssistantChatMessage>();
+        openAiMessages[1].Should().BeOfType<ToolChatMessage>();
+        openAiMessages[1].As<ToolChatMessage>().ToolCallId.Should().Be("call_1");
     }
 
     [Fact]

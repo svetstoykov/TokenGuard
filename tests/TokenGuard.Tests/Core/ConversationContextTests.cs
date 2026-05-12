@@ -1,10 +1,12 @@
 using FluentAssertions;
+using OpenAI.Chat;
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Exceptions;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
+using TokenGuard.Extensions.OpenAI;
 
 namespace TokenGuard.Tests.Core;
 
@@ -470,6 +472,91 @@ public sealed class ConversationContextTests
         prepared.Should().NotContain(oldUserMessage);
         prepared.Should().NotContain(oldModelMessage);
         prepared.Should().NotContain(oldToolMessage);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyFloorWouldStartInsideMultiToolTail_PreservesWholeToolTurnAndStaysOpenAiValid()
+    {
+        // Arrange
+        var budget = new ContextBudget(1_000, 0.5, 0.6);
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("seed", 700);
+
+        var olderUser = ContextMessage.FromText(MessageRole.User, "older-user");
+        olderUser.Turn = 0;
+
+        var olderModel = ContextMessage.FromText(MessageRole.Model, "older-model");
+        olderModel.Turn = 1;
+
+        var trailingModel = new ContextMessage
+        {
+            Role = MessageRole.Model,
+            Turn = 2,
+            Segments =
+            [
+                new ToolUseContent("call_masked", "search", "{\"query\":\"token guard\"}"),
+                new ToolUseContent("call_live", "fetch", "{\"id\":42}"),
+            ],
+        };
+
+        var maskedToolResult = new ContextMessage
+        {
+            Role = MessageRole.Tool,
+            Turn = 2,
+            State = CompactionState.Masked,
+            Segments =
+            [
+                new ToolResultContent("call_masked", "search", "[Tool result cleared - search, call_masked]"),
+            ],
+        };
+
+        var liveToolResult = new ContextMessage
+        {
+            Role = MessageRole.Tool,
+            Turn = 2,
+            Segments =
+            [
+                new ToolResultContent("call_live", "fetch", "{\"value\":42}"),
+            ],
+        };
+
+        counter.Set(olderUser, 25);
+        counter.Set(olderModel, 25);
+        counter.Set(trailingModel, 250);
+        counter.Set(maskedToolResult, 200);
+        counter.Set(liveToolResult, 200);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult(
+            [olderUser, olderModel, trailingModel, maskedToolResult, liveToolResult],
+            700,
+            700,
+            5,
+            "TestStrategy"));
+
+        var engine = new ConversationContext(budget, counter, strategy);
+        engine.AddUserMessage("seed");
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+        var openAiMessages = prepared.ForOpenAI();
+
+        // Assert
+        result.MessagesDropped.Should().Be(2);
+        prepared.Should().Equal(trailingModel, maskedToolResult, liveToolResult);
+        prepared.Should().NotContain(olderUser);
+        prepared.Should().NotContain(olderModel);
+
+        openAiMessages.Should().HaveCount(3);
+        openAiMessages[0].Should().BeOfType<AssistantChatMessage>();
+        openAiMessages[1].Should().BeOfType<ToolChatMessage>();
+        openAiMessages[2].Should().BeOfType<ToolChatMessage>();
+
+        openAiMessages
+            .OfType<ToolChatMessage>()
+            .Select(message => message.ToolCallId)
+            .Should()
+            .Equal("call_masked", "call_live");
     }
 
     [Fact]
