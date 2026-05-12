@@ -115,8 +115,6 @@ public sealed class ConversationContextFactory : IConversationContextFactory
         return CreateContext(config);
     }
 
-    internal IEnumerable<KeyValuePair<string, ConversationContextConfiguration>> NamedConfigurations => this._named;
-
     private static ConversationContext CreateContext(ConversationContextConfiguration config)
     {
         var counter = new EstimatedTokenCounter();

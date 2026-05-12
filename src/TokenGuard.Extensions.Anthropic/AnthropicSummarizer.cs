@@ -10,14 +10,22 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
 {
     private readonly AnthropicClient _client;
     private readonly string _model;
+    private readonly IConversationSummaryFormatter _formatter;
 
     public AnthropicSummarizer(AnthropicClient client, string model)
+        : this(client, model, ConversationSummaryFormatter.Default)
+    {
+    }
+
+    internal AnthropicSummarizer(AnthropicClient client, string model, IConversationSummaryFormatter formatter)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
+        ArgumentNullException.ThrowIfNull(formatter);
 
         this._client = client;
         this._model = model;
+        this._formatter = formatter;
     }
 
     public async Task<string> SummarizeAsync(
@@ -53,7 +61,7 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                             [
                                 new TextBlockParam
                                 {
-                                    Text = ConversationSummaryPrompt.BuildUserPrompt(messages, targetTokens),
+                                    Text = this._formatter.BuildUserPrompt(messages, targetTokens),
                                 },
                             ]),
                         },

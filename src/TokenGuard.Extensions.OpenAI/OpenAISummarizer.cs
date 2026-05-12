@@ -8,11 +8,20 @@ namespace TokenGuard.Extensions.OpenAI;
 internal sealed class OpenAISummarizer : ILlmSummarizer
 {
     private readonly ChatClient _client;
+    private readonly IConversationSummaryFormatter _formatter;
 
     public OpenAISummarizer(ChatClient client)
+        : this(client, ConversationSummaryFormatter.Default)
+    {
+    }
+
+    internal OpenAISummarizer(ChatClient client, IConversationSummaryFormatter formatter)
     {
         ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(formatter);
+
         this._client = client;
+        this._formatter = formatter;
     }
 
     public async Task<string> SummarizeAsync(
@@ -30,7 +39,7 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
         var completion = (await this._client.CompleteChatAsync(
                 [
                     new SystemChatMessage(ConversationSummaryPrompt.SystemPrompt),
-                    new UserChatMessage(ConversationSummaryPrompt.BuildUserPrompt(messages, targetTokens)),
+                    new UserChatMessage(this._formatter.BuildUserPrompt(messages, targetTokens)),
                 ],
                 new ChatCompletionOptions
                 {

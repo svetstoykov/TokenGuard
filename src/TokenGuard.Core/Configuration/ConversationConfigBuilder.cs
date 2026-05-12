@@ -22,7 +22,7 @@ namespace TokenGuard.Core.Configuration;
 ///         uses <see cref="TieredCompactionStrategy"/> with sliding-window masking and an optional provider-backed
 ///         summarization stage.
 ///     </para>
-    /// </remarks>
+/// </remarks>
 public sealed class ConversationConfigBuilder
 {
     private int? _maxTokens;
@@ -33,6 +33,7 @@ public sealed class ConversationConfigBuilder
     private Func<ILlmSummarizer>? _llmSummarizerFactory;
     private LlmSummarizationOptions? _llmSummarizationOptions;
     private string? _llmSummarizationProviderName;
+
     /// <summary>
     ///     Creates a <see cref="ConversationContextConfiguration"/> using the default builder configuration.
     /// </summary>
@@ -42,7 +43,7 @@ public sealed class ConversationConfigBuilder
     ///     the resulting configuration uses the library default profile: 25,000 tokens, a 0.80 compaction
     ///     threshold, no emergency truncation, TokenGuard's built-in heuristic token counting, and
     ///     <see cref="TieredCompactionStrategy"/> with <see cref="SlidingWindowOptions.Default"/> and no LLM stage.
-/// </remarks>
+    /// </remarks>
     /// <param name="maxTokens">
     ///     The maximum number of tokens allowed in the conversation. Defaults to 25,000 when omitted.
     /// </param>
