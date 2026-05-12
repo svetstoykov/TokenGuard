@@ -398,8 +398,8 @@ public sealed class ConversationContext : IConversationContext
         this._anchorCorrection = 0;
 
         var outcome = this.DetermineOutcome(finalTokens, messagesCompacted);
-        var degradationReason = outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted
-            ? this.BuildDegradationReason(outcome, finalTokens, messagesCompacted)
+        var budgetFailureReason = outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact
+            ? this.BuildBudgetFailureReason(outcome, finalTokens, messagesCompacted)
             : null;
 
         return new PrepareResult(
@@ -408,7 +408,7 @@ public sealed class ConversationContext : IConversationContext
             totalBeforeCompaction,
             finalTokens,
             messagesCompacted,
-            degradationReason,
+            budgetFailureReason,
             emergencyMessagesDropped);
     }
 
@@ -426,23 +426,23 @@ public sealed class ConversationContext : IConversationContext
         }
 
         return messagesCompacted == 0
-            ? PrepareOutcome.ContextExhausted
-            : PrepareOutcome.Degraded;
+            ? PrepareOutcome.CannotCompact
+            : PrepareOutcome.CompactionInsufficient;
     }
 
     /// <summary>
-    /// Builds the diagnostic message returned for degraded and exhausted outcomes.
+    /// Builds the diagnostic message returned for over-budget outcomes.
     /// </summary>
     /// <param name="outcome">The outcome that requires a diagnostic explanation.</param>
     /// <param name="finalTokens">The final token total after preparation.</param>
     /// <param name="messagesCompacted">The number of messages affected during preparation.</param>
     /// <returns>A stable diagnostic string describing why the prepared payload is still over budget.</returns>
-    private string BuildDegradationReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted)
+    private string BuildBudgetFailureReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted)
     {
         var effectiveMax = (long)this._budget.MaxTokens + this._budget.OverrunToleranceTokens;
-        return outcome == PrepareOutcome.ContextExhausted
-            ? $"A single message or structural content exceeds the budget ({finalTokens} tokens > {effectiveMax} max). Compaction is impossible."
-            : $"Compaction reduced content but still exceeds budget ({finalTokens} tokens > {effectiveMax} max). {messagesCompacted} messages were compacted but insufficient.";
+        return outcome == PrepareOutcome.CannotCompact
+            ? $"Prepared request cannot fit within budget because a single message or preserved content exceeds the limit ({finalTokens} tokens > {effectiveMax} max). Further compaction is impossible."
+            : $"Compaction ran but prepared request still exceeds budget ({finalTokens} tokens > {effectiveMax} max). {messagesCompacted} messages were compacted or dropped, but that was insufficient.";
     }
 
     /// <summary>

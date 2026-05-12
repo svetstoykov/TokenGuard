@@ -18,7 +18,7 @@ namespace TokenGuard.Core.Models;
 /// <c>1.0</c>, which fires only when the context reaches the absolute token limit and acts as a last-resort safety
 /// net. When <see cref="EmergencyThreshold"/> is explicitly set to <see langword="null"/> the runtime never
 /// applies the emergency pass; a conversation that the configured compaction strategy cannot bring within budget
-/// will instead surface a degraded or exhausted <see cref="Enums.PrepareOutcome"/>. The raw
+/// will instead surface a budget failure <see cref="Enums.PrepareOutcome"/>. The raw
 /// <see cref="ContextBudget"/> constructor defaults <c>emergencyThreshold</c> to <see langword="null"/> for
 /// callers that build budgets directly without the library defaults.
 /// </para>
@@ -83,7 +83,7 @@ public readonly record struct ContextBudget
     /// <para>
     /// When <see langword="null"/>, the runtime skips the emergency pass entirely after the primary compaction strategy
     /// runs. A conversation that still exceeds the budget at that point surfaces as
-    /// <see cref="Enums.PrepareOutcome.Degraded"/> or <see cref="Enums.PrepareOutcome.ContextExhausted"/> instead of
+    /// <see cref="Enums.PrepareOutcome.CompactionInsufficient"/> or <see cref="Enums.PrepareOutcome.CannotCompact"/> instead of
     /// having messages silently dropped. Disable it by calling
     /// <see cref="Configuration.ConversationConfigBuilder.WithoutEmergencyThreshold"/> on the builder.
     /// </para>
@@ -97,7 +97,7 @@ public readonly record struct ContextBudget
     /// <para>
     /// When non-zero, <see cref="ConversationContext.PrepareAsync"/> accepts a result whose estimated token total
     /// falls between <see cref="MaxTokens"/> and <c>MaxTokens + <see cref="OverrunToleranceTokens"/></c> inclusive,
-    /// returning <see cref="Enums.PrepareOutcome.Compacted"/> rather than <see cref="Enums.PrepareOutcome.Degraded"/>.
+    /// returning <see cref="Enums.PrepareOutcome.Compacted"/> rather than <see cref="Enums.PrepareOutcome.CompactionInsufficient"/>.
     /// This is useful when the token estimator is known to have small systematic overestimates for a given provider.
     /// </para>
     /// <para>

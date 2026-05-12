@@ -72,10 +72,10 @@ internal sealed class QueryScreen : IScreen
                     await Task.Delay(400, CancellationToken.None).ConfigureAwait(false);
                     return new GoToMenu();
 
-                case AgentExchangeDegraded degraded:
+                case AgentExchangeBudgetExceeded budgetExceeded:
                     this._console.Write(DegradationNotice.RenderWarning(
-                        "Session Degraded",
-                        degraded.Reason,
+                        "Session Over Budget",
+                        budgetExceeded.Reason,
                         session.LogFilePath,
                         CodexplorerTheme.Default));
                     this._console.WriteLine();

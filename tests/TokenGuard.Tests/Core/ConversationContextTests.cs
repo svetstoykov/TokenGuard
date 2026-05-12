@@ -958,9 +958,9 @@ public sealed class ConversationContextTests
         result.Messages.Should().ContainInOrder(summary, protectedTail);
         result.MessagesDropped.Should().Be(0);
         result.MessagesCompacted.Should().Be(3);
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.TokensAfterCompaction.Should().Be(1100);
-        result.DegradationReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().NotBeNull();
 
     }
 
@@ -995,7 +995,7 @@ public sealed class ConversationContextTests
         prepared.Should().HaveCount(2);
         prepared.Should().ContainInOrder(systemMessage, latestUser);
         prepared.Sum(message => message.TokenCount ?? 0).Should().Be(1100);
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.MessagesDropped.Should().Be(2);
     }
 
@@ -1105,7 +1105,7 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenEmergencyTruncationLeavesRawTotalOverBudgetButAdjustedTotalFits_DoesNotReportDegraded()
+    public async Task PrepareAsync_WhenEmergencyTruncationLeavesRawTotalOverBudgetButAdjustedTotalFits_DoesNotReportCompactionInsufficient()
     {
         var budget = new ContextBudget(1_000, 0.5, 1.0);
         var counter = new TrackingTokenCounter();
@@ -1143,7 +1143,7 @@ public sealed class ConversationContextTests
 
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
         result.TokensAfterCompaction.Should().Be(950);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
         result.MessagesDropped.Should().Be(1);
         result.Messages.Should().Equal(keepMiddle, keepLatest);
     }
@@ -1170,7 +1170,7 @@ public sealed class ConversationContextTests
         result.TokensBeforeCompaction.Should().Be(100);
         result.TokensAfterCompaction.Should().Be(100);
         result.MessagesCompacted.Should().Be(0);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
         result.MessagesDropped.Should().Be(0);
         result.Messages.Should().BeSameAs(engine.History);
     }
@@ -1195,13 +1195,13 @@ public sealed class ConversationContextTests
         result.TokensBeforeCompaction.Should().Be(900);
         result.TokensAfterCompaction.Should().Be(400);
         result.MessagesCompacted.Should().Be(1);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
         result.MessagesDropped.Should().Be(0);
         result.Messages.Should().ContainSingle().Which.Should().BeSameAs(compacted);
     }
 
     [Fact]
-    public async Task PrepareAsync_OutcomeDegraded_WhenCompactionStillExceedsBudget()
+    public async Task PrepareAsync_OutcomeCompactionInsufficient_WhenCompactionStillExceedsBudget()
     {
         var compacted = ContextMessage.FromText(MessageRole.Model, "still-too-large");
         var counter = new TrackingTokenCounter();
@@ -1216,17 +1216,17 @@ public sealed class ConversationContextTests
 
         var result = await engine.PrepareAsync();
 
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.TokensBeforeCompaction.Should().Be(900);
         result.TokensAfterCompaction.Should().Be(1100);
         result.MessagesCompacted.Should().Be(1);
-        result.DegradationReason.Should().NotBeNull();
-        result.DegradationReason.Should().Contain("Compaction reduced content");
+        result.BudgetFailureReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().Contain("Compaction ran but prepared request still exceeds budget");
         result.MessagesDropped.Should().Be(0);
     }
 
     [Fact]
-    public async Task PrepareAsync_OutcomeContextExhausted_WhenSingleMessageExceedsBudget()
+    public async Task PrepareAsync_OutcomeCannotCompact_WhenSingleMessageExceedsBudget()
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
@@ -1237,18 +1237,18 @@ public sealed class ConversationContextTests
 
         var result = await engine.PrepareAsync();
 
-        result.Outcome.Should().Be(PrepareOutcome.ContextExhausted);
+        result.Outcome.Should().Be(PrepareOutcome.CannotCompact);
         result.TokensBeforeCompaction.Should().Be(1500);
         result.TokensAfterCompaction.Should().Be(1500);
         result.MessagesCompacted.Should().Be(0);
-        result.DegradationReason.Should().NotBeNull();
-        result.DegradationReason.Should().Contain("exceeds the budget");
+        result.BudgetFailureReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().Contain("cannot fit within budget");
         result.MessagesDropped.Should().Be(0);
         result.Messages.Should().ContainSingle();
     }
 
     [Fact]
-    public async Task PrepareAsync_OutcomeDegraded_WithPinnedMessages_WhenTruncationInsufficient()
+    public async Task PrepareAsync_OutcomeCompactionInsufficient_WithPinnedMessages_WhenTruncationInsufficient()
     {
         var compacted = ContextMessage.FromText(MessageRole.Model, "compacted-still-large");
         var counter = new TrackingTokenCounter();
@@ -1265,14 +1265,14 @@ public sealed class ConversationContextTests
 
         var result = await engine.PrepareAsync();
 
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.TokensBeforeCompaction.Should().Be(950);
         result.MessagesCompacted.Should().BeGreaterThanOrEqualTo(1);
-        result.DegradationReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().NotBeNull();
     }
 
     [Fact]
-    public async Task PrepareAsync_WithZeroTolerance_ReportsDegraded_WhenFinalTokensExceedBudget()
+    public async Task PrepareAsync_WithZeroTolerance_ReportsCompactionInsufficient_WhenFinalTokensExceedBudget()
     {
         // Arrange — budget with explicit zero tolerance; compaction still leaves 1 token above max.
         var compacted = ContextMessage.FromText(MessageRole.Model, "still-over");
@@ -1291,9 +1291,9 @@ public sealed class ConversationContextTests
         var result = await engine.PrepareAsync();
 
         // Assert
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.TokensAfterCompaction.Should().Be(1_001);
-        result.DegradationReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().NotBeNull();
     }
 
     [Fact]
@@ -1315,14 +1315,14 @@ public sealed class ConversationContextTests
         // Act
         var result = await engine.PrepareAsync();
 
-        // Assert — 1050 <= 1000 + 100 → accepted as Compacted, not Degraded
+        // Assert — 1050 <= 1000 + 100 → accepted as Compacted, not CompactionInsufficient
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
         result.TokensAfterCompaction.Should().Be(1_050);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
     }
 
     [Fact]
-    public async Task PrepareAsync_WithPositiveTolerance_ReportsDegraded_WhenFinalTokensExceedBudgetPlusTolerance()
+    public async Task PrepareAsync_WithPositiveTolerance_ReportsCompactionInsufficient_WhenFinalTokensExceedBudgetPlusTolerance()
     {
         // Arrange — tolerance of 10% (100 tokens on a 1000-token budget); compaction leaves 101 tokens above max, which exceeds tolerance.
         var compacted = ContextMessage.FromText(MessageRole.Model, "outside-tolerance");
@@ -1340,10 +1340,10 @@ public sealed class ConversationContextTests
         // Act
         var result = await engine.PrepareAsync();
 
-        // Assert — 1101 > 1000 + 100 → still Degraded
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        // Assert — 1101 > 1000 + 100 → still CompactionInsufficient
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.TokensAfterCompaction.Should().Be(1_101);
-        result.DegradationReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().NotBeNull();
     }
 
     [Fact]
@@ -1368,7 +1368,7 @@ public sealed class ConversationContextTests
         // Assert — 1000 <= 1000 → Compacted (same as before tolerance was introduced)
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
         result.TokensAfterCompaction.Should().Be(1_000);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
     }
 
     private static string GetText(ContextMessage message)

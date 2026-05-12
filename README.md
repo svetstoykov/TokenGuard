@@ -44,41 +44,30 @@ chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(),
 
 ## Benchmark
 
-A 22-turn tool-heavy session from [`samples/Codexplorer`](samples/Codexplorer), a simple coding agent, run under a
-20,000-token budget.
+TokenGuard was benchmarked with Codexplorer across 20 real repository-analysis tasks from
+[`samples/Codexplorer.Automation/src/tasks/initial-corpus.json`](samples/Codexplorer.Automation/src/tasks/initial-corpus.json).
+The corpus spans small, medium, and large tasks, with observed runs ranging from roughly 30 to 100+ turns.
 
-> **~160,000 tokens saved. 39% cost reduction.**
+> **All 20 tasks completed successfully. TokenGuard cut cumulative prompt volume by 87.4% and prevented every context-window failure.**
 
-|                         | Without TokenGuard |                With TokenGuard |
-|-------------------------|-------------------:|-------------------------------:|
-| Cumulative input tokens |            407,560 |                    **247,357** |
-| Peak context size       |      34,394 tokens |              **19,124 tokens** |
-| Billing reduction       |                    | **39.3% (~160K tokens saved)** |
+| Benchmark setup | Value |
+|---|---|
+| Workload | 20 Codexplorer tasks across mixed difficulty levels |
+| Session length | Roughly 30-100+ turns observed |
+| Model | `openai/gpt-5.4-nano` |
+| Context budget | 20,000 tokens |
+| Soft threshold | 16,000 tokens (80%) |
+| Hard cap | 20,000 tokens |
+| Total turns | 1,324 |
 
-Three compaction events kept the session alive and affordable:
-
-| Turn | Before compaction | After compaction | Reduction |
-|-----:|------------------:|-----------------:|----------:|
-|    6 |     16,736 tokens |    16,209 tokens |      3.1% |
-|    9 |     17,926 tokens |     8,260 tokens | **53.9%** |
-|   18 |     32,822 tokens |    19,124 tokens | **41.7%** |
-
-Without TokenGuard, the session would have crashed the context budget from turn 11 onward.  
-Full numbers in [`samples/Codexplorer/README.md`](samples/Codexplorer/README.md).
-
-<details>
-<summary>Benchmark configuration</summary>
-
-|                     |                                                                      |
-|---------------------|----------------------------------------------------------------------|
-| Sample              | [`samples/Codexplorer`](samples/Codexplorer) — a simple coding agent |
-| Turns               | 22 (tool-heavy)                                                      |
-| Model               | `openai/gpt-5.4-nano`                                                |
-| Context budget      | 20,000 tokens                                                        |
-| Soft threshold      | 0.80 → compaction triggers at 16,000                                 |
-| Emergency threshold | 1.0 → hard cap at 20,000                                             |
-
-</details>
+| | Without TokenGuard | With TokenGuard |
+|---|---:|---:|
+| Cumulative prompt tokens | 128,058,079 | **16,158,357** |
+| Tokens saved | — | **111,899,722** |
+| Reduction | — | **87.4%** |
+| Successful turns | — | **1,269 / 1,324 (95.8%)** |
+| `CompactionInsufficient` turns | — | **55 / 1,324 (4.2%)** |
+| `CannotCompact` turns | High risk on long runs | **0** |
 
 ---
 
@@ -214,6 +203,31 @@ verbatim. This stage only runs if you registered a provider.
 
 **3. Emergency truncation** *(on by default, opt-out with `WithoutEmergencyThreshold()`)*. If the context is still
 over budget after all previous stages, TokenGuard drops the oldest unpinned messages until it fits.
+
+---
+
+## Compaction statuses
+
+`PrepareAsync()` can return two over-budget statuses after compaction work has already been attempted:
+
+### `CompactionInsufficient`
+
+**Meaning:** TokenGuard compacted and, if configured, also tried emergency truncation, but the prepared request still
+exceeds budget.
+
+**Recommended approach:** Treat this as a warning that the newest or preserved tail is still too large. Prefer reducing
+large tool-call arguments, tool outputs, or assistant payloads in the active tail; enable LLM summarization if it is not
+already enabled; split the task into smaller exchanges; or increase the configured budget only when the target provider
+actually supports a larger context window.
+
+### `CannotCompact`
+
+**Meaning:** The prepared request cannot fit because a single message or preserved content block is already too large on
+its own. Further compaction will not help.
+
+**Recommended approach:** Stop the exchange and reshape the input. Shorten or unpin oversized preserved content, split a
+large user request or tool payload into smaller pieces, move bulky artifacts out of the live prompt, or switch to a
+model with a larger real context window.
 
 ---
 

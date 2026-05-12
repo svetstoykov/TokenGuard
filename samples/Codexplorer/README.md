@@ -110,7 +110,7 @@ Minimal smoke example:
 
 If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
 
-`submit` returns one stable `outcome` value per exchange: `reply_received`, `degraded`, `max_turns_reached`, `cancelled`, or `failed`. Every response includes the active `sessionId`, `modelTurnsCompleted`, `logFilePath`, whether the session is still open, and any assistant text or partial text that was available for that exchange.
+`submit` returns one stable `outcome` value per exchange: `reply_received`, `budget_exceeded`, `max_turns_reached`, `cancelled`, or `failed`. Every response includes the active `sessionId`, `modelTurnsCompleted`, `logFilePath`, whether the session is still open, and any assistant text or partial text that was available for that exchange.
 
 ### Automation runner
 
@@ -304,7 +304,7 @@ During run, terminal shows:
 - context preparation result before every model request
 - token pressure against configured budget
 - how many tokens existed before and after compaction
-- whether preparation stayed healthy, degraded, or hit context exhaustion
+- whether preparation stayed healthy, became compaction-insufficient, or could not compact further
 - tool calls like `file_tree`, `grep`, `web_search`, `read_range`, `web_fetch`, `create_file`, and `write_text`
 - final answer
 

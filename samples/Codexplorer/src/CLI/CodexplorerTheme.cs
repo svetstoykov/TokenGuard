@@ -49,7 +49,7 @@ internal sealed record CodexplorerTheme(
     public Style SuccessStyle => new(this.Success, decoration: Decoration.Bold);
 
     /// <summary>
-    /// Gets warning style for degraded terminal states.
+    /// Gets warning style for over-budget terminal states.
     /// </summary>
     public Style WarnStyle => new(this.Warn, decoration: Decoration.Bold);
 

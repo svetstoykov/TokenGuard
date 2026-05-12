@@ -579,7 +579,7 @@ public sealed class ConversationContextIntegrationTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenSummarizedHistoryStillExceedsEmergencyThreshold_PreservesSummaryFloorAndReturnsDegradedOutcome()
+    public async Task PrepareAsync_WhenSummarizedHistoryStillExceedsEmergencyThreshold_PreservesSummaryFloorAndReturnsCompactionInsufficientOutcome()
     {
         // Arrange
         var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55, emergencyThreshold: 0.75);
@@ -607,10 +607,10 @@ public sealed class ConversationContextIntegrationTests
 
         // Assert
         summarizer.CallCount.Should().Be(1);
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.MessagesDropped.Should().Be(0,
             because: "the summarized history becomes preserved floor and emergency truncation has nothing eligible to drop");
-        result.DegradationReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().NotBeNull();
 
         prepared.Should().HaveCount(4);
         prepared[0].Should().BeSameAs(systemMessage);

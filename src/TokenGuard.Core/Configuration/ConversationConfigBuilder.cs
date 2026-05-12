@@ -115,7 +115,7 @@ public sealed class ConversationConfigBuilder
     ///     </para>
     ///     <para>
     ///         When emergency truncation is disabled, a conversation that the compaction strategy cannot resolve returns
-    ///         <see cref="Enums.PrepareOutcome.Degraded"/> or <see cref="Enums.PrepareOutcome.ContextExhausted"/>
+    ///         <see cref="Enums.PrepareOutcome.CompactionInsufficient"/> or <see cref="Enums.PrepareOutcome.CannotCompact"/>
     ///         instead of silently dropping messages. Use this overload only when those outcomes are preferable to
     ///         message loss — for example, when the caller needs to detect and handle overflow explicitly.
     ///     </para>
@@ -135,7 +135,7 @@ public sealed class ConversationConfigBuilder
     ///     When not configured, the default is <see cref="ConversationDefaults.OverrunTolerance"/> (0.05 — 5% of the
     ///     configured maximum token count). Pass <c>0.0</c> to disable tolerance and restore strict-budget behavior.
     ///     A positive value lets callers accept a small estimated overrun without the result being classified as
-    ///     <see cref="Enums.PrepareOutcome.Degraded"/>. Compaction strategies always target the hard
+    ///     <see cref="Enums.PrepareOutcome.CompactionInsufficient"/>. Compaction strategies always target the hard
     ///     <see cref="ContextBudget.MaxTokens"/> ceiling; the tolerance only affects the final outcome classification
     ///     after all compaction techniques have run. See <see cref="ContextBudget.OverrunTolerance"/> for full
     ///     behavioral details.

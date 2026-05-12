@@ -120,29 +120,29 @@ internal sealed class ExplorerSession : IExplorerSession
                         CancellationToken.None)
                     .ConfigureAwait(false);
 
-                if (prepareResult.Outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted)
+                if (prepareResult.Outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
                 {
-                    var reason = prepareResult.DegradationReason
-                                 ?? (prepareResult.Outcome == PrepareOutcome.ContextExhausted
-                                     ? "Context budget exhausted after compaction; a prepared request could no longer fit."
-                                     : "Context budget degraded after compaction; the prepared request may exceed provider limits.");
+                    var reason = prepareResult.BudgetFailureReason
+                                 ?? (prepareResult.Outcome == PrepareOutcome.CannotCompact
+                                     ? "Prepared request cannot fit within budget after compaction."
+                                     : "Compaction ran but prepared request still exceeds budget; the provider may reject it.");
 
-                    if (prepareResult.Outcome == PrepareOutcome.Degraded)
+                    if (prepareResult.Outcome == PrepareOutcome.CompactionInsufficient)
                     {
                         await this._sessionLogger.AppendAsync(
-                                new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex, "DegradedWarning", reason),
+                                new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex, "CompactionInsufficientWarning", reason),
                                 CancellationToken.None)
                             .ConfigureAwait(false);
                     }
                     else
                     {
                         await this._sessionLogger.AppendAsync(
-                                new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex, "ContextExhausted", reason),
+                                new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex, "CannotCompact", reason),
                                 CancellationToken.None)
                             .ConfigureAwait(false);
-                        await this.EndSessionAsync($"ContextExhausted: {reason}", CancellationToken.None).ConfigureAwait(false);
+                        await this.EndSessionAsync($"CannotCompact: {reason}", CancellationToken.None).ConfigureAwait(false);
 
-                        return new AgentExchangeDegraded(
+                        return new AgentExchangeBudgetExceeded(
                             reason,
                             lastAssistantTextThisExchange ?? this._lastAssistantText,
                             this._totalTurns - turnsAtExchangeStart);

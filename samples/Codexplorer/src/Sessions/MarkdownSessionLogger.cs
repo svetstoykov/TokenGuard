@@ -243,7 +243,7 @@ public sealed class MarkdownSessionLogger : ISessionLogger
             builder.AppendLine($"- MessagesDropped: {evt.MessagesDropped}");
         }
 
-        builder.AppendLine($"- DegradationReason: {evt.DegradationReason ?? "n/a"}");
+        builder.AppendLine($"- BudgetFailureReason: {evt.BudgetFailureReason ?? "n/a"}");
         return builder.ToString();
     }
 

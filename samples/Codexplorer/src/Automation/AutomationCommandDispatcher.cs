@@ -320,18 +320,18 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 modelTurnsCompleted: replyReceived.ModelTurnsCompleted,
                 reportedTokensConsumed: replyReceived.ReportedTokensConsumed,
                 sessionOpen: true,
-                degradationReason: null,
+                budgetFailureReason: null,
                 failure: null),
 
-            AgentExchangeDegraded degraded => CreateSubmitResult(
+            AgentExchangeBudgetExceeded budgetExceeded => CreateSubmitResult(
                 registration,
-                outcome: "degraded",
-                assistantText: degraded.PartialText,
-                assistantTextIsPartial: !string.IsNullOrWhiteSpace(degraded.PartialText),
-                modelTurnsCompleted: degraded.ModelTurnsCompleted,
+                outcome: "budget_exceeded",
+                assistantText: budgetExceeded.PartialText,
+                assistantTextIsPartial: !string.IsNullOrWhiteSpace(budgetExceeded.PartialText),
+                modelTurnsCompleted: budgetExceeded.ModelTurnsCompleted,
                 reportedTokensConsumed: null,
                 sessionOpen: false,
-                degradationReason: degraded.Reason,
+                budgetFailureReason: budgetExceeded.Reason,
                 failure: null),
 
             AgentExchangeMaxTurnsReached maxTurnsReached => CreateSubmitResult(
@@ -342,7 +342,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 modelTurnsCompleted: maxTurnsReached.ModelTurnsCompleted,
                 reportedTokensConsumed: null,
                 sessionOpen: true,
-                degradationReason: null,
+                budgetFailureReason: null,
                 failure: null),
 
             AgentExchangeCancelled cancelled => CreateSubmitResult(
@@ -353,7 +353,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 modelTurnsCompleted: cancelled.ModelTurnsCompleted,
                 reportedTokensConsumed: null,
                 sessionOpen: false,
-                degradationReason: null,
+                budgetFailureReason: null,
                 failure: null),
 
             AgentExchangeFailed failed => CreateSubmitResult(
@@ -364,7 +364,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 modelTurnsCompleted: failed.ModelTurnsCompleted,
                 reportedTokensConsumed: null,
                 sessionOpen: false,
-                degradationReason: null,
+                budgetFailureReason: null,
                 failure: new SubmitFailure(
                     failed.Exception.GetType().FullName ?? failed.Exception.GetType().Name,
                     failed.Exception.Message)),
@@ -381,7 +381,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         int modelTurnsCompleted,
         int? reportedTokensConsumed,
         bool sessionOpen,
-        string? degradationReason,
+        string? budgetFailureReason,
         SubmitFailure? failure)
     {
         var asksRunner = AutomationRunnerQuestion.TryExtract(assistantText, out var runnerQuestion);
@@ -397,13 +397,13 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
             asksRunner,
             runnerQuestion,
             registration.LogFilePath,
-            degradationReason,
+            budgetFailureReason,
             failure);
     }
 
     private static bool IsTerminalOutcome(AgentExchangeResult exchangeResult)
     {
-        return exchangeResult is AgentExchangeDegraded or AgentExchangeCancelled or AgentExchangeFailed;
+        return exchangeResult is AgentExchangeBudgetExceeded or AgentExchangeCancelled or AgentExchangeFailed;
     }
 
     private sealed record AutomationPingResult(string Status, int ProtocolVersion);
@@ -435,7 +435,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         bool AsksRunner,
         string? RunnerQuestion,
         string LogFilePath,
-        string? DegradationReason,
+        string? BudgetFailureReason,
         SubmitFailure? Failure);
 
     private sealed record SubmitFailure(string ExceptionType, string Message);
