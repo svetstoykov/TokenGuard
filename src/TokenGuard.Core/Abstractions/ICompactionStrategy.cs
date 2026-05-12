@@ -33,6 +33,9 @@ public interface ICompactionStrategy
     ///     The number of tokens available to the compacted result. Callers subtract pinned-message cost from the
     ///     total context budget before passing this value so implementations never need to reason about reservations.
     /// </param>
+    /// <param name="cancellationToken">
+    ///     A token that cancels the compaction operation before it completes.
+    /// </param>
     /// <returns>
     ///     A task that resolves to a <see cref="CompactionResult"/> containing the compacted messages together with
     ///     metrics describing what the strategy changed and how many tokens the result consumes.

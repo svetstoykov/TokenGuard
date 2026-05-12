@@ -13,8 +13,8 @@ namespace TokenGuard.Extensions.Anthropic;
 /// optional fallback stage when masking still leaves the prepared context over budget.
 /// </para>
 /// <para>
-/// Anthropic's SDK binds the model at request time rather than on <see cref="AnthropicClient"/>, so this extension
-/// requires the target <paramref name="model"/> explicitly.
+/// Anthropic's SDK binds the model at request time rather than on <see cref="AnthropicClient"/>, so callers pass the
+/// target model identifier explicitly when they register summarization.
 /// </para>
 /// </remarks>
 public static class AnthropicBuilderExtensions

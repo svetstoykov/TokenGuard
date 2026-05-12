@@ -12,6 +12,26 @@
         <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <Version>1.0.0</Version>
+        <PackageId>TokenGuard.Extensions.OpenAI</PackageId>
+        <Title>TokenGuard.Extensions.OpenAI</Title>
+        <Authors>Svetlozar Stoykov</Authors>
+        <Company>Svetlozar Stoykov</Company>
+        <Copyright>Copyright (c) 2026 Svetlozar Stoykov</Copyright>
+        <Description>OpenAI integration for TokenGuard. Converts prepared TokenGuard messages to OpenAI chat messages and lets TokenGuard use OpenAI to summarize older history when context gets tight.</Description>
+        <PackageTags>tokenguard;openai;gpt;llm;ai;agents;context-management;token-budget;prompt-management;dotnet</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageProjectUrl>https://github.com/svetstoykov/TokenGuard</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageReleaseNotes>Initial public release of TokenGuard's OpenAI integration. Adds OpenAI message conversion and OpenAI-backed history summarization for long-running agent loops.</PackageReleaseNotes>
     </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
 
 </Project>

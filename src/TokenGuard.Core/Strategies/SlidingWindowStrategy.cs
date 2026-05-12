@@ -70,7 +70,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///         This method preserves the original ordering of <paramref name="messages"/> while calculating a protected
     ///         tail from the newest compactable message backward. The protected boundary always includes at least
     ///         <see cref="SlidingWindowOptions.WindowSize"/> newest messages when available, and then expands further while
-    ///         the token allowance produced from <paramref name="budget"/> and
+    ///         the token allowance produced from <paramref name="availableTokens"/> and
     ///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> is not exceeded.
     ///     </para>
     ///     <para>
