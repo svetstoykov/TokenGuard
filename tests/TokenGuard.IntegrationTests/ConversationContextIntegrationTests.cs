@@ -439,7 +439,7 @@ public sealed class ConversationContextIntegrationTests
     public async Task PrepareAsync_WhenLlmSummarizationTriggers_ReplacesOlderFlowWithSummaryAndPreservesPinnedSystemAndRecentTail()
     {
         // Arrange
-        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55);
+        var budget = new ContextBudget(maxTokens: 100, compactionThreshold: 0.55);
         var counter = new EstimatedTokenCounter();
         var summarizer = new TrackingSummarizer("summary: initial investigation complete.");
         var strategy = new LlmSummarizationStrategy(
@@ -579,25 +579,23 @@ public sealed class ConversationContextIntegrationTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenSummarizedHistoryStillExceedsEmergencyThreshold_PreservesSummaryFloorAndReturnsCompactionInsufficientOutcome()
+    public async Task PrepareAsync_WhenSummarizedHistoryStillExceedsEmergencyThreshold_PreservesSummaryFloorAndReturnsCompactedOutcome()
     {
         // Arrange
         var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var summarizer = new TrackingSummarizer(new string('S', 200));
+        var summarizer = new TrackingSummarizer(new string('S', 150));
         var strategy = new LlmSummarizationStrategy(
             summarizer,
             counter,
             new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
         var engine = new ConversationContext(budget, counter, strategy);
 
-        engine.SetSystemPrompt("Keep following system instructions.");
         engine.AddUserMessage(new string('A', 120));
         engine.RecordModelResponse([new TextContent(new string('B', 120))]);
         engine.AddUserMessage(new string('C', 60));
         engine.RecordModelResponse([new TextContent(new string('D', 60))]);
 
-        var systemMessage = engine.History[0];
         var latestUser = engine.History[^2];
         var latestModel = engine.History[^1];
 
@@ -607,24 +605,24 @@ public sealed class ConversationContextIntegrationTests
 
         // Assert
         summarizer.CallCount.Should().Be(1);
-        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
         result.MessagesDropped.Should().Be(0,
             because: "the summarized history becomes preserved floor and emergency truncation has nothing eligible to drop");
-        result.BudgetFailureReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().BeNull();
 
-        prepared.Should().HaveCount(4);
-        prepared[0].Should().BeSameAs(systemMessage);
-        prepared[1].State.Should().Be(CompactionState.Summarized);
-        prepared[2].Should().BeSameAs(latestUser);
-        prepared[3].Should().BeSameAs(latestModel);
-        result.TokensAfterCompaction.Should().BeGreaterThan(budget.MaxTokens);
+        prepared.Should().HaveCount(3);
+        prepared[0].State.Should().Be(CompactionState.Summarized);
+        prepared[1].Should().BeSameAs(latestUser);
+        prepared[2].Should().BeSameAs(latestModel);
+        result.TokensAfterCompaction.Should().BeGreaterThan(budget.EmergencyTriggerTokens!.Value);
+        result.TokensAfterCompaction.Should().BeLessThanOrEqualTo(budget.MaxTokens + budget.OverrunToleranceTokens);
     }
 
     [Fact]
     public async Task PrepareAsync_WhenSummarizationProtectsToolTurn_ForOpenAIKeepsToolResultPairedWithAssistantToolCall()
     {
         // Arrange
-        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55);
+        var budget = new ContextBudget(maxTokens: 110, compactionThreshold: 0.55);
         var counter = new EstimatedTokenCounter();
         var summarizer = new TrackingSummarizer("summary");
         var strategy = new LlmSummarizationStrategy(
@@ -660,6 +658,52 @@ public sealed class ConversationContextIntegrationTests
         openAiMessages[1].Should().BeOfType<OpenAI.Chat.AssistantChatMessage>();
         openAiMessages[2].Should().BeOfType<OpenAI.Chat.ToolChatMessage>();
         openAiMessages[3].Should().BeOfType<OpenAI.Chat.UserChatMessage>();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenSummaryOvershoots_EmergencyTruncationCanStillAct()
+    {
+        // Arrange
+        // Token layout (EstimatedTokenCounter: 4 + CeilingDiv(N,4) per message body):
+        //   old_user  (400 chars) = 4+100 = 104T
+        //   old_model (200 chars) = 4+ 50 =  54T
+        //   old2_user (200 chars) = 4+ 50 =  54T
+        //   old2_model(100 chars) = 4+ 25 =  29T
+        //   keep_user (100 chars) = 4+ 25 =  29T
+        //   Total = 270T
+        //
+        // Budget: maxTokens=600, compactionThreshold=0.40 → trigger=240T; 270>240 → compaction fires.
+        //         emergencyThreshold=0.44 → limit=264T; 270>264 → emergency fires after compaction.
+        //
+        // LlmSummarization windowSize=1: protectedTail=[keep_user(29T)], remainingBudget=600-29=571≥1;
+        //   summarizer returns 3000-char string → 4+750=754T; 754+29=783>600 → overshoot → fallback.
+        //
+        // Emergency: all Turn=0, floor=keep_user(idx 4), group {0..3}=241T; 270-241=29≤264 → drop all 4.
+        var budget = new ContextBudget(maxTokens: 600, compactionThreshold: 0.40, emergencyThreshold: 0.44);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer(new string('X', 3000));
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 4096));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage(new string('A', 400));
+        engine.RecordModelResponse([new TextContent(new string('B', 200))]);
+        engine.AddUserMessage(new string('C', 200));
+        engine.RecordModelResponse([new TextContent(new string('D', 100))]);
+        engine.AddUserMessage(new string('E', 100));
+        var keepUser = engine.History[^1];
+
+        // Act
+        var result = await engine.PrepareAsync();
+
+        // Assert — summarizer fired but overshoot caused fallback, enabling emergency truncation to act.
+        summarizer.CallCount.Should().Be(1);
+        result.MessagesDropped.Should().Be(4);
+        result.Messages.Should().HaveCount(1);
+        result.Messages[0].Should().BeSameAs(keepUser);
+        result.Messages.Should().NotContain(m => m.State == CompactionState.Summarized);
     }
 
     private sealed class TrackingSummarizer : ILlmSummarizer

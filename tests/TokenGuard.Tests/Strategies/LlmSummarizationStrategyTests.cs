@@ -585,7 +585,7 @@ public sealed class LlmSummarizationStrategyTests
         tokenCounter.Set(b, 2);
         tokenCounter.Set(c, 2);
         tokenCounter.Set(d, 2);
-        tokenCounter.SetByText("summary-1", 1);
+        tokenCounter.SetByText("summary-1", 2);
         tokenCounter.SetByText("summary-2", 1);
 
         var strategy = new LlmSummarizationStrategy(
@@ -593,10 +593,11 @@ public sealed class LlmSummarizationStrategyTests
             tokenCounter,
             new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
 
-        // Act
+        // Act — first call sets checkpoint: summary-1(2T)+c(2T)+d(2T)=6T≤10 → commit.
+        //        second call: cached 6T>5 → rewrite; summary-2(1T)+c(2T)+d(2T)=5T≤5 → commit new summary.
         _ = await strategy.CompactAsync([a, b, c, d], 10);
         var before = ReadCheckpoint(strategy);
-        var compacted = await strategy.CompactAsync([a, b, c, d], 4);
+        var compacted = await strategy.CompactAsync([a, b, c, d], 5);
         var after = ReadCheckpoint(strategy);
 
         // Assert
@@ -871,6 +872,83 @@ public sealed class LlmSummarizationStrategyTests
         // Assert
         Assert.Equal(1, summarizer.CallCount);
         Assert.Equal(50, summarizer.LastTargetTokens);
+    }
+
+    [Fact]
+    public async Task CompactAsync_FirstTimeSummaryOvershoots_DoesNotSetCheckpointAndReturnsOriginalMessages()
+    {
+        // Arrange
+        var old = ContextMessage.FromText(MessageRole.User, "old");
+        var keep1 = ContextMessage.FromText(MessageRole.User, "keep-1");
+        var keep2 = ContextMessage.FromText(MessageRole.Model, "keep-2");
+        var messages = new List<ContextMessage> { old, keep1, keep2 };
+
+        var summarizer = new TrackingSummarizer("big-summary-text");
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(old, 4);
+        tokenCounter.Set(keep1, 4);
+        tokenCounter.Set(keep2, 4);
+        tokenCounter.SetByText("big-summary-text", 100);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act — protectedTail=[keep2(4T)], remainingBudget=10-4=6≥1; LLM fires;
+        //        summary(100T)+keep2(4T)=104>10 → overshoot; checkpoint must not be set.
+        var compacted = await strategy.CompactAsync(messages, 10);
+        var checkpoint = ReadCheckpoint(strategy);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Same(messages, compacted.Messages);
+        Assert.Equal(0, compacted.MessagesAffected);
+        Assert.Null(checkpoint.Summary);
+    }
+
+    [Fact]
+    public async Task CompactAsync_CheckpointRewriteOvershoots_PreservesExistingCheckpointAndReturnsOriginalMessages()
+    {
+        // Arrange — windowSize=1 so only the last message is the protected tail.
+        var a = ContextMessage.FromText(MessageRole.User, "A");
+        var b = ContextMessage.FromText(MessageRole.Model, "B");
+        var c = ContextMessage.FromText(MessageRole.User, "C");
+        var d = ContextMessage.FromText(MessageRole.Model, "D");
+        var messages = new List<ContextMessage> { a, b, c, d };
+
+        var summarizer = new TrackingSummarizer(call =>
+            Task.FromResult(call.CallNumber == 1 ? "summary-1" : "big-summary-2"));
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(a, 2);
+        tokenCounter.Set(b, 2);
+        tokenCounter.Set(c, 2);
+        tokenCounter.Set(d, 2);
+        tokenCounter.SetByText("summary-1", 2);
+        tokenCounter.SetByText("big-summary-2", 1000);
+
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            tokenCounter,
+            new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // First call: protectedTail=[d(2T)], summary-1(2T)+d(2T)=4≤20 → checkpoint set covering [a,b,c].
+        _ = await strategy.CompactAsync(messages, 20);
+        var checkpointAfterFirst = ReadCheckpoint(strategy);
+
+        // Second call: cachedResult=[summary-1(2T),d(2T)]=4>3 → rewrite; remainingBudget=3-2=1≥1; LLM fires;
+        //              big-summary-2(1000T)+d(2T)=1002>3 → overshoot; checkpoint must remain unchanged.
+        var compacted = await strategy.CompactAsync(messages, 3);
+        var checkpointAfterSecond = ReadCheckpoint(strategy);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Same(messages, compacted.Messages);
+        Assert.Equal(0, compacted.MessagesAffected);
+        Assert.Equal(checkpointAfterFirst.CoveredCount, checkpointAfterSecond.CoveredCount);
+        Assert.Equal(checkpointAfterFirst.Fingerprint, checkpointAfterSecond.Fingerprint);
+        Assert.Same(checkpointAfterFirst.Summary, checkpointAfterSecond.Summary);
+        Assert.Equal("summary-1", ReadText(checkpointAfterSecond.Summary!));
     }
 
     private static (int CoveredCount, long Fingerprint, ContextMessage? Summary) ReadCheckpoint(LlmSummarizationStrategy strategy)

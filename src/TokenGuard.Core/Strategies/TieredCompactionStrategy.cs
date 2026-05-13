@@ -54,6 +54,8 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
     /// <returns>
     /// A task that resolves to a <see cref="CompactionResult"/> branded as
     /// <see cref="TieredCompactionStrategy"/> for no-op, masking-only, and summarization outcomes.
+    /// When summarization fires but the actual returned summary still exceeds <paramref name="availableTokens"/>,
+    /// the sliding-window result is returned as a summary-free fallback so emergency truncation can act on real history.
     /// </returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is <see langword="null"/>.</exception>
     public async Task<CompactionResult> CompactAsync(
@@ -78,6 +80,14 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
             messages,
             availableTokens,
             cancellationToken);
+
+        // LlmSummarizationStrategy may return original messages when its post-call check finds the
+        // actual summary still overshoots. Fall back to the sliding-window result so the caller
+        // receives a summary-free list that emergency truncation can still reduce.
+        if (summarizationResult.TokensAfter > availableTokens)
+        {
+            return BuildCompactionResult(slidingWindowResult);
+        }
 
         return BuildCompactionResult(summarizationResult);
     }
