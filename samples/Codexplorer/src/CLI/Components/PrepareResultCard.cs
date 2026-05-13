@@ -31,11 +31,11 @@ internal static class PrepareResultCard
             new Text("Outcome", theme.MutedStyle),
             new Text(evt.Outcome, theme.AccentStyle));
 
-        if (!string.IsNullOrWhiteSpace(evt.DegradationReason))
+        if (!string.IsNullOrWhiteSpace(evt.BudgetFailureReason))
         {
             table.AddRow(
                 new Text("Reason", theme.MutedStyle),
-                new Text(evt.DegradationReason, theme.WarnStyle));
+                new Text(evt.BudgetFailureReason, theme.WarnStyle));
         }
 
         return new Panel(table)

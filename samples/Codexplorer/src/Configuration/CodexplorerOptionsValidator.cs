@@ -28,7 +28,7 @@ internal sealed class CodexplorerOptionsValidator : IValidateOptions<Codexplorer
                 options.Budget.HardThresholdRatio,
                 "Codexplorer:Budget:HardThresholdRatio",
                 failures);
-            ValidateNonNegative(options.Budget.WindowSize, "Codexplorer:Budget:WindowSize", failures);
+            ValidatePositive(options.Budget.WindowSize, "Codexplorer:Budget:WindowSize", failures);
 
             if (softThresholdIsValid
                 && hardThresholdIsValid
@@ -83,6 +83,30 @@ internal sealed class CodexplorerOptionsValidator : IValidateOptions<Codexplorer
             failures.Add("Codexplorer:OpenRouter section is required.");
         }
 
+        if (options.LlmSummarization is not null)
+        {
+            ValidatePositive(
+                options.LlmSummarization.WindowSize,
+                "Codexplorer:LlmSummarization:WindowSize",
+                failures);
+            var minSummaryTokensIsValid = ValidatePositive(
+                options.LlmSummarization.MinSummaryTokens,
+                "Codexplorer:LlmSummarization:MinSummaryTokens",
+                failures);
+            var maxSummaryTokensIsValid = ValidatePositive(
+                options.LlmSummarization.MaxSummaryTokens,
+                "Codexplorer:LlmSummarization:MaxSummaryTokens",
+                failures);
+
+            if (minSummaryTokensIsValid
+                && maxSummaryTokensIsValid
+                && options.LlmSummarization.MaxSummaryTokens < options.LlmSummarization.MinSummaryTokens)
+            {
+                failures.Add(
+                    "Codexplorer:LlmSummarization:MaxSummaryTokens must be greater than or equal to Codexplorer:LlmSummarization:MinSummaryTokens.");
+            }
+        }
+
         return failures.Count > 0
             ? ValidateOptionsResult.Fail(failures)
             : ValidateOptionsResult.Success;
@@ -94,6 +118,17 @@ internal sealed class CodexplorerOptionsValidator : IValidateOptions<Codexplorer
         {
             failures.Add($"{path} must be greater than or equal to 0.");
         }
+    }
+
+    private static bool ValidatePositive(int value, string path, List<string> failures)
+    {
+        if (value <= 0)
+        {
+            failures.Add($"{path} must be greater than 0.");
+            return false;
+        }
+
+        return true;
     }
 
     private static bool ValidateRatio(double value, string path, List<string> failures)

@@ -11,7 +11,9 @@ using System.Net;
 using TokenGuard.Core.Abstractions;
 using Codexplorer.Workspace;
 using TokenGuard.Core.Extensions;
+using TokenGuard.Core.Options;
 using TokenGuard.Core.TokenCounting;
+using TokenGuard.Extensions.OpenAI;
 
 namespace Codexplorer.Configuration;
 
@@ -51,37 +53,50 @@ public static class ServiceCollectionExtensions
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="services"/> or <paramref name="configuration"/> is <see langword="null"/>.
     /// </exception>
-    public static IServiceCollection AddCodexplorerOptions(
+    public static IServiceCollection ConfigureServices(
         this IServiceCollection services,
         IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var tokenCounter = new EstimatedTokenCounter();
         var braveSearchSettings = new BraveSearchSettings(
             configuration["BRAVE_SEARCH_API_KEY"]
             ?? configuration[$"{CodexplorerOptions.SectionName}:BraveSearch:ApiKey"]);
 
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<CodexplorerOptions>, CodexplorerOptionsValidator>());
-        services.TryAdd(ServiceDescriptor.Singleton<ITokenCounter>(tokenCounter));
+        services.TryAddSingleton<ITokenCounter, EstimatedTokenCounter>();
         services.TryAdd(ServiceDescriptor.Singleton(braveSearchSettings));
 
         services.AddOptions<CodexplorerOptions>()
             .Bind(configuration.GetSection(CodexplorerOptions.SectionName))
             .ValidateOnStart();
 
+        var codexplorerOptions = configuration.GetSection(CodexplorerOptions.SectionName)
+            .Get<CodexplorerOptions>() ?? new CodexplorerOptions();
+        var budgetOptions = codexplorerOptions.Budget ?? new BudgetOptions();
+        var llmSummarizationSettings = codexplorerOptions.LlmSummarization ?? new LlmSummarizationSettings();
+
         services.AddConversationContext(builder =>
         {
-            var budgetOptions = configuration.GetSection(CodexplorerOptions.SectionName)
-                .Get<CodexplorerOptions>()?.Budget ?? new BudgetOptions();
-
             builder
                 .WithMaxTokens(budgetOptions.ContextWindowTokens)
                 .WithCompactionThreshold(budgetOptions.SoftThresholdRatio)
                 .WithEmergencyThreshold(budgetOptions.HardThresholdRatio)
-                .WithTokenCounter(tokenCounter);
+                .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: budgetOptions.WindowSize));
+
+            if (!llmSummarizationSettings.Enabled)
+            {
+                return;
+            }
+
+            builder.UseLlmSummarization(
+                OpenRouterChatClientFactory.Create(codexplorerOptions),
+                new LlmSummarizationOptions(
+                    windowSize: llmSummarizationSettings.WindowSize,
+                    minSummaryTokens: llmSummarizationSettings.MinSummaryTokens,
+                    maxSummaryTokens: llmSummarizationSettings.MaxSummaryTokens));
         });
 
         services.AddHttpClient(WebFetchTool.HttpClientName, client =>

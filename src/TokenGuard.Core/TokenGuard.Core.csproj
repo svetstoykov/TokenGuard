@@ -4,6 +4,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>1.0.0</Version>
+    <PackageId>TokenGuard.Core</PackageId>
+    <Title>TokenGuard.Core</Title>
+    <Authors>Svetlozar Stoykov</Authors>
+    <Company>Svetlozar Stoykov</Company>
+    <Copyright>Copyright (c) 2026 Svetlozar Stoykov</Copyright>
+    <Description>Token budget management for .NET LLM agent loops. Tracks conversation growth, masks stale tool output, summarizes older history when needed, and keeps requests within a configured limit.</Description>
+    <PackageTags>tokenguard;llm;ai;agents;context-management;token-budget;prompt-management;openai;anthropic;dotnet</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/svetstoykov/TokenGuard</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>Initial public release of TokenGuard core. Includes token budget tracking, sliding-window masking, optional LLM summarization support, pinned messages, and emergency truncation safeguards.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,6 +31,13 @@
         <InternalsVisibleTo Include="TokenGuard.IntegrationTests" />
         <InternalsVisibleTo Include="TokenGuard.Samples.Console" />
         <InternalsVisibleTo Include="TokenGuard.Benchmark" />
+        <InternalsVisibleTo Include="TokenGuard.Extensions.OpenAI" />
+        <InternalsVisibleTo Include="TokenGuard.Extensions.Anthropic" />
+        <InternalsVisibleTo Include="Codexplorer" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     </ItemGroup>
 
 </Project>

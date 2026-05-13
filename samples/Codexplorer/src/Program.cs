@@ -28,7 +28,7 @@ internal sealed class Program
             });
             builder.Configuration.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false);
 
-            builder.Services.AddCodexplorerOptions(builder.Configuration);
+            builder.Services.ConfigureServices(builder.Configuration);
 
             if (startupOptions.AutomationMode)
             {
@@ -98,6 +98,7 @@ internal sealed class Program
         {
             options.Budget,
             options.Model,
+            options.LlmSummarization,
             options.Workspace,
             options.Agent,
             options.Logging,

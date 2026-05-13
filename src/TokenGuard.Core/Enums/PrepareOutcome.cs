@@ -7,8 +7,8 @@ namespace TokenGuard.Core.Enums;
 /// <para>
 /// <see cref="Ready"/> means the context is within budget and no compaction ran.
 /// <see cref="Compacted"/> means compaction ran and the result fits within the budget.
-/// <see cref="Degraded"/> means compaction and emergency truncation ran but the result still exceeds the budget.
-/// <see cref="ContextExhausted"/> means the context contains irreducible content that alone exceeds the budget.
+/// <see cref="CompactionInsufficient"/> means compaction and emergency truncation ran but the result still exceeds the budget.
+/// <see cref="CannotCompact"/> means the context contains irreducible content that alone exceeds the budget.
 /// </para>
 /// </remarks>
 public enum PrepareOutcome
@@ -27,12 +27,12 @@ public enum PrepareOutcome
     /// Compaction and emergency truncation ran but the token total still exceeds the budget.
     /// The agent may attempt the call but it will likely be rejected by the provider.
     /// </summary>
-    Degraded,
+    CompactionInsufficient,
 
     /// <summary>
     /// The context contains structural content (pinned messages, system prompt, or a single message)
     /// that alone exceeds the full budget, making compaction impossible.
     /// The agent should not attempt the call.
     /// </summary>
-    ContextExhausted,
+    CannotCompact,
 }

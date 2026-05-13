@@ -1,12 +1,16 @@
 using FluentAssertions;
+using OpenAI.Chat;
 using TokenGuard.Core;
+using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Strategies;
-using TokenGuard.Core.TokenCounting;        
- namespace TokenGuard.IntegrationTests;
+using TokenGuard.Core.TokenCounting;
+using TokenGuard.Extensions.OpenAI;
+
+namespace TokenGuard.IntegrationTests;
 
 public sealed class ConversationContextIntegrationTests
 {
@@ -16,7 +20,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 1000, compactionThreshold: 0.80);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
         var engine = new ConversationContext(budget, counter, strategy);
         
         engine.SetSystemPrompt("You are a helpful assistant.");
@@ -65,7 +69,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 1000, compactionThreshold: 0.80);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.5));
         var engine = new ConversationContext(budget, counter, strategy);
         engine.SetSystemPrompt("You are a helpful assistant.");
         engine.AddUserMessage("Please analyze the logs for the last 24 hours.");
@@ -96,7 +100,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.80);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 3, protectedWindowFraction: 0.5));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 3, protectedWindowFraction: 0.5));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("Scan the directory for large files.");
@@ -153,7 +157,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1200));
@@ -190,7 +194,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage(new string('U', 1800));
@@ -219,7 +223,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1200));
@@ -248,7 +252,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 700, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1800));
@@ -291,7 +295,7 @@ public sealed class ConversationContextIntegrationTests
         // new (fixed): drop {model_1, tool_1_masked} together (~42 T) → 266-42 = 224 ≤ 260 → stop — no orphan
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.50, emergencyThreshold: 0.52);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.10));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.10));
         var engine = new ConversationContext(budget, counter, strategy);
 
         var largeArgs = $"{{\"query\": \"{new string('A', 70)}\"}}";
@@ -327,6 +331,37 @@ public sealed class ConversationContextIntegrationTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationHitsTrailingToolResult_PreservesAssistantToolCallPair()
+    {
+        // Arrange
+        // The tool-call arguments are intentionally large enough that dropping only the model message
+        // would satisfy the emergency budget and expose the orphaned tool-result bug.
+        var budget = new ContextBudget(maxTokens: 120, compactionThreshold: 0.50, emergencyThreshold: 0.60);
+        var counter = new EstimatedTokenCounter();
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.10));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.RecordModelResponse([new ToolUseContent("call_1", "search", $"{{\"query\":\"{new string('Q', 600)}\"}}")]);
+        engine.RecordToolResult("call_1", "search", "ok");
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+        var openAiMessages = prepared.ForOpenAI();
+
+        // Assert
+        prepared.Should().HaveCount(2,
+            because: "the preserved emergency floor must widen to keep the assistant tool call paired with its tool result");
+        prepared[0].Role.Should().Be(MessageRole.Model);
+        prepared[1].Role.Should().Be(MessageRole.Tool);
+
+        openAiMessages.Should().HaveCount(2);
+        openAiMessages[0].Should().BeOfType<AssistantChatMessage>();
+        openAiMessages[1].Should().BeOfType<ToolChatMessage>();
+        openAiMessages[1].As<ToolChatMessage>().ToolCallId.Should().Be("call_1");
+    }
+
+    [Fact]
     public async Task PrepareAsync_WhenEmergencyThresholdIsNotConfigured_DoesNotDropMessagesAfterCompaction()
     {
         // Arrange
@@ -336,7 +371,7 @@ public sealed class ConversationContextIntegrationTests
         // threshold is configured the runtime must not drop any further messages.
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1200));
@@ -373,7 +408,7 @@ public sealed class ConversationContextIntegrationTests
         // The strategy result exceeds the emergency threshold, so the runtime must drop oldest turn groups.
         var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.60, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var strategy = new SlidingWindowStrategy(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+        var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.SetSystemPrompt(new string('S', 1200));
@@ -399,5 +434,265 @@ public sealed class ConversationContextIntegrationTests
                 ReferenceEquals(m, systemMessage) || ReferenceEquals(m, latestUser) || ReferenceEquals(m, latestModel),
             because: "only the pinned system prompt and the newest user-model turn should survive the emergency pass");
     }
+
+    [Fact]
+    public async Task PrepareAsync_WhenLlmSummarizationTriggers_ReplacesOlderFlowWithSummaryAndPreservesPinnedSystemAndRecentTail()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer("summary: initial investigation complete.");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt("You are a careful assistant.");
+        engine.AddUserMessage(new string('A', 120));
+        engine.RecordModelResponse([new ToolUseContent("call_1", "read_logs", "{\"path\":\"app.log\"}")]);
+        engine.RecordToolResult("call_1", "read_logs", new string('B', 120));
+        engine.AddUserMessage(new string('C', 120));
+        engine.RecordModelResponse([new TextContent(new string('D', 120))]);
+
+        var systemMessage = engine.History[0];
+        var summarizedPrefix = engine.History.Skip(1).Take(3).ToArray();
+        var protectedTail = engine.History.Skip(engine.History.Count - 2).ToArray();
+        var availableTokens = budget.MaxTokens - counter.Count(systemMessage);
+        var expectedTargetTokens = Math.Min(availableTokens - counter.Count(protectedTail), 100);
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        summarizer.CallCount.Should().Be(1);
+        summarizer.Calls[0].Messages.Should().HaveCount(3);
+        summarizer.Calls[0].Messages[0].Should().BeSameAs(summarizedPrefix[0]);
+        summarizer.Calls[0].Messages[1].Should().BeSameAs(summarizedPrefix[1]);
+        summarizer.Calls[0].Messages[2].Should().BeSameAs(summarizedPrefix[2]);
+        summarizer.Calls[0].TargetTokens.Should().Be(expectedTargetTokens);
+
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.MessagesCompacted.Should().Be(3);
+        result.MessagesDropped.Should().Be(0);
+        result.TokensAfterCompaction.Should().BeLessThan(result.TokensBeforeCompaction);
+
+        prepared.Should().HaveCount(4);
+        prepared[0].Should().BeSameAs(systemMessage);
+        prepared[1].Role.Should().Be(MessageRole.Model);
+        prepared[1].State.Should().Be(CompactionState.Summarized);
+        prepared[1].Segments.Should().ContainSingle()
+            .Which.Should().BeOfType<TextContent>()
+            .Which.Content.Should().Be("summary: initial investigation complete.");
+        prepared[2].Should().BeSameAs(protectedTail[0]);
+        prepared[3].Should().BeSameAs(protectedTail[1]);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenSummaryCheckpointExists_ReusesItForStableHistoryAndPromotesItWhenConversationGrows()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer(call => Task.FromResult($"summary-{call.CallNumber}"));
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage(new string('A', 40));
+        _ = await engine.PrepareAsync();
+        engine.RecordModelResponse([new TextContent(new string('B', 40))]);
+        _ = await engine.PrepareAsync();
+        engine.AddUserMessage(new string('C', 40));
+        _ = await engine.PrepareAsync();
+        engine.RecordModelResponse([new TextContent(new string('D', 40))]);
+
+        var firstBoundary = engine.History.Take(2).ToArray();
+
+        // Act
+        var first = await engine.PrepareAsync();
+        var second = await engine.PrepareAsync();
+
+        engine.AddUserMessage(new string('E', 40));
+        var promoted = await engine.PrepareAsync();
+
+        // Assert
+        summarizer.CallCount.Should().Be(1);
+        summarizer.Calls[0].Messages.Should().HaveCount(2);
+        summarizer.Calls[0].Messages[0].Should().BeSameAs(firstBoundary[0]);
+        summarizer.Calls[0].Messages[1].Should().BeSameAs(firstBoundary[1]);
+
+        first.Messages.Should().HaveCount(3);
+        first.Messages[0].Segments.Should().ContainSingle()
+            .Which.Should().BeOfType<TextContent>()
+            .Which.Content.Should().Be("summary-1");
+
+        second.Messages.Should().HaveCount(3);
+        second.Messages[0].Segments.Should().ContainSingle()
+            .Which.Should().BeOfType<TextContent>()
+            .Which.Content.Should().Be("summary-1");
+
+        promoted.Outcome.Should().Be(PrepareOutcome.Compacted);
+        promoted.Messages.Should().HaveCount(4);
+        promoted.Messages[0].Segments.Should().ContainSingle()
+            .Which.Should().BeOfType<TextContent>()
+            .Which.Content.Should().Be("summary-1");
+        promoted.Messages[1].Should().BeSameAs(engine.History[2]);
+        promoted.Messages[2].Should().BeSameAs(engine.History[3]);
+        promoted.Messages[3].Should().BeSameAs(engine.History[4]);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenRemainingBudgetFallsBelowMinSummaryTokens_SkipsSummarizerAndLetsEmergencyTruncationDropOldestMessage()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 45, compactionThreshold: 0.50, emergencyThreshold: 1.0);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer("unused");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 20, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage(new string('O', 120));
+        engine.AddUserMessage(new string('K', 40));
+        engine.RecordModelResponse([new TextContent(new string('M', 40))]);
+
+        var keep1 = engine.History[1];
+        var keep2 = engine.History[2];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        summarizer.CallCount.Should().Be(0);
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.MessagesCompacted.Should().Be(1);
+        prepared.Should().HaveCount(2);
+        prepared[0].Should().BeSameAs(keep1);
+        prepared[1].Should().BeSameAs(keep2);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenSummarizedHistoryStillExceedsEmergencyThreshold_PreservesSummaryFloorAndReturnsCompactionInsufficientOutcome()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55, emergencyThreshold: 0.75);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer(new string('S', 200));
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.SetSystemPrompt("Keep following system instructions.");
+        engine.AddUserMessage(new string('A', 120));
+        engine.RecordModelResponse([new TextContent(new string('B', 120))]);
+        engine.AddUserMessage(new string('C', 60));
+        engine.RecordModelResponse([new TextContent(new string('D', 60))]);
+
+        var systemMessage = engine.History[0];
+        var latestUser = engine.History[^2];
+        var latestModel = engine.History[^1];
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+
+        // Assert
+        summarizer.CallCount.Should().Be(1);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
+        result.MessagesDropped.Should().Be(0,
+            because: "the summarized history becomes preserved floor and emergency truncation has nothing eligible to drop");
+        result.BudgetFailureReason.Should().NotBeNull();
+
+        prepared.Should().HaveCount(4);
+        prepared[0].Should().BeSameAs(systemMessage);
+        prepared[1].State.Should().Be(CompactionState.Summarized);
+        prepared[2].Should().BeSameAs(latestUser);
+        prepared[3].Should().BeSameAs(latestModel);
+        result.TokensAfterCompaction.Should().BeGreaterThan(budget.MaxTokens);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenSummarizationProtectsToolTurn_ForOpenAIKeepsToolResultPairedWithAssistantToolCall()
+    {
+        // Arrange
+        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55);
+        var counter = new EstimatedTokenCounter();
+        var summarizer = new TrackingSummarizer("summary");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage(new string('A', 120));
+        _ = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new TextContent(new string('B', 120))]);
+        _ = await engine.PrepareAsync();
+
+        engine.RecordModelResponse([new ToolUseContent("call_1", "search", "{\"query\":\"token guard\"}")]);
+        engine.RecordToolResult("call_1", "search", new string('C', 120));
+        _ = await engine.PrepareAsync();
+
+        engine.AddUserMessage(new string('D', 120));
+
+        // Act
+        var prepared = (await engine.PrepareAsync()).Messages;
+        var openAiMessages = prepared.ForOpenAI();
+
+        // Assert
+        prepared[0].State.Should().Be(CompactionState.Summarized);
+        prepared[0].Role.Should().Be(MessageRole.Model);
+        prepared[1].Role.Should().Be(MessageRole.Model);
+        prepared[2].Role.Should().Be(MessageRole.Tool);
+        prepared[3].Role.Should().Be(MessageRole.User);
+
+        openAiMessages[0].Should().BeOfType<OpenAI.Chat.AssistantChatMessage>();
+        openAiMessages[1].Should().BeOfType<OpenAI.Chat.AssistantChatMessage>();
+        openAiMessages[2].Should().BeOfType<OpenAI.Chat.ToolChatMessage>();
+        openAiMessages[3].Should().BeOfType<OpenAI.Chat.UserChatMessage>();
+    }
+
+    private sealed class TrackingSummarizer : ILlmSummarizer
+    {
+        private readonly Func<SummarizerCall, Task<string>> _handler;
+
+        public TrackingSummarizer(string summary)
+            : this(_ => Task.FromResult(summary))
+        {
+        }
+
+        public TrackingSummarizer(Func<SummarizerCall, Task<string>> handler)
+        {
+            this._handler = handler;
+        }
+
+        public int CallCount => this.Calls.Count;
+
+        public List<SummarizerCall> Calls { get; } = [];
+
+        public async Task<string> SummarizeAsync(
+            IReadOnlyList<ContextMessage> messages,
+            int targetTokens,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var call = new SummarizerCall(this.Calls.Count + 1, messages.ToArray(), targetTokens);
+            this.Calls.Add(call);
+            return await this._handler(call);
+        }
+    }
+
+    private sealed record SummarizerCall(int CallNumber, IReadOnlyList<ContextMessage> Messages, int TargetTokens);
 }
  

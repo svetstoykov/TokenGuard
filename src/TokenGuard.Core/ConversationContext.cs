@@ -41,8 +41,6 @@ public sealed class ConversationContext : IConversationContext
     private readonly ContextBudget _budget;
     private readonly ITokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
-    private readonly ICompactionObserver? _observer;
-
     private readonly List<ContextMessage> _history = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
@@ -78,16 +76,11 @@ public sealed class ConversationContext : IConversationContext
     /// Produces a smaller message list when the current history no longer fits comfortably within
     /// the configured budget.
     /// </param>
-    /// <param name="observer">
-    /// An optional observer notified after each compaction cycle that modifies the history.
-    /// When <see langword="null"/>, no compaction notifications are emitted.
-    /// </param>
-    public ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy, ICompactionObserver? observer = null)
+    internal ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy)
     {
         this._budget = budget;
         this._counter = counter;
         this._strategy = strategy;
-        this._observer = observer;
     }
 
     /// <summary>
@@ -151,8 +144,20 @@ public sealed class ConversationContext : IConversationContext
     /// <param name="role">The participant role that produced the message.</param>
     /// <param name="text">The plain-text payload to record.</param>
     /// <remarks>
+    /// <para>
     /// Pinned messages remain at their recorded position and are excluded from compaction and emergency truncation.
     /// Use this API for durable constraints or instructions that should survive regardless of where they appear.
+    /// </para>
+    /// <para>
+    /// Pinned messages are intended for setup-time use, such as system-level instructions, static personas, or
+    /// durable policies added before the conversation begins. Adding a pinned message mid-conversation — after
+    /// unpinned turns have already been recorded — is supported but has a known limitation: when
+    /// <see cref="TokenGuard.Core.Strategies.LlmSummarizationStrategy"/> is active, the summarizer receives only
+    /// the compactable (unpinned) stream and cannot observe pinned message boundaries. A summary produced from
+    /// turns that span a mid-conversation pinned message will be placed before that pinned message in the prepared
+    /// output, even if some of the summarized content originally appeared after it. This limitation is by design
+    /// for the current implementation; a boundary-aware summarization path may be added in a future release.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
     public void AddPinnedMessage(MessageRole role, string text)
@@ -171,8 +176,14 @@ public sealed class ConversationContext : IConversationContext
     /// <param name="role">The participant role that produced the message.</param>
     /// <param name="content">The ordered content segments that make up the pinned message payload.</param>
     /// <remarks>
+    /// <para>
     /// This overload preserves multi-segment message structure while still ensuring the recorded message is never masked
     /// or dropped during later preparation.
+    /// </para>
+    /// <para>
+    /// See the single-segment overload <see cref="AddPinnedMessage(MessageRole, string)"/> for the known limitation
+    /// regarding mid-conversation pinning and LLM summarization ordering.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> contains no segments.</exception>
@@ -253,7 +264,7 @@ public sealed class ConversationContext : IConversationContext
         this.AddMessage(message);
         this.ApplyAnchor(providerInputTokens);
     }
-    
+
     /// <summary>
     /// Records the result of one tool execution.
     /// </summary>
@@ -347,7 +358,7 @@ public sealed class ConversationContext : IConversationContext
                 totalBeforeCompaction,
                 messagesCompacted: 0);
         }
-        
+
         var pinnedSlots = new List<(int Index, ContextMessage Message)>();
         List<ContextMessage>? compactableMessages = null;
 
@@ -368,44 +379,27 @@ public sealed class ConversationContext : IConversationContext
 
         var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
 
-        var compacted = await this._strategy.CompactAsync(compactable, availableTokens, this._counter, cancellationToken);
+        var compacted = await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
 
         var prepared = pinnedSlots.Count == 0
             ? compacted.Messages
             : this.ReassemblePreparedMessages(messages.Count, pinnedSlots, compacted.Messages);
 
         var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
-        var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
 
+        var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
         var final = emergencyApplied ? truncated! : prepared;
         var estimatedFinalTokens = this.Sum(final);
         var finalTokens = estimatedFinalTokens + this._anchorCorrection;
         var emergencyMessagesDropped = emergencyApplied ? prepared.Count - final.Count : 0;
         var messagesCompacted = compacted.MessagesAffected + emergencyMessagesDropped;
 
-        if (emergencyApplied)
-        {
-            var mergedResult = new CompactionResult(
-                final,
-                compacted.TokensBefore,
-                finalTokens,
-                messagesCompacted,
-                compacted.StrategyName,
-                wasApplied: true,
-                emergencyMessagesDropped);
-            this._observer?.OnCompaction(new CompactionEvent(mergedResult, DateTimeOffset.UtcNow, CompactionTrigger.Emergency, this._budget));
-        }
-        else if (compacted.WasApplied)
-        {
-            this._observer?.OnCompaction(new CompactionEvent(compacted, DateTimeOffset.UtcNow, CompactionTrigger.Normal, this._budget));
-        }
-
         this._lastEstimatedTotalTokens = estimatedFinalTokens;
         this._anchorCorrection = 0;
 
         var outcome = this.DetermineOutcome(finalTokens, messagesCompacted);
-        var degradationReason = outcome is PrepareOutcome.Degraded or PrepareOutcome.ContextExhausted
-            ? this.BuildDegradationReason(outcome, finalTokens, messagesCompacted)
+        var budgetFailureReason = outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact
+            ? this.BuildBudgetFailureReason(outcome, finalTokens, messagesCompacted)
             : null;
 
         return new PrepareResult(
@@ -414,7 +408,7 @@ public sealed class ConversationContext : IConversationContext
             totalBeforeCompaction,
             finalTokens,
             messagesCompacted,
-            degradationReason,
+            budgetFailureReason,
             emergencyMessagesDropped);
     }
 
@@ -432,23 +426,23 @@ public sealed class ConversationContext : IConversationContext
         }
 
         return messagesCompacted == 0
-            ? PrepareOutcome.ContextExhausted
-            : PrepareOutcome.Degraded;
+            ? PrepareOutcome.CannotCompact
+            : PrepareOutcome.CompactionInsufficient;
     }
 
     /// <summary>
-    /// Builds the diagnostic message returned for degraded and exhausted outcomes.
+    /// Builds the diagnostic message returned for over-budget outcomes.
     /// </summary>
     /// <param name="outcome">The outcome that requires a diagnostic explanation.</param>
     /// <param name="finalTokens">The final token total after preparation.</param>
     /// <param name="messagesCompacted">The number of messages affected during preparation.</param>
     /// <returns>A stable diagnostic string describing why the prepared payload is still over budget.</returns>
-    private string BuildDegradationReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted)
+    private string BuildBudgetFailureReason(PrepareOutcome outcome, int finalTokens, int messagesCompacted)
     {
         var effectiveMax = (long)this._budget.MaxTokens + this._budget.OverrunToleranceTokens;
-        return outcome == PrepareOutcome.ContextExhausted
-            ? $"A single message or structural content exceeds the budget ({finalTokens} tokens > {effectiveMax} max). Compaction is impossible."
-            : $"Compaction reduced content but still exceeds budget ({finalTokens} tokens > {effectiveMax} max). {messagesCompacted} messages were compacted but insufficient.";
+        return outcome == PrepareOutcome.CannotCompact
+            ? $"Prepared request cannot fit within budget because a single message or preserved content exceeds the limit ({finalTokens} tokens > {effectiveMax} max). Further compaction is impossible."
+            : $"Compaction ran but prepared request still exceeds budget ({finalTokens} tokens > {effectiveMax} max). {messagesCompacted} messages were compacted or dropped, but that was insufficient.";
     }
 
     /// <summary>
@@ -477,8 +471,9 @@ public sealed class ConversationContext : IConversationContext
     /// <remarks>
     /// <para>
     /// The method returns immediately with no-op when <see cref="ContextBudget.EmergencyThreshold"/> is
-    /// <see langword="null"/>, because emergency truncation is opt-in. Configure it on the budget only when
-    /// hard message-dropping under extreme token pressure is acceptable for the target use case.
+    /// <see langword="null"/>. Disable emergency truncation by calling
+    /// <see cref="Configuration.ConversationConfigBuilder.WithoutEmergencyThreshold"/> on the builder; by default
+    /// the library applies a <c>1.0</c> threshold so the emergency pass fires only at the absolute token limit.
     /// </para>
     /// <para>
     /// When enabled, the method identifies eligible drop candidates by excluding pinned messages, which are never
@@ -508,7 +503,10 @@ public sealed class ConversationContext : IConversationContext
     /// the reduced list; <see langword="false"/> when emergency truncation is disabled, when
     /// <paramref name="prepared"/> is already within budget, or when no eligible candidates exist.
     /// </returns>
-    private bool TryApplyEmergencyTruncation(IReadOnlyList<ContextMessage> prepared, int currentTotal, out IReadOnlyList<ContextMessage>? truncated)
+    private bool TryApplyEmergencyTruncation(
+        IReadOnlyList<ContextMessage> prepared,
+        int currentTotal,
+        out IReadOnlyList<ContextMessage>? truncated)
     {
         if (!this._budget.EmergencyTriggerTokens.HasValue)
         {
@@ -615,6 +613,14 @@ public sealed class ConversationContext : IConversationContext
     /// </returns>
     private int FindPreservedFloorStartIndex(IReadOnlyList<ContextMessage> prepared)
     {
+        for (var i = 0; i < prepared.Count; i++)
+        {
+            if (prepared[i].State == CompactionState.Summarized)
+            {
+                return i;
+            }
+        }
+
         var newestUnpinnedIndex = -1;
         for (var i = prepared.Count - 1; i >= 0; i--)
         {
@@ -629,11 +635,16 @@ public sealed class ConversationContext : IConversationContext
         if (newestUnpinnedIndex < 0)
             return prepared.Count;
 
-        var floorStartIndex = newestUnpinnedIndex;
-        
-        // If last message was not a Model message, we should just return it.
-        if (prepared[newestUnpinnedIndex].Role != MessageRole.Model) return floorStartIndex;
-        
+        var floorStartIndex = this.RepairPreservedFloorStartIndex(prepared, newestUnpinnedIndex);
+
+        // Tool-result tails must preserve their originating model turn, but they do not also force
+        // the preceding user message to remain in the irreducible floor.
+        if (floorStartIndex != newestUnpinnedIndex)
+            return floorStartIndex;
+
+        if (prepared[newestUnpinnedIndex].Role != MessageRole.Model)
+            return floorStartIndex;
+
         // Otherwise the conversation ends with a model reply, preserve the triggering user turn too.
         for (var i = newestUnpinnedIndex - 1; i >= 0; i--)
         {
@@ -644,6 +655,58 @@ public sealed class ConversationContext : IConversationContext
                 floorStartIndex = i;
 
             break;
+        }
+
+        return floorStartIndex;
+    }
+
+    /// <summary>
+    /// Repairs the preserved-floor start so emergency truncation never begins inside a trailing
+    /// tool-result tail without the model message that produced it.
+    /// </summary>
+    /// <param name="prepared">The prepared message list produced for the next provider call.</param>
+    /// <param name="newestUnpinnedIndex">The newest unpinned message index in <paramref name="prepared"/>.</param>
+    /// <returns>
+    /// The repaired floor start index. This equals <paramref name="newestUnpinnedIndex"/> when no
+    /// repair is needed.
+    /// </returns>
+    private int RepairPreservedFloorStartIndex(IReadOnlyList<ContextMessage> prepared, int newestUnpinnedIndex)
+    {
+        if (prepared[newestUnpinnedIndex].Role != MessageRole.Tool)
+            return newestUnpinnedIndex;
+
+        var newestMessage = prepared[newestUnpinnedIndex];
+        var turn = newestMessage.Turn;
+        var requiredToolCallIds = new HashSet<string>(
+            newestMessage.Segments
+                .OfType<ToolResultContent>()
+                .Select(static segment => segment.ToolCallId),
+            StringComparer.Ordinal);
+
+        var floorStartIndex = newestUnpinnedIndex;
+
+        for (var i = newestUnpinnedIndex - 1; i >= 0; i--)
+        {
+            var message = prepared[i];
+            if (message.IsPinned || message.Turn != turn)
+                break;
+
+            floorStartIndex = i;
+
+            foreach (var toolResult in message.Segments.OfType<ToolResultContent>())
+            {
+                requiredToolCallIds.Add(toolResult.ToolCallId);
+            }
+
+            if (message.Role != MessageRole.Model)
+                continue;
+
+            var toolCallIds = message.Segments
+                .OfType<ToolUseContent>()
+                .Select(static segment => segment.ToolCallId);
+
+            if (requiredToolCallIds.IsSubsetOf(toolCallIds))
+                return i;
         }
 
         return floorStartIndex;
@@ -721,7 +784,7 @@ public sealed class ConversationContext : IConversationContext
         IReadOnlyList<(int Index, ContextMessage Message)> pinnedSlots,
         IReadOnlyList<ContextMessage> compactedMessages)
     {
-        var prepared = new List<ContextMessage>(totalCount);
+        var prepared = new List<ContextMessage>(pinnedSlots.Count + compactedMessages.Count);
         var pinnedIndex = 0;
         var compactedIndex = 0;
 
@@ -731,6 +794,11 @@ public sealed class ConversationContext : IConversationContext
             {
                 prepared.Add(pinnedSlots[pinnedIndex].Message);
                 pinnedIndex++;
+                continue;
+            }
+
+            if (compactedIndex >= compactedMessages.Count)
+            {
                 continue;
             }
 

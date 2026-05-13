@@ -46,7 +46,7 @@ public sealed record UserPromptEvent(
 /// <param name="Outcome">The preparation outcome name.</param>
 /// <param name="MessagesCompacted">The number of messages compacted during preparation.</param>
 /// <param name="MessagesDropped">The number of messages dropped by emergency truncation during preparation.</param>
-/// <param name="DegradationReason">The degradation reason when present.</param>
+/// <param name="BudgetFailureReason">The budget failure reason when present.</param>
 public sealed record PreparedContextEvent(
     DateTime TimestampUtc,
     int TurnIndex,
@@ -55,7 +55,7 @@ public sealed record PreparedContextEvent(
     string Outcome,
     int MessagesCompacted,
     int MessagesDropped,
-    string? DegradationReason) : SessionEvent(TimestampUtc)
+    string? BudgetFailureReason) : SessionEvent(TimestampUtc)
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="PreparedContextEvent"/> record from a <see cref="PrepareResult"/>.
@@ -72,7 +72,7 @@ public sealed record PreparedContextEvent(
             result.Outcome.ToString(),
             result.MessagesCompacted,
             result.MessagesDropped,
-            result.DegradationReason)
+            result.BudgetFailureReason)
     {
     }
 }

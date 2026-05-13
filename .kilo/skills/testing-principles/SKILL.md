@@ -478,7 +478,7 @@ prepared.Last().Segments.OfType<TextContent>().First().Text
 
 The general rule: **never assert on the same object you just wrote to.** Assert on
 what a consumer of the API would actually see — the return value of `Prepare()`, the
-contents of a `CompactionEvent`, or the output of a provider adapter mapping.
+contents of a `CompactionResult`, or the output of a provider adapter mapping.
 
 ---
 

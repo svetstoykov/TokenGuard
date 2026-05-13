@@ -17,7 +17,12 @@ output when pressure builds, drops the oldest unpinned messages when masking isn
 intact. Integration is one call before each provider request.
 
 ```csharp
+conversationContext.AddUserMessage("Fix this, make no mistake.");
+
+// Applies compaction and prepares messages for the provider
 var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
+
+chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(),
 ```
 
 ---
@@ -27,53 +32,42 @@ var preparedMessages = await conversationContext.PrepareAsync(cancellationToken)
 - **Tracks token growth** across the full turn sequence — user, assistant, tool, system, and pinned messages
 - **Masks stale tool results** using a sliding-window strategy when the conversation crosses a configurable soft
   threshold
-- **Falls back to emergency truncation** when masking alone cannot recover enough budget — drops oldest eligible
-  messages, preserves everything pinned
-- **Pins durable context** that survives both compaction tiers: system prompts, task constraints, repository rules, any
+- **Summarizes old history with your LLM** when masking alone isn't enough — collapses older turns into a compact
+  summary message while keeping recent messages verbatim
+- **Falls back to emergency truncation** as a last resort — drops oldest unpinned messages, preserves everything pinned
+- **Pins durable context** that survives all compaction stages: system prompts, task constraints, repository rules, any
   message you need to live forever
 - **Stays provider-agnostic** in core, with first-class adapter helpers for OpenAI and Anthropic
-- **Emits compaction events** through `ICompactionObserver` for observability, logging, and diagnostics
 - **Integrates in minutes** via `AddConversationContext(...)` and a standard DI factory
 
 ---
 
 ## Benchmark
 
-A 22-turn tool-heavy session from [`samples/Codexplorer`](samples/Codexplorer), a simple coding agent, run under a
-20,000-token budget.
+TokenGuard was benchmarked with Codexplorer across 20 real repository-analysis tasks from
+[`samples/Codexplorer.Automation/src/tasks/initial-corpus.json`](samples/Codexplorer.Automation/src/tasks/initial-corpus.json).
+The corpus spans small, medium, and large tasks, with observed runs ranging from roughly 30 to 100+ turns.
 
-> **~160,000 tokens saved. 39% cost reduction.**
+> **All 20 tasks completed successfully. TokenGuard cut cumulative prompt volume by 87.4% and prevented every context-window failure.**
 
-|                         | Without TokenGuard |                With TokenGuard |
-|-------------------------|-------------------:|-------------------------------:|
-| Cumulative input tokens |            407,560 |                    **247,357** |
-| Peak context size       |      34,394 tokens |              **19,124 tokens** |
-| Billing reduction       |                    | **39.3% (~160K tokens saved)** |
+| Benchmark setup | Value |
+|---|---|
+| Workload | 20 Codexplorer tasks across mixed difficulty levels |
+| Session length | Roughly 30-100+ turns observed |
+| Model | `openai/gpt-5.4-nano` |
+| Context budget | 20,000 tokens |
+| Soft threshold | 16,000 tokens (80%) |
+| Hard cap | 20,000 tokens |
+| Total turns | 1,324 |
 
-Three compaction events kept the session alive and affordable:
-
-| Turn | Before compaction | After compaction | Reduction |
-|-----:|------------------:|-----------------:|----------:|
-|    6 |     16,736 tokens |    16,209 tokens |      3.1% |
-|    9 |     17,926 tokens |     8,260 tokens | **53.9%** |
-|   18 |     32,822 tokens |    19,124 tokens | **41.7%** |
-
-Without TokenGuard, the session would have crashed the context budget from turn 11 onward.  
-Full numbers in [`samples/Codexplorer/README.md`](samples/Codexplorer/README.md).
-
-<details>
-<summary>Benchmark configuration</summary>
-
-|                     |                                                                      |
-|---------------------|----------------------------------------------------------------------|
-| Sample              | [`samples/Codexplorer`](samples/Codexplorer) — a simple coding agent |
-| Turns               | 22 (tool-heavy)                                                      |
-| Model               | `openai/gpt-5.4-nano`                                                |
-| Context budget      | 20,000 tokens                                                        |
-| Soft threshold      | 0.80 → compaction triggers at 16,000                                 |
-| Emergency threshold | 1.0 → hard cap at 20,000                                             |
-
-</details>
+| | Without TokenGuard | With TokenGuard |
+|---|---:|---:|
+| Cumulative prompt tokens | 128,058,079 | **16,158,357** |
+| Tokens saved | — | **111,899,722** |
+| Reduction | — | **87.4%** |
+| Successful turns | — | **1,269 / 1,324 (95.8%)** |
+| `CompactionInsufficient` turns | — | **55 / 1,324 (4.2%)** |
+| `CannotCompact` turns | High risk on long runs | **0** |
 
 ---
 
@@ -92,22 +86,42 @@ dotnet add package TokenGuard.Extensions.OpenAI      # or Anthropic
 
 ```csharp
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(100_000)
-    .WithCompactionThreshold(0.80)
-    .WithEmergencyThreshold(0.95));
+    .WithMaxTokens(25_000)
+    .WithCompactionThreshold(0.80));
 ```
+
+Emergency truncation is **on by default at 1.0** (fires only at the absolute token limit as a last-resort safety net).
+When it fires, it **permanently drops the oldest unpinned messages** from the history until the context fits. This is
+intentional: long-running sessions accumulate turns that are no longer relevant, and dropping them keeps the session
+alive rather than crashing or stalling. Without this safety net, a context that masking and summarization could not
+recover would terminate the session entirely.
+
+Override with `WithEmergencyThreshold(0.95)` to trigger earlier, or call `WithoutEmergencyThreshold()` to disable it
+entirely. Disabling is an option, but we advise against it for long-running sessions — the safety net is there precisely
+for the cases where compaction alone is not enough.
 
 Multiple named profiles work too:
 
 ```csharp
 services.AddConversationContext("analysis", builder => builder
     .WithMaxTokens(200_000)
-    .WithCompactionThreshold(0.75)
-    .WithEmergencyThreshold(0.90));
+    .WithCompactionThreshold(0.75));
 ```
 
-`WithEmergencyThreshold` is optional. Skip it and there's no fallback once masking saturates — fine for short sessions,
-risky for anything long-running.
+Sliding-window masking is always active. Add provider-backed summarization only through the provider extension packages:
+
+```csharp
+services.AddConversationContext(builder => builder
+    .WithMaxTokens(25_000)
+    .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 12))
+    .UseLlmSummarization(chatClient));
+```
+
+```csharp
+services.AddConversationContext(builder => builder
+    .WithMaxTokens(25_000)
+    .UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest"));
+```
 
 ### 2. Create a context per conversation
 
@@ -128,15 +142,17 @@ using TokenGuard.Extensions.OpenAI;
 var factory = serviceProvider.GetRequiredService<IConversationContextFactory>();
 using var conversationContext = factory.Create("coding-assistant");
 
+// System messages are always added at the beginning.
 conversationContext.SetSystemPrompt("You are a precise coding assistant.");
+
+// Pinned messages can be added in the beginning as a sort of additional context.
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
 while (true)
 {
     var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
-    var response = await chatClient.CompleteChatAsync(
-        preparedMessages.ForOpenAI(), chatOptions, cancellationToken);
+    var response = await chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(), chatOptions, cancellationToken);
 
     conversationContext.RecordModelResponse(
         response.ResponseSegments(),
@@ -175,14 +191,79 @@ They count against the budget so their cost is always accounted for.
 
 Want architecture detail and trade-offs? Read [How TokenGuard Thinks About Context](docs/deep-dive/context-management.md).
 
-Two ordered tiers:
+Three ordered tiers:
 
 **1. Observation masking.** The sliding-window strategy walks backwards through history and masks tool results outside
 the active window. Recent turns stay intact, structure is preserved, message count doesn't change. This runs first
 whenever the soft threshold is crossed.
 
-**2. Emergency truncation** *(optional)*. If the masked payload still exceeds the emergency threshold, TokenGuard drops
-the oldest unpinned messages until it fits.
+**2. LLM summarization** *(opt-in — register with `UseLlmSummarization(...)`)*. If masking still leaves the context
+over budget, TokenGuard calls your LLM to collapse older turns into a compact summary message. The newest messages stay
+verbatim. This stage only runs if you registered a provider.
+
+**3. Emergency truncation** *(on by default, opt-out with `WithoutEmergencyThreshold()`)*. If the context is still
+over budget after all previous stages, TokenGuard drops the oldest unpinned messages until it fits.
+
+---
+
+## Compaction statuses
+
+`PrepareAsync()` can return two over-budget statuses after compaction work has already been attempted:
+
+### `CompactionInsufficient`
+
+**Meaning:** TokenGuard compacted and, if configured, also tried emergency truncation, but the prepared request still
+exceeds budget.
+
+**Recommended approach:** Treat this as a warning that the newest or preserved tail is still too large. Prefer reducing
+large tool-call arguments, tool outputs, or assistant payloads in the active tail; enable LLM summarization if it is not
+already enabled; split the task into smaller exchanges; or increase the configured budget only when the target provider
+actually supports a larger context window.
+
+### `CannotCompact`
+
+**Meaning:** The prepared request cannot fit because a single message or preserved content block is already too large on
+its own. Further compaction will not help.
+
+**Recommended approach:** Stop the exchange and reshape the input. Shorten or unpin oversized preserved content, split a
+large user request or tool payload into smaller pieces, move bulky artifacts out of the live prompt, or switch to a
+model with a larger real context window.
+
+---
+
+## LLM summarization
+
+When masking alone isn't enough, TokenGuard can use your LLM to replace older history with a single compact summary.
+The newest messages stay verbatim — only older turns are collapsed. The summary is inserted as a regular message so the
+model always has full context on what came before.
+
+Register it with one extra call on your builder:
+
+```csharp
+// OpenAI — model is inferred from the ChatClient
+builder.UseLlmSummarization(chatClient);
+
+// Anthropic — model must be specified explicitly
+builder.UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest");
+```
+
+Defaults keep the last **5 messages** verbatim and bound the summary to **2 048–4 096 tokens**. Override with
+`LlmSummarizationOptions`:
+
+```csharp
+builder.UseLlmSummarization(chatClient, new LlmSummarizationOptions(
+    windowSize: 5,
+    minSummaryTokens: 1024,
+    maxSummaryTokens: 2048));
+```
+
+| Option | What it controls | Default |
+|---|---|---|
+| `WindowSize` | How many newest messages stay verbatim | 5 |
+| `MinSummaryTokens` | Minimum budget required before summarizing (skips if budget is too small) | 2 048 |
+| `MaxSummaryTokens` | Maximum budget forwarded to the summarizer | 4 096 |
+
+Only one provider per builder. Registering both OpenAI and Anthropic on the same builder throws at startup.
 
 ---
 
@@ -193,43 +274,54 @@ The core has no provider dependency. Adapters handle the conversion in both dire
 **OpenAI**
 
 ```csharp
+
+// In-going messages formatting
 var messages = preparedMessages.ForOpenAI();
-conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+
+// Output from the mode that can be formatted for the ConversationContext
+var formattedOutput = response.ResponseSegments();
+conversationContext.RecordModelResponse(formattedOutput, response.InputTokens());
+```
+
+Optional LLM summarization addon:
+
+```csharp
+builder.UseLlmSummarization(chatClient);
 ```
 
 **Anthropic**
 
 ```csharp
+// In-going messages formatting
 var messages = preparedMessages.ForAnthropic();
+
+// Output from the mode that can be formatted for the ConversationContext
 conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
 ```
 
----
-
-## Observability
+Optional LLM summarization addon:
 
 ```csharp
-services.AddConversationContext(builder => builder
-    .WithMaxTokens(100_000)
-    .WithCompactionThreshold(0.80)
-    .WithObserver(new MyCompactionObserver()));
+builder.UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest");
 ```
-
-`ICompactionObserver` fires on each compaction event with message counts and before/after token totals. Wire it to your
-logger, metrics pipeline, or dashboard.
 
 ---
 
 ## Without DI
 
-If you're not using a container, construct directly:
+If you're not using a container, construct a factory directly:
 
 ```csharp
-var budget = new ContextBudget(maxTokens: 100_000, compactionThreshold: 0.80);
-var context = new ConversationContext(budget, tokenCounter, compactionStrategy);
+var factory = new ConversationContextFactory(
+    new ConversationConfigBuilder()
+        .WithMaxTokens(25_000)
+        .WithCompactionThreshold(0.80)
+        .Build());
+
+using var context = factory.Create();
 ```
 
-DI is the recommended path. Direct construction is there for tests and constrained environments.
+DI is the recommended path. Public factory is manual fallback when you don't want a container.
 
 ---
 
@@ -278,21 +370,20 @@ dotnet build ./src/Codexplorer.csproj
 
 ---
 
-## Current Status 🚧
+## Current Status
 
 What is current:
 
 - sliding-window observation masking is implemented and usable now
-- masking is implemented for normal pressure, and optional emergency truncation is available when an emergency threshold
-  is configured
-- pinned messages are implemented and survive both compaction tiers
+- masking is implemented for normal pressure, and emergency truncation is **on by default at 1.0** (last-resort safety
+  net, disable with `WithoutEmergencyThreshold()`)
+- LLM summarization compaction is implemented for OpenAI and Anthropic via `UseLlmSummarization(...)`
+- pinned messages are implemented and survive all compaction stages
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available
 - runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`,
   `PrepareAsync(...)`, `RecordModelResponse(...)`, and `RecordToolResult(...)`
-- compaction observer callbacks are available through `ICompactionObserver`
 
 What remains planned:
 
-- summarization-based compaction
-- broader multi-strategy pipeline expansion beyond current masking + emergency fallback
+- broader multi-strategy pipeline expansion beyond current masking + summarization + emergency fallback

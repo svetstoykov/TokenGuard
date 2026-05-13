@@ -52,5 +52,5 @@ internal sealed record SubmitResponse(
     bool AsksRunner,
     string? RunnerQuestion,
     string LogFilePath,
-    string? DegradationReason,
+    string? BudgetFailureReason,
     SubmitFailure? Failure);

@@ -173,11 +173,11 @@ internal sealed class AutomationRunner
                         nextMessage = await this.BuildNextMessageAsync(taskState, response, ct).ConfigureAwait(false);
                         continue;
 
-                    case "degraded":
+                    case "budget_exceeded":
                         this._logger.LogWarning(
-                            "Task {TaskId} degraded. Reason: {Reason}",
+                            "Task {TaskId} stopped because the prepared request exceeded budget. Reason: {Reason}",
                             task.TaskId,
-                            response.DegradationReason);
+                            response.BudgetFailureReason);
                         if (sessionOpen)
                         {
                             await this.CloseSessionAsync(openedSession.SessionId, task.TaskId!, ct).ConfigureAwait(false);
@@ -186,7 +186,7 @@ internal sealed class AutomationRunner
 
                         return TaskExecutionResult.Failure(
                             task.TaskId!,
-                            response.DegradationReason ?? "Codexplorer degraded the exchange and could not continue safely.");
+                            response.BudgetFailureReason ?? "Codexplorer stopped because the prepared request still exceeded budget.");
 
                     case "failed":
                         this._logger.LogWarning(

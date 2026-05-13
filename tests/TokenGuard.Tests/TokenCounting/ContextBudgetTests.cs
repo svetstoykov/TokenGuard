@@ -15,11 +15,11 @@ public sealed class ContextBudgetTests
         // Assert
         Assert.Equal(100_000, budget.MaxTokens);
         Assert.Equal(0.80, budget.CompactionThreshold);
-        Assert.Null(budget.EmergencyThreshold);
+        Assert.Equal(1.0, budget.EmergencyThreshold);
         Assert.Equal(0.05, budget.OverrunTolerance);
         Assert.Equal(5_000, budget.OverrunToleranceTokens);
         Assert.Equal(80_000, budget.CompactionTriggerTokens);
-        Assert.Null(budget.EmergencyTriggerTokens);
+        Assert.Equal(100_000, budget.EmergencyTriggerTokens);
     }
 
     [Fact]

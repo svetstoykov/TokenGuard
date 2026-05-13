@@ -17,10 +17,10 @@ public sealed record AgentReplyReceived(string ReplyText, int ModelTurnsComplete
 /// <summary>
 /// Represents an exchange that stopped because the prepared context could no longer fit.
 /// </summary>
-/// <param name="Reason">The human-readable degradation reason.</param>
-/// <param name="PartialText">The last partial assistant text seen before degradation, when any.</param>
+/// <param name="Reason">The human-readable budget failure reason.</param>
+/// <param name="PartialText">The last partial assistant text seen before the budget failure stopped the exchange, when any.</param>
 /// <param name="ModelTurnsCompleted">The number of model turns completed while handling the current user message.</param>
-public sealed record AgentExchangeDegraded(string Reason, string? PartialText, int ModelTurnsCompleted) : AgentExchangeResult(ModelTurnsCompleted);
+public sealed record AgentExchangeBudgetExceeded(string Reason, string? PartialText, int ModelTurnsCompleted) : AgentExchangeResult(ModelTurnsCompleted);
 
 /// <summary>
 /// Represents an exchange that hit the configured per-message turn cap before reaching an assistant reply.

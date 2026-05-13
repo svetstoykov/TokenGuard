@@ -15,8 +15,8 @@ namespace TokenGuard.Core.Models;
 /// <para>
 /// Use <see cref="Outcome"/> to decide whether to proceed with the LLM call.
 /// <see cref="PrepareOutcome.Ready"/> and <see cref="PrepareOutcome.Compacted"/> indicate a healthy context.
-/// <see cref="PrepareOutcome.Degraded"/> means the agent may attempt the call but it will likely be rejected.
-/// <see cref="PrepareOutcome.ContextExhausted"/> means the call should not be attempted.
+/// <see cref="PrepareOutcome.CompactionInsufficient"/> means the agent may attempt the call but it will likely be rejected.
+/// <see cref="PrepareOutcome.CannotCompact"/> means the call should not be attempted.
 /// </para>
 /// </remarks>
 public sealed record PrepareResult
@@ -29,7 +29,7 @@ public sealed record PrepareResult
     /// <param name="tokensBeforeCompaction">The token total before any compaction ran.</param>
     /// <param name="tokensAfterCompaction">The token total of <paramref name="messages"/> after all compaction and truncation.</param>
     /// <param name="messagesCompacted">The count of messages removed or replaced during this call.</param>
-    /// <param name="degradationReason">A descriptive reason when the outcome is degraded or exhausted; null otherwise.</param>
+    /// <param name="budgetFailureReason">A descriptive reason when the outcome still violates the configured budget; null otherwise.</param>
     /// <param name="messagesDropped">
     /// The number of messages dropped by emergency truncation. This excludes messages replaced by the normal compaction
     /// strategy and is zero when emergency truncation did not remove any messages.
@@ -40,7 +40,7 @@ public sealed record PrepareResult
         int tokensBeforeCompaction,
         int tokensAfterCompaction,
         int messagesCompacted,
-        string? degradationReason = null,
+        string? budgetFailureReason = null,
         int messagesDropped = 0)
     {
         this.Messages = messages ?? throw new ArgumentNullException(nameof(messages));
@@ -48,7 +48,7 @@ public sealed record PrepareResult
         this.TokensBeforeCompaction = tokensBeforeCompaction;
         this.TokensAfterCompaction = tokensAfterCompaction;
         this.MessagesCompacted = messagesCompacted;
-        this.DegradationReason = degradationReason;
+        this.BudgetFailureReason = budgetFailureReason;
         this.MessagesDropped = messagesDropped;
     }
 
@@ -83,10 +83,10 @@ public sealed record PrepareResult
     public int MessagesCompacted { get; }
 
     /// <summary>
-    /// Gets a descriptive reason when <see cref="Outcome"/> is <see cref="PrepareOutcome.Degraded"/> or
-    /// <see cref="PrepareOutcome.ContextExhausted"/>; null otherwise.
+    /// Gets a descriptive reason when <see cref="Outcome"/> is <see cref="PrepareOutcome.CompactionInsufficient"/> or
+    /// <see cref="PrepareOutcome.CannotCompact"/>; null otherwise.
     /// </summary>
-    public string? DegradationReason { get; }
+    public string? BudgetFailureReason { get; }
 
     /// <summary>
     /// Gets the number of messages dropped by emergency truncation.

@@ -1,10 +1,12 @@
 using FluentAssertions;
+using OpenAI.Chat;
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Exceptions;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
+using TokenGuard.Extensions.OpenAI;
 
 namespace TokenGuard.Tests.Core;
 
@@ -69,7 +71,7 @@ public sealed class ConversationContextTests
         counter.SetByText("original", 800);
         counter.Set(compacted, 800);
 
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy"));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
@@ -95,7 +97,7 @@ public sealed class ConversationContextTests
         counter.SetByText("user1", 900);
         counter.Set(compacted, 100);
 
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 100, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 100, 1, "TestStrategy"));
         var budget = ContextBudget.For(1_000);
         var engine = new ConversationContext(budget, counter, strategy);
 
@@ -230,7 +232,7 @@ public sealed class ConversationContextTests
         var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
         counter.Set(compacted, 100);
 
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 100, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 100, 1, "TestStrategy"));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.SetSystemPrompt("sys-old");
@@ -321,8 +323,7 @@ public sealed class ConversationContextTests
             750,
             600,
             2,
-            "TestStrategy",
-            true));
+            "TestStrategy"));
 
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
         engine.AddPinnedMessage(MessageRole.System, "p0");
@@ -474,6 +475,91 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenEmergencyFloorWouldStartInsideMultiToolTail_PreservesWholeToolTurnAndStaysOpenAiValid()
+    {
+        // Arrange
+        var budget = new ContextBudget(1_000, 0.5, 0.6);
+        var counter = new TrackingTokenCounter();
+        counter.SetByText("seed", 700);
+
+        var olderUser = ContextMessage.FromText(MessageRole.User, "older-user");
+        olderUser.Turn = 0;
+
+        var olderModel = ContextMessage.FromText(MessageRole.Model, "older-model");
+        olderModel.Turn = 1;
+
+        var trailingModel = new ContextMessage
+        {
+            Role = MessageRole.Model,
+            Turn = 2,
+            Segments =
+            [
+                new ToolUseContent("call_masked", "search", "{\"query\":\"token guard\"}"),
+                new ToolUseContent("call_live", "fetch", "{\"id\":42}"),
+            ],
+        };
+
+        var maskedToolResult = new ContextMessage
+        {
+            Role = MessageRole.Tool,
+            Turn = 2,
+            State = CompactionState.Masked,
+            Segments =
+            [
+                new ToolResultContent("call_masked", "search", "[Tool result cleared - search, call_masked]"),
+            ],
+        };
+
+        var liveToolResult = new ContextMessage
+        {
+            Role = MessageRole.Tool,
+            Turn = 2,
+            Segments =
+            [
+                new ToolResultContent("call_live", "fetch", "{\"value\":42}"),
+            ],
+        };
+
+        counter.Set(olderUser, 25);
+        counter.Set(olderModel, 25);
+        counter.Set(trailingModel, 250);
+        counter.Set(maskedToolResult, 200);
+        counter.Set(liveToolResult, 200);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult(
+            [olderUser, olderModel, trailingModel, maskedToolResult, liveToolResult],
+            700,
+            700,
+            5,
+            "TestStrategy"));
+
+        var engine = new ConversationContext(budget, counter, strategy);
+        engine.AddUserMessage("seed");
+
+        // Act
+        var result = await engine.PrepareAsync();
+        var prepared = result.Messages;
+        var openAiMessages = prepared.ForOpenAI();
+
+        // Assert
+        result.MessagesDropped.Should().Be(2);
+        prepared.Should().Equal(trailingModel, maskedToolResult, liveToolResult);
+        prepared.Should().NotContain(olderUser);
+        prepared.Should().NotContain(olderModel);
+
+        openAiMessages.Should().HaveCount(3);
+        openAiMessages[0].Should().BeOfType<AssistantChatMessage>();
+        openAiMessages[1].Should().BeOfType<ToolChatMessage>();
+        openAiMessages[2].Should().BeOfType<ToolChatMessage>();
+
+        openAiMessages
+            .OfType<ToolChatMessage>()
+            .Select(message => message.ToolCallId)
+            .Should()
+            .Equal("call_masked", "call_live");
+    }
+
+    [Fact]
     public async Task PrepareAsync_WhenOldestMessageIsPinnedAndOverBudget_PreservesOldestPinnedMessage()
     {
         // Arrange
@@ -523,7 +609,7 @@ public sealed class ConversationContextTests
     {
         // Arrange
         var counter = new TrackingTokenCounter();
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([ContextMessage.FromText(MessageRole.Model, "compressed")], 800, 100, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([ContextMessage.FromText(MessageRole.Model, "compressed")], 800, 100, 1, "TestStrategy"));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("hello");
@@ -639,7 +725,7 @@ public sealed class ConversationContextTests
         counter.SetByText("original", 800);
         counter.Set(compacted, 800);
 
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy"));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
@@ -712,36 +798,6 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenCompactionApplied_InvokesObserverExactlyOnceWithCorrectMetrics()
-    {
-        // Arrange
-        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
-        var counter = new TrackingTokenCounter();
-        counter.SetByText("original", 800);
-        counter.Set(compacted, 100);
-
-        var compactionResult = new CompactionResult([compacted], 800, 100, 3, "TestStrategy", true);
-        var strategy = new TrackingCompactionStrategy(compactionResult);
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, observer);
-
-        engine.AddUserMessage("original");
-
-        // Act
-        var result = await engine.PrepareAsync();
-
-        // Assert
-        observer.Events.Should().HaveCount(1);
-        var evt = observer.Events[0];
-        evt.Result.TokensBefore.Should().Be(800);
-        evt.Result.TokensAfter.Should().Be(100);
-        evt.Result.MessagesAffected.Should().Be(3);
-        evt.Result.EmergencyMessagesDropped.Should().Be(0);
-
-        result.MessagesDropped.Should().Be(0);
-    }
-
-    [Fact]
     public async Task PrepareAsync_WhenEmergencyTruncationDropsMessages_ReportsExplicitStageDiagnostics()
     {
         // Arrange
@@ -759,10 +815,9 @@ public sealed class ConversationContextTests
         counter.Set(olderMsg, 600);
         counter.Set(newerMsg, 500);
 
-        var strategyResult = new CompactionResult([olderMsg, newerMsg], 600, 1100, 2, "TestStrategy", true);
+        var strategyResult = new CompactionResult([olderMsg, newerMsg], 600, 1100, 2, "TestStrategy");
         var strategy = new TrackingCompactionStrategy(strategyResult);
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(budget, counter, strategy, observer);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("original");
 
@@ -772,15 +827,6 @@ public sealed class ConversationContextTests
 
         // Assert — emergency truncation drops olderMsg; only newerMsg remains
         prepared.Should().ContainSingle().Which.Should().BeSameAs(newerMsg);
-
-        observer.Events.Should().HaveCount(1);
-        var evt = observer.Events[0];
-        evt.Trigger.Should().Be(CompactionTrigger.Emergency);
-        evt.Result.WasApplied.Should().BeTrue();
-        evt.Result.TokensBefore.Should().Be(600);
-        evt.Result.TokensAfter.Should().Be(500);
-        evt.Result.MessagesAffected.Should().Be(3);
-        evt.Result.EmergencyMessagesDropped.Should().Be(1);
 
         result.MessagesCompacted.Should().Be(3);
         result.MessagesDropped.Should().Be(1);
@@ -797,10 +843,9 @@ public sealed class ConversationContextTests
         counter.SetByText("u1", 600);
         counter.SetByText("u2", 500);
 
-        // Strategy returns input unchanged (WasApplied=false), but result still exceeds emergencyTrigger
+        // Strategy returns input unchanged, but result still exceeds emergencyTrigger
         var strategy = new TrackingCompactionStrategy();
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(budget, counter, strategy, observer);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("u1");
         engine.AddUserMessage("u2");
@@ -808,13 +853,7 @@ public sealed class ConversationContextTests
         // Act
         var result = await engine.PrepareAsync();
 
-        // Assert — emergency truncation drops u1; observer is notified even though strategy did not apply
-        observer.Events.Should().HaveCount(1);
-        var evt = observer.Events[0];
-        evt.Trigger.Should().Be(CompactionTrigger.Emergency);
-        evt.Result.WasApplied.Should().BeTrue();
-        evt.Result.EmergencyMessagesDropped.Should().Be(1);
-
+        // Assert — emergency truncation drops u1 even though strategy did not apply
         result.MessagesDropped.Should().Be(1);
         result.MessagesCompacted.Should().Be(1);
     }
@@ -831,7 +870,7 @@ public sealed class ConversationContextTests
         counter.SetByText("older", 300);
         counter.SetByText("newer", 400);
 
-        // Strategy passes through unchanged (WasApplied=false); combined total 1500 > emergencyTrigger(900)
+        // Strategy passes through unchanged; combined total 1500 > emergencyTrigger(900)
         var strategy = new TrackingCompactionStrategy();
         var engine = new ConversationContext(budget, counter, strategy);
 
@@ -869,10 +908,9 @@ public sealed class ConversationContextTests
         counter.Set(compacted1, 400);
         counter.Set(compacted2, 300); // Combined 700 < emergencyTrigger(900)
 
-        var strategyResult = new CompactionResult([compacted1, compacted2], 600, 700, 1, "TestStrategy", true);
+        var strategyResult = new CompactionResult([compacted1, compacted2], 600, 700, 1, "TestStrategy");
         var strategy = new TrackingCompactionStrategy(strategyResult);
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(budget, counter, strategy, observer);
+        var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("original");
 
@@ -884,10 +922,46 @@ public sealed class ConversationContextTests
         prepared.Should().HaveCount(2);
         prepared[0].Should().BeSameAs(compacted1);
         prepared[1].Should().BeSameAs(compacted2);
-        observer.Events.Should().HaveCount(1);
-        observer.Events[0].Trigger.Should().Be(CompactionTrigger.Normal);
-        observer.Events[0].Result.EmergencyMessagesDropped.Should().Be(0);
         result.MessagesDropped.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenSummarizationStillExceedsEmergencyThreshold_DoesNotTruncateSummary()
+    {
+        // Arrange
+        var budget = new ContextBudget(1000, 0.5, 0.9);
+
+        var summary = ContextMessage.FromText(MessageRole.Model, "summary") with { State = CompactionState.Summarized };
+        var protectedTail = ContextMessage.FromText(MessageRole.User, "tail");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 950);
+        counter.Set(summary, 600);
+        counter.Set(protectedTail, 500);
+
+        var strategyResult = new CompactionResult(
+            [summary, protectedTail],
+            1100,
+            950,
+            3,
+            "TestStrategy");
+
+        var strategy = new TrackingCompactionStrategy(strategyResult);
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        var result = await engine.PrepareAsync();
+
+        // Assert
+        result.Messages.Should().ContainInOrder(summary, protectedTail);
+        result.MessagesDropped.Should().Be(0);
+        result.MessagesCompacted.Should().Be(3);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
+        result.TokensAfterCompaction.Should().Be(1100);
+        result.BudgetFailureReason.Should().NotBeNull();
+
     }
 
     [Fact]
@@ -921,7 +995,7 @@ public sealed class ConversationContextTests
         prepared.Should().HaveCount(2);
         prepared.Should().ContainInOrder(systemMessage, latestUser);
         prepared.Sum(message => message.TokenCount ?? 0).Should().Be(1100);
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.MessagesDropped.Should().Be(2);
     }
 
@@ -948,8 +1022,7 @@ public sealed class ConversationContextTests
             1350,
             1200,
             1,
-            "TestStrategy",
-            true);
+            "TestStrategy");
 
         var strategy = new TrackingCompactionStrategy(strategyResult);
         var engine = new ConversationContext(budget, counter, strategy);
@@ -969,25 +1042,6 @@ public sealed class ConversationContextTests
         prepared.Should().NotContain(newestUser);
         prepared.Should().NotContain(newestModel);
         prepared.Sum(message => message.TokenCount ?? 0).Should().Be(400);
-    }
-
-    [Fact]
-    public async Task PrepareAsync_WhenCompactionNotRequired_DoesNotInvokeObserver()
-    {
-        // Arrange
-        var counter = new TrackingTokenCounter();
-        var strategy = new TrackingCompactionStrategy();
-        var observer = new TrackingCompactionObserver();
-        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, observer);
-
-        engine.AddUserMessage("hello");
-        counter.Set(engine.History[0], 0);
-
-        // Act
-        var _ = await engine.PrepareAsync();
-
-        // Assert
-        observer.Events.Should().BeEmpty();
     }
 
     [Fact]
@@ -1031,7 +1085,7 @@ public sealed class ConversationContextTests
         // Turn 2 — total = 300 + 0 + 200 + 200(correction) = 700 → compaction triggered.
         engine.AddUserMessage("u2");
         await engine.PrepareAsync();
-        // CompactCalls = 1; strategy returns pass-through (WasApplied=false).
+        // CompactCalls = 1; strategy returns pass-through.
         // finalTokens = 500.
         // CORRECT: _lastPreparedTotal = 500,       _anchorCorrection = 0
 
@@ -1051,7 +1105,7 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenEmergencyTruncationLeavesRawTotalOverBudgetButAdjustedTotalFits_DoesNotReportDegraded()
+    public async Task PrepareAsync_WhenEmergencyTruncationLeavesRawTotalOverBudgetButAdjustedTotalFits_DoesNotReportCompactionInsufficient()
     {
         var budget = new ContextBudget(1_000, 0.5, 1.0);
         var counter = new TrackingTokenCounter();
@@ -1075,8 +1129,7 @@ public sealed class ConversationContextTests
             1_000,
             1_200,
             1,
-            "TestStrategy",
-            true));
+            "TestStrategy"));
 
         var engine = new ConversationContext(budget, counter, strategy);
 
@@ -1090,7 +1143,7 @@ public sealed class ConversationContextTests
 
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
         result.TokensAfterCompaction.Should().Be(950);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
         result.MessagesDropped.Should().Be(1);
         result.Messages.Should().Equal(keepMiddle, keepLatest);
     }
@@ -1117,7 +1170,7 @@ public sealed class ConversationContextTests
         result.TokensBeforeCompaction.Should().Be(100);
         result.TokensAfterCompaction.Should().Be(100);
         result.MessagesCompacted.Should().Be(0);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
         result.MessagesDropped.Should().Be(0);
         result.Messages.Should().BeSameAs(engine.History);
     }
@@ -1131,7 +1184,7 @@ public sealed class ConversationContextTests
         counter.SetByText("original", 900);
         counter.Set(compacted, 400);
 
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 400, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 400, 1, "TestStrategy"));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
@@ -1142,13 +1195,13 @@ public sealed class ConversationContextTests
         result.TokensBeforeCompaction.Should().Be(900);
         result.TokensAfterCompaction.Should().Be(400);
         result.MessagesCompacted.Should().Be(1);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
         result.MessagesDropped.Should().Be(0);
         result.Messages.Should().ContainSingle().Which.Should().BeSameAs(compacted);
     }
 
     [Fact]
-    public async Task PrepareAsync_OutcomeDegraded_WhenCompactionStillExceedsBudget()
+    public async Task PrepareAsync_OutcomeCompactionInsufficient_WhenCompactionStillExceedsBudget()
     {
         var compacted = ContextMessage.FromText(MessageRole.Model, "still-too-large");
         var counter = new TrackingTokenCounter();
@@ -1156,24 +1209,24 @@ public sealed class ConversationContextTests
         counter.SetByText("original", 900);
         counter.Set(compacted, 1100);
 
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1100, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1100, 1, "TestStrategy"));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.AddUserMessage("original");
 
         var result = await engine.PrepareAsync();
 
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.TokensBeforeCompaction.Should().Be(900);
         result.TokensAfterCompaction.Should().Be(1100);
         result.MessagesCompacted.Should().Be(1);
-        result.DegradationReason.Should().NotBeNull();
-        result.DegradationReason.Should().Contain("Compaction reduced content");
+        result.BudgetFailureReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().Contain("Compaction ran but prepared request still exceeds budget");
         result.MessagesDropped.Should().Be(0);
     }
 
     [Fact]
-    public async Task PrepareAsync_OutcomeContextExhausted_WhenSingleMessageExceedsBudget()
+    public async Task PrepareAsync_OutcomeCannotCompact_WhenSingleMessageExceedsBudget()
     {
         var counter = new TrackingTokenCounter();
         var strategy = new TrackingCompactionStrategy();
@@ -1184,18 +1237,18 @@ public sealed class ConversationContextTests
 
         var result = await engine.PrepareAsync();
 
-        result.Outcome.Should().Be(PrepareOutcome.ContextExhausted);
+        result.Outcome.Should().Be(PrepareOutcome.CannotCompact);
         result.TokensBeforeCompaction.Should().Be(1500);
         result.TokensAfterCompaction.Should().Be(1500);
         result.MessagesCompacted.Should().Be(0);
-        result.DegradationReason.Should().NotBeNull();
-        result.DegradationReason.Should().Contain("exceeds the budget");
+        result.BudgetFailureReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().Contain("cannot fit within budget");
         result.MessagesDropped.Should().Be(0);
         result.Messages.Should().ContainSingle();
     }
 
     [Fact]
-    public async Task PrepareAsync_OutcomeDegraded_WithPinnedMessages_WhenTruncationInsufficient()
+    public async Task PrepareAsync_OutcomeCompactionInsufficient_WithPinnedMessages_WhenTruncationInsufficient()
     {
         var compacted = ContextMessage.FromText(MessageRole.Model, "compacted-still-large");
         var counter = new TrackingTokenCounter();
@@ -1204,7 +1257,7 @@ public sealed class ConversationContextTests
         counter.SetByText("original", 850);
         counter.Set(compacted, 1100);
 
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 850, 1100, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 850, 1100, 1, "TestStrategy"));
         var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
 
         engine.SetSystemPrompt("sys");
@@ -1212,14 +1265,14 @@ public sealed class ConversationContextTests
 
         var result = await engine.PrepareAsync();
 
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.TokensBeforeCompaction.Should().Be(950);
         result.MessagesCompacted.Should().BeGreaterThanOrEqualTo(1);
-        result.DegradationReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().NotBeNull();
     }
 
     [Fact]
-    public async Task PrepareAsync_WithZeroTolerance_ReportsDegraded_WhenFinalTokensExceedBudget()
+    public async Task PrepareAsync_WithZeroTolerance_ReportsCompactionInsufficient_WhenFinalTokensExceedBudget()
     {
         // Arrange — budget with explicit zero tolerance; compaction still leaves 1 token above max.
         var compacted = ContextMessage.FromText(MessageRole.Model, "still-over");
@@ -1229,7 +1282,7 @@ public sealed class ConversationContextTests
         counter.Set(compacted, 1_001);
 
         var budget = new ContextBudget(maxTokens: 1_000, compactionThreshold: 0.80, overrunTolerance: 0.0);
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_001, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_001, 1, "TestStrategy"));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("original");
@@ -1238,9 +1291,9 @@ public sealed class ConversationContextTests
         var result = await engine.PrepareAsync();
 
         // Assert
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.TokensAfterCompaction.Should().Be(1_001);
-        result.DegradationReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().NotBeNull();
     }
 
     [Fact]
@@ -1254,7 +1307,7 @@ public sealed class ConversationContextTests
         counter.Set(compacted, 1_050);
 
         var budget = new ContextBudget(maxTokens: 1_000, compactionThreshold: 0.80, overrunTolerance: 0.10);
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_050, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_050, 1, "TestStrategy"));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("original");
@@ -1262,14 +1315,14 @@ public sealed class ConversationContextTests
         // Act
         var result = await engine.PrepareAsync();
 
-        // Assert — 1050 <= 1000 + 100 → accepted as Compacted, not Degraded
+        // Assert — 1050 <= 1000 + 100 → accepted as Compacted, not CompactionInsufficient
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
         result.TokensAfterCompaction.Should().Be(1_050);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
     }
 
     [Fact]
-    public async Task PrepareAsync_WithPositiveTolerance_ReportsDegraded_WhenFinalTokensExceedBudgetPlusTolerance()
+    public async Task PrepareAsync_WithPositiveTolerance_ReportsCompactionInsufficient_WhenFinalTokensExceedBudgetPlusTolerance()
     {
         // Arrange — tolerance of 10% (100 tokens on a 1000-token budget); compaction leaves 101 tokens above max, which exceeds tolerance.
         var compacted = ContextMessage.FromText(MessageRole.Model, "outside-tolerance");
@@ -1279,7 +1332,7 @@ public sealed class ConversationContextTests
         counter.Set(compacted, 1_101);
 
         var budget = new ContextBudget(maxTokens: 1_000, compactionThreshold: 0.80, overrunTolerance: 0.10);
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_101, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_101, 1, "TestStrategy"));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("original");
@@ -1287,10 +1340,10 @@ public sealed class ConversationContextTests
         // Act
         var result = await engine.PrepareAsync();
 
-        // Assert — 1101 > 1000 + 100 → still Degraded
-        result.Outcome.Should().Be(PrepareOutcome.Degraded);
+        // Assert — 1101 > 1000 + 100 → still CompactionInsufficient
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
         result.TokensAfterCompaction.Should().Be(1_101);
-        result.DegradationReason.Should().NotBeNull();
+        result.BudgetFailureReason.Should().NotBeNull();
     }
 
     [Fact]
@@ -1304,7 +1357,7 @@ public sealed class ConversationContextTests
         counter.Set(compacted, 1_000);
 
         var budget = new ContextBudget(maxTokens: 1_000, compactionThreshold: 0.80, overrunTolerance: 0.10);
-        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_000, 1, "TestStrategy", true));
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 1_000, 1, "TestStrategy"));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage("original");
@@ -1315,7 +1368,7 @@ public sealed class ConversationContextTests
         // Assert — 1000 <= 1000 → Compacted (same as before tolerance was introduced)
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
         result.TokensAfterCompaction.Should().Be(1_000);
-        result.DegradationReason.Should().BeNull();
+        result.BudgetFailureReason.Should().BeNull();
     }
 
     private static string GetText(ContextMessage message)
@@ -1361,17 +1414,16 @@ public sealed class ConversationContextTests
         /// </summary>
         /// <param name="messages">The messages selected for compaction.</param>
         /// <param name="availableTokens">The token budget available to the compaction operation.</param>
-        /// <param name="tokenCounter">The token counter associated with the request.</param>
         /// <param name="cancellationToken">A token used to cancel the operation.</param>
         /// <returns>A task containing either the configured result or a pass-through compaction result.</returns>
-        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, ITokenCounter tokenCounter, CancellationToken cancellationToken = default)
+        public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             this.CompactCalls++;
             this.LastInput = messages;
             this.LastAvailableTokens = availableTokens;
 
-            return Task.FromResult(this._result ?? new CompactionResult(messages, 0, 0, 0, nameof(TrackingCompactionStrategy), false));
+            return Task.FromResult(this._result ?? new CompactionResult(messages, 0, 0, 0, nameof(TrackingCompactionStrategy)));
         }
     }
 
@@ -1441,13 +1493,6 @@ public sealed class ConversationContextTests
 
             return messages.Sum(this.Count);
         }
-    }
-
-    private sealed class TrackingCompactionObserver : ICompactionObserver
-    {
-        public List<CompactionEvent> Events { get; } = [];
-
-        public void OnCompaction(CompactionEvent compactionEvent) => this.Events.Add(compactionEvent);
     }
 
     private sealed class ReferenceEqualityComparer : IEqualityComparer<ContextMessage>
