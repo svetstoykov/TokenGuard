@@ -12,18 +12,30 @@
 
 ---
 
-TokenGuard wraps your message list and keeps each prepared payload under a configured token budget. It masks stale tool
-output when pressure builds, drops the oldest unpinned messages when masking isn't enough, and leaves your raw history
-intact. Integration is one call before each provider request.
+TokenGuard keeps your agent loop conversation inside `ConversationContext`. That object is the source of truth for the
+session. Before each model call, TokenGuard reads that history, builds a provider-ready snapshot, and compacts only that
+snapshot when needed.
 
 ```csharp
+// ConversationContext is source of truth for this loop.
+// System prompt lives there with every other message.
+conversationContext.SetSystemPrompt("You are a careful coding assistant.");
+
+// Add user turn to same stored conversation history.
 conversationContext.AddUserMessage("Fix this, make no mistake.");
 
-// Applies compaction and prepares messages for the provider
+// Build next provider request from that history.
+// TokenGuard may compact this snapshot to fit budget.
+// Stored history inside conversationContext does not change.
 var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
 
-chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(),
+// Send only prepared snapshot to provider.
+var input = preparedMessages.ForOpenAI();
+var response = await chatClient.CompleteChatAsync(input);
 ```
+
+You keep appending system, user, assistant, and tool messages to `conversationContext`. Everything happens inside that
+object. `PrepareAsync()` reads it and returns only the version that should go to the model right now.
 
 ---
 
@@ -34,7 +46,7 @@ chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(),
   threshold
 - **Summarizes old history with your LLM** when masking alone isn't enough — collapses older turns into a compact
   summary message while keeping recent messages verbatim
-- **Falls back to emergency truncation** as a last resort — drops oldest unpinned messages, preserves everything pinned
+- **Falls back to emergency truncation** as a last resort — drops oldest unpinned messages from prepared payload, preserves everything pinned
 - **Pins durable context** that survives all compaction stages: system prompts, task constraints, repository rules, any
   message you need to live forever
 - **Stays provider-agnostic** in core, with first-class adapter helpers for OpenAI and Anthropic
@@ -91,10 +103,10 @@ services.AddConversationContext(builder => builder
 ```
 
 Emergency truncation is **on by default at 1.0** (fires only at the absolute token limit as a last-resort safety net).
-When it fires, it **permanently drops the oldest unpinned messages** from the history until the context fits. This is
-intentional: long-running sessions accumulate turns that are no longer relevant, and dropping them keeps the session
-alive rather than crashing or stalling. Without this safety net, a context that masking and summarization could not
-recover would terminate the session entirely.
+When it fires, it **drops the oldest unpinned messages from the prepared request** until that request fits. This is
+intentional: long-running sessions accumulate turns that are no longer relevant, and dropping them from the provider
+payload keeps the session alive rather than crashing or stalling. Your stored `ConversationContext.History` still stays
+unchanged; only the snapshot returned by `PrepareAsync()` is reduced.
 
 Override with `WithEmergencyThreshold(0.95)` to trigger earlier, or call `WithoutEmergencyThreshold()` to disable it
 entirely. Disabling is an option, but we advise against it for long-running sessions — the safety net is there precisely
@@ -140,36 +152,51 @@ concurrent requests.
 using TokenGuard.Extensions.OpenAI;
 
 var factory = serviceProvider.GetRequiredService<IConversationContextFactory>();
+
+// ConversationContext is source of truth for one agent loop.
+// It keeps full conversation history in one place.
 using var conversationContext = factory.Create("coding-assistant");
 
-// System messages are always added at the beginning.
+// System prompt is part of that stored history.
 conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 
-// Pinned messages can be added in the beginning as a sort of additional context.
+// Pinned messages are durable context. TokenGuard keeps them even under pressure.
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
+
+// Add latest user turn to same history.
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
 while (true)
 {
+    // Build next provider payload from ConversationContext history.
+    // TokenGuard compacts this snapshot only if budget requires it.
     var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
+
+    // Provider sees prepared snapshot, not full stored history.
     var response = await chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(), chatOptions, cancellationToken);
 
+    // Save assistant reply back into ConversationContext.
     conversationContext.RecordModelResponse(
         response.ResponseSegments(),
         response.InputTokens());
 
+    // Stop loop when model is done calling tools.
     if (response.ToolCalls.Count == 0)
         break;
 
     foreach (var toolCall in response.ToolCalls)
     {
+        // Execute tool outside TokenGuard.
         var result = toolExecutor.Execute(toolCall);
+
+        // Save tool output back into ConversationContext for next turn.
         conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
     }
 }
 ```
 
-`PrepareAsync()` returns a snapshot. It does not mutate `History`, so your raw history stays intact.
+`PrepareAsync()` returns a temporary snapshot for provider call. It does not mutate `History`, so `ConversationContext`
+remains the full source of truth for the conversation.
 
 ---
 
@@ -201,8 +228,9 @@ whenever the soft threshold is crossed.
 over budget, TokenGuard calls your LLM to collapse older turns into a compact summary message. The newest messages stay
 verbatim. This stage only runs if you registered a provider.
 
-**3. Emergency truncation** *(on by default, opt-out with `WithoutEmergencyThreshold()`)*. If the context is still
-over budget after all previous stages, TokenGuard drops the oldest unpinned messages until it fits.
+**3. Emergency truncation** *(on by default, opt-out with `WithoutEmergencyThreshold()`)*. If the prepared request is
+still over budget after all previous stages, TokenGuard drops the oldest unpinned messages from that prepared request
+until it fits.
 
 ---
 
