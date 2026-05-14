@@ -160,6 +160,12 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// If that summary plus the newer messages fits, the method reuses it. If more messages became old, it makes a new
     /// bigger summary. If the old summary is too large, it asks the LLM for a smaller summary of the same old messages.
     /// </para>
+    /// <para>
+    /// In both rewrite paths (promotion and same-boundary refresh), the actual counted result is checked against
+    /// <paramref name="availableTokens"/> after the LLM call completes. If the returned summary still overshoots the
+    /// budget, the checkpoint is left unchanged and the original messages are returned so emergency truncation can still
+    /// act on real history instead of a summary-blocked list.
+    /// </para>
     /// </remarks>
     /// <param name="messages">The ordered compactable message history.</param>
     /// <param name="tokensBefore">The token count before compaction.</param>
@@ -205,13 +211,20 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
                 protectedTail.FirstIndex,
                 targetTokens,
                 cancellationToken);
-            this.SetCheckpoint(protectedTail.FirstIndex, promotedFingerprint, promotedSummaryMessage);
-            return CreateSummaryResult(
+            var promotedResult = CreateSummaryResult(
                 messages,
                 tokensBefore,
                 protectedTail.FirstIndex,
                 promotedSummaryMessage,
                 this._tokenCounter);
+
+            if (promotedResult.TokensAfter > availableTokens)
+            {
+                return CreateUnchangedResult(messages, tokensBefore);
+            }
+
+            this.SetCheckpoint(protectedTail.FirstIndex, promotedFingerprint, promotedSummaryMessage);
+            return promotedResult;
         }
 
         // Same old messages, but the saved summary is too large for this budget.
@@ -220,13 +233,20 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             checkpoint.SummarizedMessageCount,
             targetTokens,
             cancellationToken);
-        this._checkpoint = checkpoint with { SummaryMessage = refreshedSummaryMessage };
-        return CreateSummaryResult(
+        var refreshedResult = CreateSummaryResult(
             messages,
             tokensBefore,
             checkpoint.SummarizedMessageCount,
             refreshedSummaryMessage,
             this._tokenCounter);
+
+        if (refreshedResult.TokensAfter > availableTokens)
+        {
+            return CreateUnchangedResult(messages, tokensBefore);
+        }
+
+        this._checkpoint = checkpoint with { SummaryMessage = refreshedSummaryMessage };
+        return refreshedResult;
     }
 
     /// <summary>
@@ -235,8 +255,10 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// <remarks>
     /// <para>
     /// This is the cold path. The strategy has raw messages only. It must decide whether there is enough room for a new
-    /// summary, then save that summary as the first checkpoint. If there is not enough room, it returns the messages
-    /// unchanged because emergency truncation belongs to <see cref="ConversationContext"/>.
+    /// summary, then save that summary as the first checkpoint. If there is not enough room for a plausible summary
+    /// before calling the LLM, it returns the messages unchanged. If the actual returned summary still overshoots
+    /// <paramref name="availableTokens"/> after counting, it also returns the messages unchanged and does not commit
+    /// the checkpoint, leaving emergency truncation free to act on the original non-summary message set.
     /// </para>
     /// </remarks>
     /// <param name="messages">The ordered compactable message history.</param>
@@ -269,14 +291,24 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             protectedTail.FirstIndex,
             targetTokens,
             cancellationToken);
-        this.SetCheckpoint(protectedTail.FirstIndex, checkpointFingerprint, summaryMessage);
 
-        return CreateSummaryResult(
+        var summaryResult = CreateSummaryResult(
             messages,
             tokensBefore,
             protectedTail.FirstIndex,
             summaryMessage,
             this._tokenCounter);
+
+        // The LLM may return a summary that is larger than the target. If the actual counted result
+        // still overshoots the budget, discard the summary and return the original messages so
+        // emergency truncation can still act on real history instead of a summary-blocked list.
+        if (summaryResult.TokensAfter > availableTokens)
+        {
+            return CreateUnchangedResult(messages, tokensBefore);
+        }
+
+        this.SetCheckpoint(protectedTail.FirstIndex, checkpointFingerprint, summaryMessage);
+        return summaryResult;
     }
 
     /// <summary>

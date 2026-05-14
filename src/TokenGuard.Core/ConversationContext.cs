@@ -390,23 +390,22 @@ public sealed class ConversationContext : IConversationContext
         var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
         var final = emergencyApplied ? truncated! : prepared;
         var estimatedFinalTokens = this.Sum(final);
-        var finalTokens = estimatedFinalTokens + this._anchorCorrection;
         var emergencyMessagesDropped = emergencyApplied ? prepared.Count - final.Count : 0;
         var messagesCompacted = compacted.MessagesAffected + emergencyMessagesDropped;
 
         this._lastEstimatedTotalTokens = estimatedFinalTokens;
         this._anchorCorrection = 0;
 
-        var outcome = this.DetermineOutcome(finalTokens, messagesCompacted);
+        var outcome = this.DetermineOutcome(estimatedFinalTokens, messagesCompacted);
         var budgetFailureReason = outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact
-            ? this.BuildBudgetFailureReason(outcome, finalTokens, messagesCompacted)
+            ? this.BuildBudgetFailureReason(outcome, estimatedFinalTokens, messagesCompacted)
             : null;
 
         return new PrepareResult(
             final,
             outcome,
             totalBeforeCompaction,
-            finalTokens,
+            estimatedFinalTokens,
             messagesCompacted,
             budgetFailureReason,
             emergencyMessagesDropped);
