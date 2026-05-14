@@ -279,21 +279,21 @@ public sealed class ConversationContextIntegrationTests
     public async Task PrepareAsync_WhenEmergencyTruncationDropsModelTurn_AlsoDropsAssociatedToolResult()
     {
         // Arrange
-        // Token math (ceil(chars/4)+4 per message):
-        //   model_1 = ToolUseContent("call_1","analyze",largeArgs[86 chars]) → ceil(86/4)+4 = 26 T
-        //   tool_1  = ToolResultContent("call_1","analyze",2000 chars)        → ceil(2006/4)+4 = 506 T original → masked to ~16 T
-        //   model_2 = TextContent(184 chars)                                  → ceil(184/4)+4 = 50 T
-        //   user    = "Continue the process please." (28 chars)               → ceil(28/4)+4 = 11 T  [protected tail]
-        //   model_3 = TextContent(636 chars)                                  → ceil(636/4)+4 = 163 T [protected tail]
+        // Current EstimatedTokenCounter math:
+        //   model_1 = ToolUseContent("call_1","analyze",largeArgs[86 chars]) → 36 T
+        //   tool_1  = ToolResultContent("call_1","analyze",2000 chars)        → very large original → masked to 31 T
+        //   model_2 = TextContent(184 chars)                                  → 41 T
+        //   user    = "Continue the process please."                          → 9 T   [protected tail]
+        //   model_3 = TextContent(636 chars)                                  → 132 T [protected tail]
         //
-        // compaction trigger = floor(500 × 0.50) = 250 T
-        // emergency trigger  = floor(500 × 0.52) = 260 T
+        // compaction trigger = floor(500 × 0.48) = 240 T
+        // emergency trigger  = floor(500 × 0.49) = 245 T
         //
-        // original total ≈ 756 T → compaction fires; SlidingWindow masks tool_1 → total ≈ 266 T → emergency fires
+        // original total remains well above trigger; SlidingWindow masks tool_1 → total = 249 T → emergency fires
         //
-        // old (buggy): drop model_1 alone (~26 T) → 266-26 = 240 ≤ 260 → stop — tool_1_masked at index 0 is orphaned → HTTP 400
-        // new (fixed): drop {model_1, tool_1_masked} together (~42 T) → 266-42 = 224 ≤ 260 → stop — no orphan
-        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.50, emergencyThreshold: 0.52);
+        // old (buggy): drop model_1 alone (36 T) → 249-36 = 213 ≤ 245 → stop — tool_1_masked at index 0 is orphaned → HTTP 400
+        // new (fixed): drop {model_1, tool_1_masked} together (67 T) → 249-67 = 182 ≤ 245 → stop — no orphan
+        var budget = new ContextBudget(maxTokens: 500, compactionThreshold: 0.48, emergencyThreshold: 0.49);
         var counter = new EstimatedTokenCounter();
         var strategy = new SlidingWindowStrategy(counter, new SlidingWindowOptions(windowSize: 2, protectedWindowFraction: 0.10));
         var engine = new ConversationContext(budget, counter, strategy);
@@ -493,7 +493,7 @@ public sealed class ConversationContextIntegrationTests
     public async Task PrepareAsync_WhenSummaryCheckpointExists_ReusesItForStableHistoryAndPromotesItWhenConversationGrows()
     {
         // Arrange
-        var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55);
+        var budget = new ContextBudget(maxTokens: 80, compactionThreshold: 0.55);
         var counter = new EstimatedTokenCounter();
         var summarizer = new TrackingSummarizer(call => Task.FromResult($"summary-{call.CallNumber}"));
         var strategy = new LlmSummarizationStrategy(
@@ -555,7 +555,7 @@ public sealed class ConversationContextIntegrationTests
         var strategy = new LlmSummarizationStrategy(
             summarizer,
             counter,
-            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 20, maxSummaryTokens: 100));
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 25, maxSummaryTokens: 100));
         var engine = new ConversationContext(budget, counter, strategy);
 
         engine.AddUserMessage(new string('O', 120));
@@ -584,7 +584,7 @@ public sealed class ConversationContextIntegrationTests
         // Arrange
         var budget = new ContextBudget(maxTokens: 90, compactionThreshold: 0.55, emergencyThreshold: 0.75);
         var counter = new EstimatedTokenCounter();
-        var summarizer = new TrackingSummarizer(new string('S', 150));
+        var summarizer = new TrackingSummarizer(new string('S', 160));
         var strategy = new LlmSummarizationStrategy(
             summarizer,
             counter,
@@ -622,7 +622,7 @@ public sealed class ConversationContextIntegrationTests
     public async Task PrepareAsync_WhenSummarizationProtectsToolTurn_ForOpenAIKeepsToolResultPairedWithAssistantToolCall()
     {
         // Arrange
-        var budget = new ContextBudget(maxTokens: 110, compactionThreshold: 0.55);
+        var budget = new ContextBudget(maxTokens: 140, compactionThreshold: 0.55);
         var counter = new EstimatedTokenCounter();
         var summarizer = new TrackingSummarizer("summary");
         var strategy = new LlmSummarizationStrategy(
@@ -664,22 +664,22 @@ public sealed class ConversationContextIntegrationTests
     public async Task PrepareAsync_WhenSummaryOvershoots_EmergencyTruncationCanStillAct()
     {
         // Arrange
-        // Token layout (EstimatedTokenCounter: 4 + CeilingDiv(N,4) per message body):
-        //   old_user  (400 chars) = 4+100 = 104T
-        //   old_model (200 chars) = 4+ 50 =  54T
-        //   old2_user (200 chars) = 4+ 50 =  54T
-        //   old2_model(100 chars) = 4+ 25 =  29T
-        //   keep_user (100 chars) = 4+ 25 =  29T
-        //   Total = 270T
+        // Current EstimatedTokenCounter math:
+        //   old_user  (400 chars) = 84T
+        //   old_model (200 chars) = 44T
+        //   old2_user (200 chars) = 44T
+        //   old2_model(100 chars) = 24T
+        //   keep_user (100 chars) = 24T
+        //   Total = 220T
         //
-        // Budget: maxTokens=600, compactionThreshold=0.40 → trigger=240T; 270>240 → compaction fires.
-        //         emergencyThreshold=0.44 → limit=264T; 270>264 → emergency fires after compaction.
+        // Budget: maxTokens=200, compactionThreshold=0.10 → trigger=20T; 220>20 → compaction fires.
+        //         emergencyThreshold=0.15 → limit=30T; fallback keeps 220T raw list, so emergency must trim to floor.
         //
-        // LlmSummarization windowSize=1: protectedTail=[keep_user(29T)], remainingBudget=600-29=571≥1;
-        //   summarizer returns 3000-char string → 4+750=754T; 754+29=783>600 → overshoot → fallback.
+        // LlmSummarization windowSize=1: protectedTail=[keep_user(24T)], remainingBudget=200-24=176≥1;
+        //   summarizer returns 3000-char string → summary still overshoots budget → fallback.
         //
-        // Emergency: all Turn=0, floor=keep_user(idx 4), group {0..3}=241T; 270-241=29≤264 → drop all 4.
-        var budget = new ContextBudget(maxTokens: 600, compactionThreshold: 0.40, emergencyThreshold: 0.44);
+        // Emergency: all Turn=0, floor=keep_user(idx 4), groups drop oldest-first until only keep_user remains.
+        var budget = new ContextBudget(maxTokens: 200, compactionThreshold: 0.10, emergencyThreshold: 0.15);
         var counter = new EstimatedTokenCounter();
         var summarizer = new TrackingSummarizer(new string('X', 3000));
         var strategy = new LlmSummarizationStrategy(

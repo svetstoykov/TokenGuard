@@ -58,7 +58,7 @@ public class EstimatedTokenCounterTests
     }
 
     [Fact]
-    public void UnicodeSupplementaryCharacters_UseUtf16CodeUnitLengthForEstimate()
+    public void UnicodeSupplementaryCharacters_UseEmojiClusterEstimate()
     {
         // Arrange
         var message = ContextMessage.FromText(MessageRole.User, "🎵🎵");
@@ -68,6 +68,45 @@ public class EstimatedTokenCounterTests
 
         // Assert
         Assert.Equal(8, result);
+    }
+
+    [Fact]
+    public void ComplexEmojiCluster_UsesSingleClusterEstimate()
+    {
+        // Arrange
+        var message = ContextMessage.FromText(MessageRole.User, "👨‍👩‍👧‍👦");
+
+        // Act
+        var result = this._counter.Count(message);
+
+        // Assert
+        Assert.Equal(7, result);
+    }
+
+    [Fact]
+    public void AccentedLatinText_UsesLatinWordHeuristic()
+    {
+        // Arrange
+        var message = ContextMessage.FromText(MessageRole.User, "naïve café");
+
+        // Act
+        var result = this._counter.Count(message);
+
+        // Assert
+        Assert.Equal(6, result);
+    }
+
+    [Fact]
+    public void CyrillicWord_IsCountedAsGroupedUnicodeWord()
+    {
+        // Arrange
+        var message = ContextMessage.FromText(MessageRole.User, "привет");
+
+        // Act
+        var result = this._counter.Count(message);
+
+        // Assert
+        Assert.Equal(6, result);
     }
 
     [Fact]
@@ -87,7 +126,7 @@ public class EstimatedTokenCounterTests
         var result = this._counter.Count(message);
 
         // Assert
-        Assert.Equal(20, result);
+        Assert.Equal(21, result);
     }
 
     [Fact]
@@ -135,7 +174,7 @@ public class EstimatedTokenCounterTests
         var result = this._counter.Count(message);
 
         // Assert
-        Assert.Equal(16, result);
+        Assert.Equal(21, result);
     }
 
     [Fact]
@@ -161,6 +200,21 @@ public class EstimatedTokenCounterTests
         var result = this._counter.Count(message);
 
         // Assert
-        Assert.Equal(11, result);
+        Assert.Equal(9, result);
+    }
+
+    [Fact]
+    public void ToolUseJsonPayload_CountsNestedStructure()
+    {
+        // Arrange
+        var message = ContextMessage.FromContent(
+            MessageRole.Model,
+            new ToolUseContent("call_1", "search", "{\"path\":\"src/app.cs\",\"line\":42,\"flags\":[\"a\",\"b\"]}"));
+
+        // Act
+        var result = this._counter.Count(message);
+
+        // Assert
+        Assert.Equal(37, result);
     }
 }

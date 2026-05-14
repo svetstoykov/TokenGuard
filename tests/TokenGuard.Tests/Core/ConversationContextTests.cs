@@ -1142,7 +1142,7 @@ public sealed class ConversationContextTests
         var result = await engine.PrepareAsync();
 
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
-        result.TokensAfterCompaction.Should().Be(950);
+        result.TokensAfterCompaction.Should().Be(1_050);
         result.BudgetFailureReason.Should().BeNull();
         result.MessagesDropped.Should().Be(1);
         result.Messages.Should().Equal(keepMiddle, keepLatest);
