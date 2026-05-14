@@ -17,7 +17,7 @@ session. Before each model call, TokenGuard reads that history, builds a provide
 snapshot when needed.
 
 ```csharp
-// ConversationContext is source of truth for this loop.
+// conversationContext is source of truth for this loop.
 // System prompt lives there with every other message.
 conversationContext.SetSystemPrompt("You are a careful coding assistant.");
 
@@ -27,29 +27,29 @@ conversationContext.AddUserMessage("Fix this, make no mistake.");
 // Build next provider request from that history.
 // TokenGuard may compact this snapshot to fit budget.
 // Stored history inside conversationContext does not change.
-var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
+var prepared = await conversationContext.PrepareAsync(cancellationToken);
 
 // Send only prepared snapshot to provider.
-var input = preparedMessages.ForOpenAI();
-var response = await chatClient.CompleteChatAsync(input);
+var input = prepared.Messages.ForOpenAI();
+var response = await chatClient.CompleteChatAsync(input, cancellationToken: cancellationToken);
 ```
 
 You keep appending system, user, assistant, and tool messages to `conversationContext`. Everything happens inside that
-object. `PrepareAsync()` reads it and returns only the version that should go to the model right now.
+object. `PrepareAsync()` returns a `PrepareResult` describing what should go to the model right now.
 
 ---
 
 ## What it does
 
 - **Tracks token growth** across the full turn sequence — user, assistant, tool, system, and pinned messages
-- **Masks stale tool results** using a sliding-window strategy when the conversation crosses a configurable soft
-  threshold
-- **Summarizes old history with your LLM** when masking alone isn't enough — collapses older turns into a compact
-  summary message while keeping recent messages verbatim
-- **Falls back to emergency truncation** as a last resort — drops oldest unpinned messages from prepared payload, preserves everything pinned
-- **Pins durable context** that survives all compaction stages: system prompts, task constraints, repository rules, any
-  message you need to live forever
-- **Stays provider-agnostic** in core, with first-class adapter helpers for OpenAI and Anthropic
+- **Masks stale tool results** using a sliding-window strategy when the conversation crosses a configurable soft threshold
+- **Summarizes old history with your LLM** when masking alone is not enough — collapses older turns into a compact
+  summary message while keeping a recent tail verbatim
+- **Falls back to emergency truncation** as a last resort — drops oldest unpinned turn groups from the prepared payload
+  while preserving pinned messages and the newest active tail
+- **Pins durable context** that survives all compaction stages: system prompts, task constraints, repository rules, and
+  any message you need to keep unchanged
+- **Stays provider-agnostic** in core, with adapter helpers for OpenAI and Anthropic
 - **Integrates in minutes** via `AddConversationContext(...)` and a standard DI factory
 
 ---
@@ -102,15 +102,11 @@ services.AddConversationContext(builder => builder
     .WithCompactionThreshold(0.80));
 ```
 
-Emergency truncation is **on by default at 1.0** (fires only at the absolute token limit as a last-resort safety net).
-When it fires, it **drops the oldest unpinned messages from the prepared request** until that request fits. This is
-intentional: long-running sessions accumulate turns that are no longer relevant, and dropping them from the provider
-payload keeps the session alive rather than crashing or stalling. Your stored `ConversationContext.History` still stays
-unchanged; only the snapshot returned by `PrepareAsync()` is reduced.
+Emergency truncation is **on by default at 1.0**. It fires only at the absolute token limit and acts as a last-resort
+safety net after the normal compaction pipeline has already run.
 
 Override with `WithEmergencyThreshold(0.95)` to trigger earlier, or call `WithoutEmergencyThreshold()` to disable it
-entirely. Disabling is an option, but we advise against it for long-running sessions — the safety net is there precisely
-for the cases where compaction alone is not enough.
+entirely.
 
 Multiple named profiles work too:
 
@@ -120,7 +116,7 @@ services.AddConversationContext("analysis", builder => builder
     .WithCompactionThreshold(0.75));
 ```
 
-Sliding-window masking is always active. Add provider-backed summarization only through the provider extension packages:
+Sliding-window masking is always active. Add provider-backed summarization through the provider extension packages:
 
 ```csharp
 services.AddConversationContext(builder => builder
@@ -144,59 +140,71 @@ using var conversationContext = serviceProvider
 ```
 
 Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, safe to use across
-concurrent requests.
+concurrent requests. Use `Create("analysis")` when you want a named profile.
 
 ### 3. Run the loop
 
 ```csharp
+using TokenGuard.Core.Enums;
 using TokenGuard.Extensions.OpenAI;
 
 var factory = serviceProvider.GetRequiredService<IConversationContextFactory>();
 
-// ConversationContext is source of truth for one agent loop.
-// It keeps full conversation history in one place.
-using var conversationContext = factory.Create("coding-assistant");
+using var conversationContext = factory.Create();
 
-// System prompt is part of that stored history.
 conversationContext.SetSystemPrompt("You are a precise coding assistant.");
-
-// Pinned messages are durable context. TokenGuard keeps them even under pressure.
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
-
-// Add latest user turn to same history.
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
 while (true)
 {
-    // Build next provider payload from ConversationContext history.
-    // TokenGuard compacts this snapshot only if budget requires it.
-    var preparedMessages = await conversationContext.PrepareAsync(cancellationToken);
+    var prepared = await conversationContext.PrepareAsync(cancellationToken);
 
-    // Provider sees prepared snapshot, not full stored history.
-    var response = await chatClient.CompleteChatAsync(preparedMessages.ForOpenAI(), chatOptions, cancellationToken);
+    if (prepared.Outcome == PrepareOutcome.CannotCompact)
+        throw new InvalidOperationException(prepared.BudgetFailureReason);
 
-    // Save assistant reply back into ConversationContext.
+    var response = await chatClient.CompleteChatAsync(
+        prepared.Messages.ForOpenAI(),
+        chatOptions,
+        cancellationToken);
+
     conversationContext.RecordModelResponse(
         response.ResponseSegments(),
         response.InputTokens());
 
-    // Stop loop when model is done calling tools.
     if (response.ToolCalls.Count == 0)
         break;
 
     foreach (var toolCall in response.ToolCalls)
     {
-        // Execute tool outside TokenGuard.
         var result = toolExecutor.Execute(toolCall);
-
-        // Save tool output back into ConversationContext for next turn.
         conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
     }
 }
 ```
 
-`PrepareAsync()` returns a temporary snapshot for provider call. It does not mutate `History`, so `ConversationContext`
-remains the full source of truth for the conversation.
+`PrepareAsync()` returns a `PrepareResult`, not just a message list. `PrepareResult.Messages` is the prepared snapshot
+to send to the provider. `ConversationContext.History` remains unchanged.
+
+---
+
+## PrepareResult
+
+`PrepareAsync()` gives you the prepared message list plus metadata about what happened during preparation.
+
+| Property | Meaning |
+|---|---|
+| `Messages` | Prepared message list to send to the provider |
+| `Outcome` | `Ready`, `Compacted`, `CompactionInsufficient`, or `CannotCompact` |
+| `TokensBeforeCompaction` | Estimated total before any compaction or truncation ran |
+| `TokensAfterCompaction` | Estimated total of `Messages` after preparation completed |
+| `MessagesCompacted` | Count of messages replaced or dropped during this call |
+| `MessagesDropped` | Count of messages removed specifically by emergency truncation |
+| `BudgetFailureReason` | Diagnostic text for over-budget outcomes |
+
+`Ready` and `Compacted` are healthy outcomes. `CompactionInsufficient` means TokenGuard reduced the payload but it still
+exceeds the configured limit plus any allowed overrun tolerance. `CannotCompact` means the remaining preserved content is
+already too large and the call should not be attempted.
 
 ---
 
@@ -209,8 +217,9 @@ conversationContext.SetSystemPrompt("You are a senior Go engineer.");
 conversationContext.AddPinnedMessage(MessageRole.User, "All file paths must be relative to /workspace.");
 ```
 
-Pinned messages are never masked, never dropped, and reinserted at their original positions after each compaction pass.
-They count against the budget so their cost is always accounted for.
+Pinned messages are never masked, never summarized, and never dropped by emergency truncation. They are removed from the
+compactable slice before compaction, then reinserted at their original positions in the prepared output. They still
+count against the budget.
 
 ---
 
@@ -220,17 +229,17 @@ Want architecture detail and trade-offs? Read [How TokenGuard Thinks About Conte
 
 Three ordered tiers:
 
-**1. Observation masking.** The sliding-window strategy walks backwards through history and masks tool results outside
-the active window. Recent turns stay intact, structure is preserved, message count doesn't change. This runs first
-whenever the soft threshold is crossed.
+**1. Observation masking.** The sliding-window strategy walks backward through compactable history and masks older
+`ToolResultContent` payloads outside the protected tail. Recent messages stay intact and structure is preserved.
 
-**2. LLM summarization** *(opt-in — register with `UseLlmSummarization(...)`)*. If masking still leaves the context
-over budget, TokenGuard calls your LLM to collapse older turns into a compact summary message. The newest messages stay
-verbatim. This stage only runs if you registered a provider.
+**2. LLM summarization** *(opt-in — register with `UseLlmSummarization(...)`)*. If masking still leaves the compactable
+history over budget, TokenGuard asks your LLM to collapse the older prefix into one summary message. The recent tail
+stays verbatim. Internally, the summarization stage caches checkpoints so it can reuse or promote prior summaries instead
+of regenerating them from scratch every turn.
 
 **3. Emergency truncation** *(on by default, opt-out with `WithoutEmergencyThreshold()`)*. If the prepared request is
-still over budget after all previous stages, TokenGuard drops the oldest unpinned messages from that prepared request
-until it fits.
+still above the emergency trigger after the normal compaction stages, TokenGuard drops the oldest eligible unpinned turn
+groups from the prepared payload. It preserves pinned messages, summary messages, and the newest irreducible tail.
 
 ---
 
@@ -241,17 +250,16 @@ until it fits.
 ### `CompactionInsufficient`
 
 **Meaning:** TokenGuard compacted and, if configured, also tried emergency truncation, but the prepared request still
-exceeds budget.
+exceeds `MaxTokens + OverrunToleranceTokens`.
 
-**Recommended approach:** Treat this as a warning that the newest or preserved tail is still too large. Prefer reducing
-large tool-call arguments, tool outputs, or assistant payloads in the active tail; enable LLM summarization if it is not
-already enabled; split the task into smaller exchanges; or increase the configured budget only when the target provider
-actually supports a larger context window.
+**Recommended approach:** Reduce large tool-call arguments, tool outputs, or assistant payloads in the active tail;
+enable LLM summarization if it is not already enabled; split the task into smaller exchanges; or increase the configured
+budget only when the target provider actually supports a larger context window.
 
 ### `CannotCompact`
 
-**Meaning:** The prepared request cannot fit because a single message or preserved content block is already too large on
-its own. Further compaction will not help.
+**Meaning:** The prepared request cannot fit because the remaining preserved content already exceeds the allowed budget
+and no further messages could be compacted or dropped safely.
 
 **Recommended approach:** Stop the exchange and reshape the input. Shorten or unpin oversized preserved content, split a
 large user request or tool payload into smaller pieces, move bulky artifacts out of the live prompt, or switch to a
@@ -261,9 +269,8 @@ model with a larger real context window.
 
 ## LLM summarization
 
-When masking alone isn't enough, TokenGuard can use your LLM to replace older history with a single compact summary.
-The newest messages stay verbatim — only older turns are collapsed. The summary is inserted as a regular message so the
-model always has full context on what came before.
+When masking alone is not enough, TokenGuard can replace older history with a single compact summary. The newest tail
+stays verbatim. The summary is inserted as a normal `MessageRole.Model` message with `CompactionState.Summarized`.
 
 Register it with one extra call on your builder:
 
@@ -275,7 +282,7 @@ builder.UseLlmSummarization(chatClient);
 builder.UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest");
 ```
 
-Defaults keep the last **5 messages** verbatim and bound the summary to **2 048–4 096 tokens**. Override with
+Defaults keep the last **5 messages** verbatim and bound the summary budget to **2,048-4,096 tokens**. Override with
 `LlmSummarizationOptions`:
 
 ```csharp
@@ -287,9 +294,9 @@ builder.UseLlmSummarization(chatClient, new LlmSummarizationOptions(
 
 | Option | What it controls | Default |
 |---|---|---|
-| `WindowSize` | How many newest messages stay verbatim | 5 |
-| `MinSummaryTokens` | Minimum budget required before summarizing (skips if budget is too small) | 2 048 |
-| `MaxSummaryTokens` | Maximum budget forwarded to the summarizer | 4 096 |
+| `WindowSize` | How many newest compactable messages stay verbatim | 5 |
+| `MinSummaryTokens` | Minimum remaining summary budget before the first summarization call is made | 2,048 |
+| `MaxSummaryTokens` | Maximum target budget forwarded to the summarizer | 4,096 |
 
 Only one provider per builder. Registering both OpenAI and Anthropic on the same builder throws at startup.
 
@@ -297,41 +304,30 @@ Only one provider per builder. Registering both OpenAI and Anthropic on the same
 
 ## Provider adapters
 
-The core has no provider dependency. Adapters handle the conversion in both directions.
+The core has no provider dependency. Adapters handle conversion in both directions.
 
 **OpenAI**
 
 ```csharp
+var prepared = await conversationContext.PrepareAsync(cancellationToken);
+var messages = prepared.Messages.ForOpenAI();
 
-// In-going messages formatting
-var messages = preparedMessages.ForOpenAI();
-
-// Output from the mode that can be formatted for the ConversationContext
-var formattedOutput = response.ResponseSegments();
-conversationContext.RecordModelResponse(formattedOutput, response.InputTokens());
-```
-
-Optional LLM summarization addon:
-
-```csharp
-builder.UseLlmSummarization(chatClient);
+var response = await chatClient.CompleteChatAsync(messages, chatOptions, cancellationToken);
+conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
 ```
 
 **Anthropic**
 
 ```csharp
-// In-going messages formatting
-var messages = preparedMessages.ForAnthropic();
+var prepared = await conversationContext.PrepareAsync(cancellationToken);
+var (messages, systemPrompt) = prepared.Messages.ForAnthropic();
 
-// Output from the mode that can be formatted for the ConversationContext
-conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+// Attach both to your Anthropic request.
 ```
 
-Optional LLM summarization addon:
-
-```csharp
-builder.UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest");
-```
+`ForOpenAI()` validates tool-call/tool-result structure and throws if the prepared history would produce orphaned tool
+calls. `ForAnthropic()` returns a tuple because Anthropic carries system content separately from the normal message list.
+After the Anthropic call completes, record the response with `RecordModelResponse(response.ResponseSegments(), response.InputTokens())`.
 
 ---
 
@@ -349,7 +345,7 @@ var factory = new ConversationContextFactory(
 using var context = factory.Create();
 ```
 
-DI is the recommended path. Public factory is manual fallback when you don't want a container.
+DI is the recommended path. Public factory is the manual fallback when you do not want a container.
 
 ---
 
@@ -362,7 +358,8 @@ src/
   TokenGuard.Extensions.Anthropic     Anthropic message conversion and response mapping
 
 samples/
-  Codexplorer                         repository-analysis sample, benchmark reference
+  Codexplorer                         repository-analysis sample
+  Codexplorer.Automation              benchmark automation and corpus runner
 
 tests/
   TokenGuard.Tests                    unit tests
@@ -377,15 +374,14 @@ ai/skills/                           shared agent workflow guidance
 ## Build and test
 
 ```bash
-dotnet build TokenGuard.sln
-dotnet test TokenGuard.sln --no-restore
+dotnet build TokenGuard.sln --nologo
+dotnet test TokenGuard.sln --no-restore --nologo
 ```
 
-Codexplorer is not part of `TokenGuard.sln`. Build it from its own directory:
+`TokenGuard.sln` includes the core packages, tests, and Codexplorer samples. If you only want the interactive sample:
 
 ```bash
-cd samples/Codexplorer
-dotnet build ./src/Codexplorer.csproj
+dotnet build ./samples/Codexplorer/src/Codexplorer.csproj --nologo
 ```
 
 ---
@@ -398,15 +394,15 @@ dotnet build ./src/Codexplorer.csproj
 
 ---
 
-## Current Status
+## Current status
 
 What is current:
 
-- sliding-window observation masking is implemented and usable now
-- masking is implemented for normal pressure, and emergency truncation is **on by default at 1.0** (last-resort safety
-  net, disable with `WithoutEmergencyThreshold()`)
-- LLM summarization compaction is implemented for OpenAI and Anthropic via `UseLlmSummarization(...)`
-- pinned messages are implemented and survive all compaction stages
+- sliding-window observation masking is implemented and always part of the built-in pipeline
+- emergency truncation is implemented and defaults to **1.0** as a last-resort safety net
+- LLM summarization is implemented for OpenAI and Anthropic via `UseLlmSummarization(...)`
+- summary checkpoint reuse and promotion are implemented inside the summarization strategy
+- pinned messages survive all compaction stages
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available
 - runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`,
