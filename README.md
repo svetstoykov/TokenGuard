@@ -102,6 +102,9 @@ services.AddConversationContext(builder => builder
     .WithCompactionThreshold(0.80));
 ```
 
+Default built-in pipeline starts compaction at **80%**, always runs sliding-window masking first, and keeps LLM summarization
+off until you register it explicitly.
+
 Emergency truncation is **on by default at 1.0**. It fires only at the absolute token limit and acts as a last-resort
 safety net after the normal compaction pipeline has already run.
 
@@ -327,7 +330,22 @@ var (messages, systemPrompt) = prepared.Messages.ForAnthropic();
 
 `ForOpenAI()` validates tool-call/tool-result structure and throws if the prepared history would produce orphaned tool
 calls. `ForAnthropic()` returns a tuple because Anthropic carries system content separately from the normal message list.
-After the Anthropic call completes, record the response with `RecordModelResponse(response.ResponseSegments(), response.InputTokens())`.
+After the Anthropic call completes, record the response with `RecordModelResponse(response.ResponseSegments())` unless your
+response includes usage data. When usage is present, you can pass `response.InputTokens()` as the optional second
+argument to anchor later estimates.
+
+---
+
+## Token counting
+
+TokenGuard's built-in DI and factory paths always construct the heuristic `EstimatedTokenCounter`. There is no public
+builder or factory hook to swap token counters at runtime yet.
+
+Provider-reported input tokens still help when they are available:
+
+- OpenAI: `response.InputTokens()` returns `null` when usage is absent
+- Anthropic: only call `response.InputTokens()` when the SDK response includes `usage`; otherwise record the response
+  without the second argument and TokenGuard stays on heuristic estimates
 
 ---
 
@@ -386,6 +404,17 @@ dotnet build ./samples/Codexplorer/src/Codexplorer.csproj --nologo
 
 ---
 
+## Release
+
+Authoritative NuGet release runbook lives in [docs/release-process.md](docs/release-process.md).
+
+Use that path for publishing `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and
+`TokenGuard.Extensions.Anthropic`. It requires a passing
+`.github/workflows/release-validation.yml` run on the exact commit being published and documents
+versioning, secrets, package order, and `.snupkg` symbol publication.
+
+---
+
 ## Requirements
 
 - .NET SDK 10.0+
@@ -399,9 +428,12 @@ dotnet build ./samples/Codexplorer/src/Codexplorer.csproj --nologo
 What is current:
 
 - sliding-window observation masking is implemented and always part of the built-in pipeline
+- built-in compaction starts at **0.80** and defaults emergency truncation to **1.0**
 - emergency truncation is implemented and defaults to **1.0** as a last-resort safety net
 - LLM summarization is implemented for OpenAI and Anthropic via `UseLlmSummarization(...)`
 - summary checkpoint reuse and promotion are implemented inside the summarization strategy
+- built-in DI and factory paths always use `EstimatedTokenCounter`; provider input-token anchoring is optional when usage
+  data is available
 - pinned messages survive all compaction stages
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available

@@ -11,9 +11,6 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{078EEFEF-34E4-4244-ADB9-71DC99EDD3C2}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{C24BF4C8-2A4F-4E1B-BE9D-CC66AC4DBCB8}"
-	ProjectSection(SolutionItems) = preProject
-		consolidated-audit-report.md = consolidated-audit-report.md
-	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.OpenAI", "src\TokenGuard.Extensions.OpenAI\TokenGuard.Extensions.OpenAI.csproj", "{C37F9AD0-5870-4386-97DA-134759F0CC88}"
 EndProject

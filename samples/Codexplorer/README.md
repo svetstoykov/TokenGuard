@@ -71,16 +71,20 @@ That is main point of sample: **real interactive repo agent running on TokenGuar
 ## Quick start
 
 1. Install **.NET 10 SDK**.
-2. From `samples/Codexplorer`, create `src/appsettings.Development.json`.
-3. Put your OpenRouter key in that file.
-4. Run app.
-5. Clone repo and start asking questions.
+2. Copy `samples/Codexplorer/src/appsettings.Development.example.json` to ignored local file `samples/Codexplorer/src/appsettings.Development.json`.
+3. Put your own OpenRouter key in that local file, or set `OPENROUTER_API_KEY` in your shell.
+4. Optional: add your own Brave Search key in local file or `BRAVE_SEARCH_API_KEY`.
+5. Build and run app.
+6. Clone repo and start asking questions.
 
 ```bash
 cd samples/Codexplorer
-dotnet build ./Codexplorer.slnx
+cp ./src/appsettings.Development.example.json ./src/appsettings.Development.json
+dotnet build ./src/Codexplorer.csproj
 dotnet run --project ./src/Codexplorer.csproj
 ```
+
+`src/appsettings.Development.json` is ignored by repo `.gitignore`. Keep your real credentials there locally. Do not put them in committed sample files.
 
 ### Automation mode
 
@@ -116,22 +120,28 @@ If the assistant needs genuine outside clarification from the automation runner,
 
 `Codexplorer.Automation` is a separate executable under `samples/Codexplorer.Automation/src`. It launches Codexplorer with `--automation`, keeps stdout reserved for protocol traffic, logs child stderr separately, and exposes typed `open_session`, `submit`, and `close_session` client calls inside the runner codebase.
 
-Create `../Codexplorer.Automation/src/appsettings.Development.json`:
+First build Codexplorer so automation runner has executable to launch:
+
+```bash
+dotnet build ./src/Codexplorer.csproj
+```
+
+Then copy `samples/Codexplorer.Automation/src/appsettings.Development.example.json` to ignored local file `samples/Codexplorer.Automation/src/appsettings.Development.json`:
 
 ```json
 {
   "CodexplorerAutomation": {
-    "CodexplorerExecutablePath": "../../../../../Codexplorer/src/bin/Debug/net10.0/Codexplorer",
+    "CodexplorerExecutablePath": "/absolute/path/to/TokenGuard/samples/Codexplorer/src/bin/Debug/net10.0/Codexplorer",
     "ManifestPath": "./tasks/initial-corpus.json",
     "HelperAi": {
       "ModelName": "openai/gpt-5.4-mini",
-      "ApiKey": "your-openrouter-api-key"
+      "ApiKey": ""
     }
   }
 }
 ```
 
-You can also provide helper credentials through environment variable instead of configuration:
+Set `CodexplorerExecutablePath` to your local absolute path from previous build. Then provide helper credentials either in that ignored local file or through environment variable:
 
 ```bash
 export OPENROUTER_API_KEY="your-openrouter-api-key"
@@ -141,8 +151,11 @@ Then run it from automation project directory:
 
 ```bash
 cd samples/Codexplorer.Automation/src
+cp appsettings.Development.example.json appsettings.Development.json
 dotnet run
 ```
+
+`appsettings.Development.json` is ignored by repo `.gitignore`. Keep your real credentials only in that local file or in environment variables. Do not commit them.
 
 Shipped batch workflow:
 
@@ -185,22 +198,22 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
 
 ### Local configuration
 
-Create `src/appsettings.Development.json`:
+Copy `samples/Codexplorer/src/appsettings.Development.example.json` to ignored local file `samples/Codexplorer/src/appsettings.Development.json`, then fill in your own credentials:
 
 ```json
 {
   "Codexplorer": {
     "OpenRouter": {
-      "ApiKey": "your-openrouter-api-key"
+      "ApiKey": ""
     },
     "BraveSearch": {
-      "ApiKey": "optional-brave-search-api-key"
+      "ApiKey": ""
     }
   }
 }
 ```
 
-`appsettings.Development.json` is already ignored by repo `.gitignore`, so local secrets stay out of source control.
+Do not add real keys to committed sample files. Keep them only in ignored `appsettings.Development.json` or in environment variables.
 
 You can also provide the Brave Search key through environment variable instead of configuration:
 
@@ -243,7 +256,7 @@ Example:
       "MinimumLevel": "Information"
     },
     "OpenRouter": {
-      "ApiKey": "your-openrouter-api-key"
+      "ApiKey": ""
     }
   }
 }
@@ -347,7 +360,7 @@ Codexplorer is more than chat box. Agent can inspect repo and keep working notes
 | `./src/bin/.../logs` | Rolling application logs under build output |
 | `<repo>/.codexplorer/` | Agent-owned scratch notes inside cloned workspace |
 
-Workspace and session-log paths are relative to where you launch app, unless you override them in configuration.
+Workspace, session-log, and other relative paths are resolved from Codexplorer's executable/output directory, not from your shell's current working directory.
 
 ## Editing scope
 

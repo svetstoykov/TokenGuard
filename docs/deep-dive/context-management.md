@@ -94,7 +94,8 @@ The built-in `EstimatedTokenCounter` is more than a character-count heuristic:
 - tool segments include envelope and field overhead
 - JSON-like payloads are counted structurally
 - Unicode, punctuation, code-like text, paths, and emoji are handled with specialized heuristics
-- the built-in factory uses `TokenCountSafetyMode.Safe`, which applies a 1.05 safety multiplier
+- the built-in factory uses `new EstimatedTokenCounter()` with `TokenCountSafetyMode.Balanced`
+- public DI and factory configuration do not expose a token-counter replacement hook today
 
 So the real shape is closer to:
 
@@ -362,6 +363,10 @@ var (messages, systemPrompt) = prepared.Messages.ForAnthropic();
 
 That shape exists because Anthropic carries system content separately from the main message array.
 
+Anthropic input-token anchoring is conditional. `response.InputTokens()` only works when the SDK response includes
+`usage`. If usage data is omitted, record the model response without the optional provider token count and TokenGuard
+continues on heuristic estimates.
+
 ---
 
 ## 12. Configuration reference
@@ -380,6 +385,7 @@ That gives you:
 - `OverrunTolerance = 0.05`
 - default sliding-window masking
 - no LLM summarization provider
+- built-in `EstimatedTokenCounter` with `TokenCountSafetyMode.Balanced`
 
 ### Full builder
 
@@ -395,6 +401,9 @@ var config = new ConversationConfigBuilder()
         placeholderFormat: "[cleared: {0} / {1}]"))
     .Build();
 ```
+
+Current public builder surface stops there. It does not expose `WithTokenCounter(...)`, `WithStrategy(...)`, or
+reserved-token configuration.
 
 ### `ContextBudget`
 
