@@ -176,7 +176,7 @@ public sealed class ConversationConfigBuilder
     ///     <para>
     ///         Budget values not explicitly configured on the builder are merged with the library defaults
     ///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count: 0.80 compaction,
-    ///         no emergency truncation, and 0 reserved tokens.
+    ///         and emergency truncation defaulting to the absolute token limit.
     ///     </para>
     ///     <para>
     ///         Token counting always uses TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation.
