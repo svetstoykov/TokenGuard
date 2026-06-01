@@ -706,6 +706,41 @@ public sealed class ConversationContextIntegrationTests
         result.Messages.Should().NotContain(m => m.State == CompactionState.Summarized);
     }
 
+    [Fact]
+    public async Task PrepareAsync_WhenSummarizerThrows_DoesNotThrowAndSurfacesSummarizationError()
+    {
+        // Arrange
+        var failure = new InvalidOperationException("provider unavailable");
+        var counter = new EstimatedTokenCounter();
+
+        // Small budget: compaction triggers at 80% of 200 = 160 tokens; masking alone cannot fit so summarization escalates.
+        var budget = new ContextBudget(maxTokens: 200, compactionThreshold: 0.80);
+
+        var throwingSummarizer = new ThrowingLlmSummarizer(failure);
+        var llmStrategy = new LlmSummarizationStrategy(
+            throwingSummarizer,
+            counter,
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        var strategy = new TieredCompactionStrategy(counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20), llmStrategy);
+        var engine = new ConversationContext(budget, counter, strategy);
+
+        // Drive history past the compaction trigger
+        engine.SetSystemPrompt("You are a helpful assistant.");
+        for (var i = 0; i < 10; i++)
+        {
+            engine.AddUserMessage($"Message number {i}: " + new string('x', 15));
+            engine.RecordModelResponse([new TextContent($"Response {i}: " + new string('y', 15))]);
+        }
+
+        // Act — must not throw
+        var result = await engine.PrepareAsync();
+
+        // Assert
+        result.SummarizationError.Should().BeSameAs(failure);
+        result.Outcome.Should().NotBe(PrepareOutcome.Ready);
+    }
+
     private sealed class TrackingSummarizer : ILlmSummarizer
     {
         private readonly Func<SummarizerCall, Task<string>> _handler;
@@ -738,5 +773,18 @@ public sealed class ConversationContextIntegrationTests
     }
 
     private sealed record SummarizerCall(int CallNumber, IReadOnlyList<ContextMessage> Messages, int TargetTokens);
+
+    private sealed class ThrowingLlmSummarizer : ILlmSummarizer
+    {
+        private readonly Exception _toThrow;
+
+        public ThrowingLlmSummarizer(Exception toThrow) => this._toThrow = toThrow;
+
+        public Task<string> SummarizeAsync(
+            IReadOnlyList<ContextMessage> messages,
+            int targetTokens,
+            CancellationToken cancellationToken = default)
+            => Task.FromException<string>(this._toThrow);
+    }
 }
  
