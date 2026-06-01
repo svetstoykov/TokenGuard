@@ -41,7 +41,7 @@ public sealed class ConversationConfigBuilder
     ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
     ///     the resulting configuration uses the library default profile: 25,000 tokens, a 0.80 compaction
-    ///     threshold, no emergency truncation, TokenGuard's built-in heuristic token counting, and
+    ///     threshold, 1.0 emergency truncation as a last-resort safety net, TokenGuard's built-in heuristic token counting, and
     ///     <see cref="TieredCompactionStrategy"/> with <see cref="SlidingWindowOptions.Default"/> and no LLM stage.
     /// </remarks>
     /// <param name="maxTokens">
