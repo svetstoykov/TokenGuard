@@ -1201,6 +1201,28 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenCompactionCapturesSummarizationError_PreservesItOnPrepareResult()
+    {
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
+        var error = new InvalidOperationException("rate limited");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 900);
+        counter.Set(compacted, 400);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 900, 400, 1, "TestStrategy", error));
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy);
+
+        engine.AddUserMessage("original");
+
+        var result = await engine.PrepareAsync();
+
+        result.SummarizationError.Should().BeSameAs(error);
+        result.Messages.Should().ContainSingle().Which.Should().BeSameAs(compacted);
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+    }
+
+    [Fact]
     public async Task PrepareAsync_OutcomeCompactionInsufficient_WhenCompactionStillExceedsBudget()
     {
         var compacted = ContextMessage.FromText(MessageRole.Model, "still-too-large");

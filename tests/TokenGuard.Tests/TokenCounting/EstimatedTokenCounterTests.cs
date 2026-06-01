@@ -165,6 +165,45 @@ public class EstimatedTokenCounterTests
     }
 
     [Fact]
+    public void MessageWithTokenCountSet_DoesNotApplySafetyMargin()
+    {
+        // Arrange
+        var counter = new EstimatedTokenCounter(TokenCountSafetyMode.Conservative);
+        var message = new ContextMessage
+        {
+            Role = MessageRole.User,
+            Segments = [new TextContent("Some text")],
+            TokenCount = 100,
+        };
+
+        // Act
+        var result = counter.Count(message);
+
+        // Assert
+        Assert.Equal(100, result);
+    }
+
+    [Fact]
+    public void ExplicitSafetyMode_AppliesRequestedMarginToEstimatedCounts()
+    {
+        // Arrange
+        var message = ContextMessage.FromText(MessageRole.User, "one two three four five six seven");
+        var balancedCounter = new EstimatedTokenCounter(TokenCountSafetyMode.Balanced);
+        var safeCounter = new EstimatedTokenCounter(TokenCountSafetyMode.Safe);
+        var conservativeCounter = new EstimatedTokenCounter(TokenCountSafetyMode.Conservative);
+
+        // Act
+        var balancedResult = balancedCounter.Count(message);
+        var safeResult = safeCounter.Count(message);
+        var conservativeResult = conservativeCounter.Count(message);
+
+        // Assert
+        Assert.Equal(11, balancedResult);
+        Assert.Equal(12, safeResult);
+        Assert.Equal(13, conservativeResult);
+    }
+
+    [Fact]
     public void ToolResultContent_CountsIdentifiersNameAndPayload()
     {
         // Arrange

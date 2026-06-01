@@ -34,6 +34,10 @@ public sealed record PrepareResult
     /// The number of messages dropped by emergency truncation. This excludes messages replaced by the normal compaction
     /// strategy and is zero when emergency truncation did not remove any messages.
     /// </param>
+    /// <param name="summarizationError">
+    /// The exception captured when an optional LLM summarization stage failed and TokenGuard degraded to sliding-window
+    /// masking, or <see langword="null"/> when no summarization failure occurred.
+    /// </param>
     public PrepareResult(
         IReadOnlyList<ContextMessage> messages,
         PrepareOutcome outcome,
@@ -41,7 +45,8 @@ public sealed record PrepareResult
         int tokensAfterCompaction,
         int messagesCompacted,
         string? budgetFailureReason = null,
-        int messagesDropped = 0)
+        int messagesDropped = 0,
+        Exception? summarizationError = null)
     {
         this.Messages = messages ?? throw new ArgumentNullException(nameof(messages));
         this.Outcome = outcome;
@@ -50,6 +55,7 @@ public sealed record PrepareResult
         this.MessagesCompacted = messagesCompacted;
         this.BudgetFailureReason = budgetFailureReason;
         this.MessagesDropped = messagesDropped;
+        this.SummarizationError = summarizationError;
     }
 
     /// <summary>
@@ -97,4 +103,17 @@ public sealed record PrepareResult
     /// zero means emergency truncation did not remove any messages during this preparation call.
     /// </remarks>
     public int MessagesDropped { get; }
+
+    /// <summary>
+    /// Gets the exception captured when the optional LLM summarization stage failed during this preparation call and
+    /// TokenGuard degraded to sliding-window masking; <see langword="null"/> on the happy path.
+    /// </summary>
+    /// <remarks>
+    /// A non-null value does not, by itself, indicate an over-budget result: <see cref="Outcome"/> still reflects the
+    /// real budget state of <see cref="Messages"/> after masking and any emergency truncation. Transient summarizer
+    /// failures (provider rate-limits, timeouts, network errors) never crash the loop; they surface here so callers can
+    /// log them. Caller cancellation is never reported this way — a cancelled <see cref="System.Threading.CancellationToken"/>
+    /// still throws <see cref="OperationCanceledException"/> from <see cref="Abstractions.IConversationContext.PrepareAsync"/>.
+    /// </remarks>
+    public Exception? SummarizationError { get; }
 }

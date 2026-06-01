@@ -29,7 +29,7 @@ namespace TokenGuard.Core.TokenCounting;
 /// <see cref="ConversationContextFactory"/> directly, but the built-in factory path always uses this heuristic counter.
 /// </para>
 /// </remarks>
-internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = TokenCountSafetyMode.Safe) 
+internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = TokenCountSafetyMode.Balanced) 
     : ITokenCounter
 {
     private const int MessageOverhead = 4;
@@ -46,7 +46,7 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
 
         if (contextMessage.TokenCount is > 0)
         {
-            return ApplySafetyMargin(contextMessage.TokenCount.Value, safetyMode);
+            return contextMessage.TokenCount.Value;
         }
 
         var total = MessageOverhead;
@@ -154,24 +154,15 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
     }
 
     private static int CountJsonStringContent(string text) =>
-        CountGeneralText(text) + CountEscapes(text);
+        CountJsonStringText(text) + CountEscapes(text);
 
-    private static int CountEscapes(string text)
-    {
-        var escapeCount = 0;
+    private static int CountJsonStringText(string text) =>
+        CountChunkedText(text, includeTextShapeCost: false);
 
-        foreach (var c in text)
-        {
-            if (c is '"' or '\\' or '\n' or '\r' or '\t')
-            {
-                escapeCount++;
-            }
-        }
+    private static int CountGeneralText(string text) =>
+        CountChunkedText(text, includeTextShapeCost: true);
 
-        return escapeCount == 0 ? 0 : Math.Max(1, CeilingDiv(escapeCount, 3));
-    }
-
-    private static int CountGeneralText(string text)
+    private static int CountChunkedText(string text, bool includeTextShapeCost)
     {
         var count = 0;
         var start = 0;
@@ -197,11 +188,27 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
                 chunkEnd++;
             }
 
-            count += CountChunk(text.AsSpan(start, chunkEnd - start));
+            var chunk = text.AsSpan(start, chunkEnd - start);
+            count += includeTextShapeCost ? CountChunk(chunk) : CountChunkCore(chunk);
             start = chunkEnd;
         }
 
         return count;
+    }
+
+    private static int CountEscapes(string text)
+    {
+        var escapeCount = 0;
+
+        foreach (var c in text)
+        {
+            if (c is '"' or '\\' or '\n' or '\r' or '\t')
+            {
+                escapeCount++;
+            }
+        }
+
+        return escapeCount == 0 ? 0 : Math.Max(1, CeilingDiv(escapeCount, 3));
     }
 
     private static int CountChunk(ReadOnlySpan<char> chunk)
@@ -703,7 +710,7 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
             JsonValueKind.Object => CountJsonObject(element),
             JsonValueKind.Array => CountJsonArray(element),
             JsonValueKind.String => CountJsonValueString(element.GetString() ?? string.Empty),
-            JsonValueKind.Number => Math.Max(1, 1 + CeilingDiv(CountDigitsInNumber(element.GetRawText()), 3)),
+            JsonValueKind.Number => Math.Max(1, CeilingDiv(CountDigitsInNumber(element.GetRawText()), 3)),
             _ => 1
         };
 

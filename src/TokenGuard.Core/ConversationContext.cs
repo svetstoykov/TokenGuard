@@ -408,7 +408,8 @@ public sealed class ConversationContext : IConversationContext
             estimatedFinalTokens,
             messagesCompacted,
             budgetFailureReason,
-            emergencyMessagesDropped);
+            emergencyMessagesDropped,
+            compacted.SummarizationError);
     }
 
     /// <summary>

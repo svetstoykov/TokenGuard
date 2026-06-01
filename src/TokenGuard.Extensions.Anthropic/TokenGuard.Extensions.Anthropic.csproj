@@ -11,14 +11,13 @@
     <Authors>Svetlozar Stoykov</Authors>
     <Company>Svetlozar Stoykov</Company>
     <Copyright>Copyright (c) 2026 Svetlozar Stoykov</Copyright>
-    <Description>Anthropic integration for TokenGuard. Converts prepared TokenGuard messages to Anthropic request parts and lets TokenGuard use Anthropic to summarize older history when context gets tight.</Description>
+    <Description>Anthropic integration for TokenGuard on .NET 10. Converts prepared TokenGuard messages to Anthropic request parts and lets TokenGuard use Anthropic to summarize older history when context gets tight.</Description>
     <PackageTags>tokenguard;anthropic;claude;llm;ai;agents;context-management;token-budget;prompt-management;dotnet</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/svetstoykov/TokenGuard</PackageProjectUrl>
     <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageReleaseNotes>Initial public release of TokenGuard's Anthropic integration. Adds Anthropic message conversion and Anthropic-backed history summarization for long-running agent loops.</PackageReleaseNotes>
   </PropertyGroup>
 
@@ -28,10 +27,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TokenGuard.Core\TokenGuard.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

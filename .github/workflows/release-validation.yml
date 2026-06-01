@@ -1,0 +1,51 @@
+name: Release Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  pre-release-validation:
+    name: Pre-release validation gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore solution
+        run: dotnet restore TokenGuard.sln --nologo
+
+      - name: Build solution
+        run: dotnet build TokenGuard.sln --configuration Release --no-restore --nologo
+
+      - name: Run test suites
+        run: dotnet test TokenGuard.sln --configuration Release --no-build --nologo
+
+      - name: Pack release packages
+        run: |
+          rm -rf artifacts/ci-validation-packages
+          dotnet pack src/TokenGuard.Core/TokenGuard.Core.csproj --configuration Release --no-build --nologo --output artifacts/ci-validation-packages
+          dotnet pack src/TokenGuard.Extensions.OpenAI/TokenGuard.Extensions.OpenAI.csproj --configuration Release --no-build --nologo --output artifacts/ci-validation-packages
+          dotnet pack src/TokenGuard.Extensions.Anthropic/TokenGuard.Extensions.Anthropic.csproj --configuration Release --no-build --nologo --output artifacts/ci-validation-packages
+
+      - name: Verify tracked files remain unchanged
+        shell: bash
+        run: |
+          tracked_changes="$(git status --porcelain --untracked-files=no)"
+          if [ -n "$tracked_changes" ]; then
+            echo "Tracked files changed during release validation:"
+            echo "$tracked_changes"
+            git --no-pager diff
+            exit 1
+          fi

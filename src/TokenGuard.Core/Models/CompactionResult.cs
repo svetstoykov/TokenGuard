@@ -30,12 +30,17 @@ public sealed record CompactionResult
     /// The aggregate number of messages replaced by strategy compaction or dropped by emergency truncation.
     /// </param>
     /// <param name="strategyName">The strategy identifier reported by the compaction implementation.</param>
+    /// <param name="summarizationError">
+    /// The exception captured when an optional LLM summarization stage failed and the compaction degraded to a
+    /// non-summary result, or <see langword="null"/> when no summarization failure occurred.
+    /// </param>
     public CompactionResult(
         IReadOnlyList<ContextMessage> messages,
         int tokensBefore,
         int tokensAfter,
         int messagesAffected,
-        string strategyName)
+        string strategyName,
+        Exception? summarizationError = null)
     {
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentException.ThrowIfNullOrWhiteSpace(strategyName);
@@ -45,6 +50,7 @@ public sealed record CompactionResult
         this.TokensAfter = tokensAfter;
         this.MessagesAffected = messagesAffected;
         this.StrategyName = strategyName;
+        this.SummarizationError = summarizationError;
     }
 
     /// <summary>
@@ -72,4 +78,15 @@ public sealed record CompactionResult
     /// Gets the strategy identifier reported by the compaction implementation.
     /// </summary>
     public string StrategyName { get; }
+
+    /// <summary>
+    /// Gets the exception captured when an optional LLM summarization stage failed and compaction degraded to a
+    /// non-summary result; <see langword="null"/> when no summarization failure occurred.
+    /// </summary>
+    /// <remarks>
+    /// A non-null value means TokenGuard caught a failure from the summarizer (for example a provider rate-limit,
+    /// timeout, or network error) and fell back to sliding-window masking. The returned <see cref="Messages"/> are
+    /// still safe to send; this value exists so callers can log why semantic summarization did not run.
+    /// </remarks>
+    public Exception? SummarizationError { get; }
 }

@@ -56,6 +56,8 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
     /// <see cref="TieredCompactionStrategy"/> for no-op, masking-only, and summarization outcomes.
     /// When summarization fires but the actual returned summary still exceeds <paramref name="availableTokens"/>,
     /// the sliding-window result is returned as a summary-free fallback so emergency truncation can act on real history.
+    /// When the optional summarization stage fails for a non-cancellation reason, the strategy degrades to the
+    /// sliding-window result and reports the captured exception through <see cref="CompactionResult.SummarizationError"/>.
     /// </returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is <see langword="null"/>.</exception>
     public async Task<CompactionResult> CompactAsync(
@@ -76,10 +78,25 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
             return BuildCompactionResult(slidingWindowResult);
         }
 
-        var summarizationResult = await this._llmSummarizationStrategy.CompactAsync(
-            messages,
-            availableTokens,
-            cancellationToken);
+        CompactionResult summarizationResult;
+        try
+        {
+            summarizationResult = await this._llmSummarizationStrategy.CompactAsync(
+                messages,
+                availableTokens,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception summarizationError)
+        {
+            // The optional summarization stage failed (e.g. provider rate-limit, timeout, network error).
+            // Degrade to the masked sliding-window result so the agent loop never crashes, and carry the
+            // failure forward so callers can observe it on PrepareResult.SummarizationError.
+            return BuildCompactionResult(slidingWindowResult, summarizationError);
+        }
 
         // LlmSummarizationStrategy may return original messages when its post-call check finds the
         // actual summary still overshoots. Fall back to the sliding-window result so the caller
@@ -92,13 +109,14 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
         return BuildCompactionResult(summarizationResult);
     }
 
-    private static CompactionResult BuildCompactionResult(CompactionResult result)
+    private static CompactionResult BuildCompactionResult(CompactionResult result, Exception? summarizationError = null)
     {
         return new CompactionResult(
             result.Messages,
             result.TokensBefore,
             result.TokensAfter,
             result.MessagesAffected,
-            nameof(TieredCompactionStrategy));
+            nameof(TieredCompactionStrategy),
+            summarizationError);
     }
 }

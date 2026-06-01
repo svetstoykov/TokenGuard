@@ -27,6 +27,12 @@ namespace TokenGuard.Core.Abstractions;
 /// history buffer. Implementations must throw <see cref="ObjectDisposedException"/> from all members
 /// after disposal.
 /// </para>
+/// <para>
+/// A conversation context is <b>not</b> safe for concurrent use. Recording methods and
+/// <see cref="PrepareAsync"/> mutate internal history and counters without synchronization. Do not call
+/// members of one instance from multiple threads at the same time; if a conversation is driven from
+/// multiple threads, the caller must serialize access externally.
+/// </para>
 /// </remarks>
 public interface IConversationContext : IDisposable
 {

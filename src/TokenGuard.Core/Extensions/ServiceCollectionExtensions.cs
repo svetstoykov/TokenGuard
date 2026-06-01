@@ -45,8 +45,8 @@ public static class ServiceCollectionExtensions
     /// (<see cref="ConversationContext"/>), while the injected abstraction is the factory
     /// (<see cref="IConversationContextFactory"/>). Registers the factory as a singleton using the
     /// library default profile: 25,000 max tokens, 0.80 compaction, 1.0 emergency truncation as a
-    /// last-resort safety net, 0 reserved tokens, TokenGuard's built-in heuristic
-    /// <see cref="ITokenCounter"/> implementation, and <see cref="Strategies.SlidingWindowStrategy"/>.
+    /// last-resort safety net, TokenGuard's built-in heuristic
+    /// <see cref="ITokenCounter"/> implementation, and <see cref="Strategies.TieredCompactionStrategy"/>.
     /// For non-DI scenarios, construct <see cref="ConversationContextFactory"/> directly instead.
     /// </remarks>
     /// <exception cref="ArgumentNullException">
