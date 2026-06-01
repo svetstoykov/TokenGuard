@@ -79,6 +79,80 @@ public sealed class TieredCompactionStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_WhenSummarizerThrowsTransientError_ReturnsSlidingWindowResultWithError()
+    {
+        // Arrange — masked total 1+1+5+5=12 > 11 forces escalation; the summarizer then throws.
+        var oldest1 = CreateToolResultMessage("call_1", "search", "full-tool-output-1");
+        var oldest2 = CreateToolResultMessage("call_2", "search", "full-tool-output-2");
+        var keep1 = ContextMessage.FromText(MessageRole.User, "keep-1");
+        var keep2 = ContextMessage.FromText(MessageRole.Model, "keep-2");
+        var messages = new List<ContextMessage> { oldest1, oldest2, keep1, keep2 };
+
+        var failure = new InvalidOperationException("rate limited");
+        var summarizer = new ThrowingSummarizer(failure);
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(oldest1, 50);
+        tokenCounter.Set(oldest2, 50);
+        tokenCounter.Set(keep1, 5);
+        tokenCounter.Set(keep2, 5);
+
+        var strategy = new TieredCompactionStrategy(
+            tokenCounter,
+            new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
+            new LlmSummarizationStrategy(
+                summarizer,
+                tokenCounter,
+                new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100)));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 11);
+
+        // Assert — summarizer was attempted, then degraded to sliding-window (masked) result.
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Same(failure, compacted.SummarizationError);
+        Assert.Equal(nameof(TieredCompactionStrategy), compacted.StrategyName);
+        Assert.Equal(4, compacted.Messages.Count);
+        Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
+        Assert.Equal(CompactionState.Masked, compacted.Messages[1].State);
+        Assert.Same(keep1, compacted.Messages[2]);
+        Assert.Same(keep2, compacted.Messages[3]);
+        Assert.DoesNotContain(compacted.Messages, m => m.State == CompactionState.Summarized);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenCancelledDuringSummarization_RethrowsOperationCanceled()
+    {
+        // Arrange — same escalation layout; cancellation happens after summarization starts.
+        var oldest1 = CreateToolResultMessage("call_1", "search", "full-tool-output-1");
+        var oldest2 = CreateToolResultMessage("call_2", "search", "full-tool-output-2");
+        var keep1 = ContextMessage.FromText(MessageRole.User, "keep-1");
+        var keep2 = ContextMessage.FromText(MessageRole.Model, "keep-2");
+        var messages = new List<ContextMessage> { oldest1, oldest2, keep1, keep2 };
+
+        using var cts = new CancellationTokenSource();
+        var summarizer = new CancelingSummarizer(cts);
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(oldest1, 50);
+        tokenCounter.Set(oldest2, 50);
+        tokenCounter.Set(keep1, 5);
+        tokenCounter.Set(keep2, 5);
+
+        var strategy = new TieredCompactionStrategy(
+            tokenCounter,
+            new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
+            new LlmSummarizationStrategy(
+                summarizer,
+                tokenCounter,
+                new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100)));
+
+        // Act + Assert — cancellation propagates, never swallowed into a degraded result.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => strategy.CompactAsync(messages, 11, cts.Token));
+
+        Assert.Equal(1, summarizer.CallCount);
+    }
+
+    [Fact]
     public async Task CompactAsync_WhenBothStagesAreNoOp_ReturnsOriginalMessages()
     {
         // Arrange
@@ -405,6 +479,50 @@ public sealed class TieredCompactionStrategyTests
             this.LastTargetTokens = targetTokens;
 
             return Task.FromResult(this._summary);
+        }
+    }
+
+    private sealed class ThrowingSummarizer : ILlmSummarizer
+    {
+        private readonly Exception _toThrow;
+
+        public ThrowingSummarizer(Exception toThrow)
+        {
+            this._toThrow = toThrow;
+        }
+
+        public int CallCount { get; private set; }
+
+        public Task<string> SummarizeAsync(
+            IReadOnlyList<ContextMessage> messages,
+            int targetTokens,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            this.CallCount++;
+            return Task.FromException<string>(this._toThrow);
+        }
+    }
+
+    private sealed class CancelingSummarizer : ILlmSummarizer
+    {
+        private readonly CancellationTokenSource _cts;
+
+        public CancelingSummarizer(CancellationTokenSource cts)
+        {
+            this._cts = cts;
+        }
+
+        public int CallCount { get; private set; }
+
+        public Task<string> SummarizeAsync(
+            IReadOnlyList<ContextMessage> messages,
+            int targetTokens,
+            CancellationToken cancellationToken = default)
+        {
+            this.CallCount++;
+            this._cts.Cancel();
+            return Task.FromCanceled<string>(cancellationToken);
         }
     }
 
