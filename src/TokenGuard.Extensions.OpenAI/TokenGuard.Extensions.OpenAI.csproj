@@ -13,7 +13,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <Version>1.0.0</Version>
+        <Version>1.0.1</Version>
         <PackageId>TokenGuard.Extensions.OpenAI</PackageId>
         <Title>TokenGuard.Extensions.OpenAI</Title>
         <Authors>Svetlozar Stoykov</Authors>
@@ -26,7 +26,7 @@
         <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
-        <PackageReleaseNotes>Initial public release of TokenGuard's OpenAI integration. Adds OpenAI message conversion and OpenAI-backed history summarization for long-running agent loops.</PackageReleaseNotes>
+        <PackageReleaseNotes>Refreshes the package README with clearer getting-started guidance.</PackageReleaseNotes>
     </PropertyGroup>
 
 </Project>
