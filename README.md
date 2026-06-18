@@ -408,10 +408,10 @@ dotnet build ./samples/Codexplorer/src/Codexplorer.csproj --nologo
 
 Authoritative NuGet release runbook lives in [docs/release-process.md](docs/release-process.md).
 
-Use that path for publishing `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and
-`TokenGuard.Extensions.Anthropic`. It requires a passing
-`.github/workflows/release-validation.yml` run on the exact commit being published and documents
-versioning, secrets, package order, and `.snupkg` symbol publication.
+Use that path to publish `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, or
+`TokenGuard.Extensions.Anthropic` from an existing Git tag. Publication runs manually through
+GitHub Actions, publishes one selected package per run, and authenticates to nuget.org through
+Trusted Publishing without a long-lived API key.
 
 ---
 
