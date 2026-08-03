@@ -41,6 +41,7 @@ public sealed class ConversationContext : IConversationContext
     private readonly ContextBudget _budget;
     private readonly ITokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
+    private readonly Action<CompactionEvent>? _observer;
     private readonly List<ContextMessage> _history = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
@@ -76,11 +77,21 @@ public sealed class ConversationContext : IConversationContext
     /// Produces a smaller message list when the current history no longer fits comfortably within
     /// the configured budget.
     /// </param>
-    internal ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy)
+    /// <param name="observer">
+    /// An optional delegate invoked with a <see cref="CompactionEvent"/> whenever
+    /// <see cref="PrepareAsync(CancellationToken)"/> produces a non-<see cref="Enums.PrepareOutcome.Ready"/> outcome.
+    /// Pass <see langword="null"/> to skip observability entirely.
+    /// </param>
+    internal ConversationContext(
+        ContextBudget budget,
+        ITokenCounter counter,
+        ICompactionStrategy strategy,
+        Action<CompactionEvent>? observer = null)
     {
         this._budget = budget;
         this._counter = counter;
         this._strategy = strategy;
+        this._observer = observer;
     }
 
     /// <summary>
@@ -328,6 +339,12 @@ public sealed class ConversationContext : IConversationContext
     /// Calling this method does not modify <see cref="History"/>. It only determines what subset or
     /// representation of that history should be sent next.
     /// </para>
+    /// <para>
+    /// If a compaction observer was registered through
+    /// <see cref="Configuration.ConversationConfigBuilder.WithCompactionObserver(Action{CompactionEvent})"/>, it is
+    /// invoked synchronously with a <see cref="CompactionEvent"/> whenever the resulting
+    /// <see cref="PrepareResult.Outcome"/> is not <see cref="Enums.PrepareOutcome.Ready"/>, before this method returns.
+    /// </para>
     /// </remarks>
     public async Task<PrepareResult> PrepareAsync(CancellationToken cancellationToken = default)
     {
@@ -400,6 +417,18 @@ public sealed class ConversationContext : IConversationContext
         var budgetFailureReason = outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact
             ? this.BuildBudgetFailureReason(outcome, estimatedFinalTokens, messagesCompacted)
             : null;
+
+        if (outcome != PrepareOutcome.Ready)
+        {
+            this._observer?.Invoke(new CompactionEvent(
+                outcome,
+                totalBeforeCompaction,
+                estimatedFinalTokens,
+                messagesCompacted,
+                emergencyMessagesDropped,
+                budgetFailureReason,
+                compacted.SummarizationError));
+        }
 
         return new PrepareResult(
             final,

@@ -35,6 +35,13 @@ namespace TokenGuard.Core.Models;
 /// <see cref="ITokenCounter"/>. The built-in factory invokes this delegate once for each created context so
 /// compaction state is never shared across context lifetimes and the counting dependency stays explicit.
 /// </param>
+/// <param name="Observer">
+/// The compaction observer delegate registered through
+/// <see cref="ConversationConfigBuilder.WithCompactionObserver(Action{CompactionEvent})"/>, or
+/// <see langword="null"/> when no observer was registered. Passed unchanged to every
+/// <see cref="ConversationContext"/> instance created from this configuration.
+/// </param>
 public sealed record ConversationContextConfiguration(
     ContextBudget Budget,
-    Func<ITokenCounter, ICompactionStrategy> StrategyFactory);
+    Func<ITokenCounter, ICompactionStrategy> StrategyFactory,
+    Action<CompactionEvent>? Observer = null);

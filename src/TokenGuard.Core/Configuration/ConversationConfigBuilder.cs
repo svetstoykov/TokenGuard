@@ -33,6 +33,7 @@ public sealed class ConversationConfigBuilder
     private Func<ILlmSummarizer>? _llmSummarizerFactory;
     private LlmSummarizationOptions? _llmSummarizationOptions;
     private string? _llmSummarizationProviderName;
+    private Action<CompactionEvent>? _observer;
 
     /// <summary>
     ///     Creates a <see cref="ConversationContextConfiguration"/> using the default builder configuration.
@@ -169,6 +170,35 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
+    ///     Registers an observer that is invoked whenever a <see cref="ConversationContext"/> built from this
+    ///     configuration performs compaction activity.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         The observer fires from <see cref="Abstractions.IConversationContext.PrepareAsync"/> only when the
+    ///         resulting <see cref="Enums.PrepareOutcome"/> is not <see cref="Enums.PrepareOutcome.Ready"/> — that is,
+    ///         only when compaction actually changed the outcome. It is invoked synchronously and in-line with
+    ///         <see cref="Abstractions.IConversationContext.PrepareAsync"/>, before that call returns.
+    ///     </para>
+    ///     <para>
+    ///         Calling this method more than once combines the delegates instead of replacing the previous
+    ///         registration, so multiple independent observers (for example, one for logging and one for metrics) can
+    ///         be registered on the same builder. They are invoked in registration order. An exception thrown by any
+    ///         observer propagates out of <see cref="Abstractions.IConversationContext.PrepareAsync"/> uninterrupted;
+    ///         a failing observer is the caller's responsibility to fix, not something TokenGuard degrades around.
+    ///     </para>
+    /// </remarks>
+    /// <param name="observer">The delegate to invoke with a <see cref="CompactionEvent"/> for each compaction cycle.</param>
+    /// <returns>The current builder instance.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="observer"/> is <see langword="null"/>.</exception>
+    public ConversationConfigBuilder WithCompactionObserver(Action<CompactionEvent> observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        this._observer += observer;
+        return this;
+    }
+
+    /// <summary>
     ///     Captures an immutable construction recipe from the current builder state as a
     ///     <see cref="ConversationContextConfiguration"/>.
     /// </summary>
@@ -210,7 +240,7 @@ public sealed class ConversationConfigBuilder
             this._llmSummarizerFactory,
             this._llmSummarizationOptions);
 
-        return new ConversationContextConfiguration(budget, strategyFactory);
+        return new ConversationContextConfiguration(budget, strategyFactory, this._observer);
     }
 
     /// <summary>

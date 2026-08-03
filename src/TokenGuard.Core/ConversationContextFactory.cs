@@ -120,6 +120,6 @@ public sealed class ConversationContextFactory : IConversationContextFactory
         var counter = new EstimatedTokenCounter();
         var strategy = config.StrategyFactory(counter);
 
-        return new ConversationContext(config.Budget, counter, strategy);
+        return new ConversationContext(config.Budget, counter, strategy, config.Observer);
     }
 }

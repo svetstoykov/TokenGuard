@@ -1393,6 +1393,104 @@ public sealed class ConversationContextTests
         result.BudgetFailureReason.Should().BeNull();
     }
 
+    [Fact]
+    public async Task PrepareAsync_WhenEstimateIsBelowThreshold_DoesNotInvokeCompactionObserver()
+    {
+        // Arrange
+        var events = new List<CompactionEvent>();
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, events.Add);
+
+        engine.AddUserMessage("hello");
+        counter.Set(engine.History[0], 0);
+
+        // Act
+        await engine.PrepareAsync();
+
+        // Assert
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenCompactionOccurs_InvokesObserverWithMatchingEventData()
+    {
+        // Arrange
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 800);
+        counter.Set(compacted, 800);
+
+        var events = new List<CompactionEvent>();
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy"));
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, events.Add);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        var result = await engine.PrepareAsync();
+
+        // Assert
+        var compactionEvent = events.Should().ContainSingle().Which;
+        compactionEvent.Outcome.Should().Be(result.Outcome).And.Be(PrepareOutcome.Compacted);
+        compactionEvent.TokensBeforeCompaction.Should().Be(result.TokensBeforeCompaction);
+        compactionEvent.TokensAfterCompaction.Should().Be(result.TokensAfterCompaction);
+        compactionEvent.MessagesCompacted.Should().Be(result.MessagesCompacted);
+        compactionEvent.MessagesDropped.Should().Be(result.MessagesDropped);
+        compactionEvent.BudgetFailureReason.Should().BeNull();
+        compactionEvent.SummarizationError.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenCannotCompact_InvokesObserverWithBudgetFailureReason()
+    {
+        // Arrange
+        var events = new List<CompactionEvent>();
+        var counter = new TrackingTokenCounter();
+        var strategy = new TrackingCompactionStrategy();
+        var engine = new ConversationContext(ContextBudget.For(1_000), counter, strategy, events.Add);
+
+        counter.SetByText("huge", 1500);
+        engine.AddUserMessage("huge");
+
+        // Act
+        await engine.PrepareAsync();
+
+        // Assert
+        var compactionEvent = events.Should().ContainSingle().Which;
+        compactionEvent.Outcome.Should().Be(PrepareOutcome.CannotCompact);
+        compactionEvent.BudgetFailureReason.Should().NotBeNull();
+        compactionEvent.BudgetFailureReason.Should().Contain("cannot fit within budget");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenObserverThrows_PropagatesExceptionAndSkipsReturn()
+    {
+        // Arrange
+        var compacted = ContextMessage.FromText(MessageRole.Model, "compacted");
+        var counter = new TrackingTokenCounter();
+
+        counter.SetByText("original", 800);
+        counter.Set(compacted, 800);
+
+        var strategy = new TrackingCompactionStrategy(new CompactionResult([compacted], 800, 800, 1, "TestStrategy"));
+        var thrown = new InvalidOperationException("observer boom");
+        var engine = new ConversationContext(
+            ContextBudget.For(1_000),
+            counter,
+            strategy,
+            _ => throw thrown);
+
+        engine.AddUserMessage("original");
+
+        // Act
+        var act = () => engine.PrepareAsync();
+
+        // Assert
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Should().BeSameAs(thrown);
+    }
+
     private static string GetText(ContextMessage message)
     {
         return Assert.IsType<TextContent>(Assert.Single(message.Segments)).Content;

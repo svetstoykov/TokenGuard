@@ -209,6 +209,24 @@ to send to the provider. `ConversationContext.History` remains unchanged.
 exceeds the configured limit plus any allowed overrun tolerance. `CannotCompact` means the remaining preserved content is
 already too large and the call should not be attempted.
 
+### Compaction observer
+
+Register a callback to be notified whenever compaction actually happens, instead of inspecting `PrepareResult` after
+every call:
+
+```csharp
+var configuration = new ConversationConfigBuilder()
+    .WithMaxTokens(200_000)
+    .WithCompactionObserver(e => logger.LogInformation(
+        "Compaction {Outcome}: {Before} -> {After} tokens, {Compacted} messages affected",
+        e.Outcome, e.TokensBeforeCompaction, e.TokensAfterCompaction, e.MessagesCompacted))
+    .Build();
+```
+
+The observer fires synchronously from `PrepareAsync()`, only when `Outcome` is not `Ready`. Calling
+`WithCompactionObserver(...)` more than once registers additional observers rather than replacing the previous one; all
+are invoked, in registration order. An exception thrown by an observer propagates out of `PrepareAsync()` uncaught.
+
 ---
 
 ## Pinned messages

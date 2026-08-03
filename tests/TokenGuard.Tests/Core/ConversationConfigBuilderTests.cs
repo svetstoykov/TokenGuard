@@ -289,6 +289,53 @@ public sealed class ConversationConfigBuilderTests
         configuration.Budget.EmergencyThreshold.Should().Be(0.95);
     }
 
+    [Fact]
+    public void WithCompactionObserver_WithNullObserver_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(10_000);
+
+        // Act
+        var act = () => builder.WithCompactionObserver(null!);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void WithCompactionObserver_NotCalled_LeavesObserverNull()
+    {
+        // Arrange
+
+        // Act
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(10_000)
+            .Build();
+
+        // Assert
+        configuration.Observer.Should().BeNull();
+    }
+
+    [Fact]
+    public void WithCompactionObserver_CalledMultipleTimes_CombinesObserversInRegistrationOrder()
+    {
+        // Arrange
+        var calls = new List<string>();
+        var sampleEvent = new CompactionEvent(PrepareOutcome.Compacted, 100, 50, 1, 0, null, null);
+
+        // Act
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(10_000)
+            .WithCompactionObserver(_ => calls.Add("first"))
+            .WithCompactionObserver(_ => calls.Add("second"))
+            .Build();
+
+        configuration.Observer!.Invoke(sampleEvent);
+
+        // Assert
+        calls.Should().Equal("first", "second");
+    }
+
     private static ContextMessage CreateToolResultMessage(string callId, string toolName, string payload)
     {
         return new ContextMessage

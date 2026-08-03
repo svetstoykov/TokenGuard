@@ -5,6 +5,14 @@ All notable changes to TokenGuard are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Compaction observability: `ConversationConfigBuilder.WithCompactionObserver(Action<CompactionEvent>)`
+  registers one or more callbacks invoked synchronously from `PrepareAsync()` whenever compaction actually
+  changes the outcome (non-`Ready`), giving callers push-based logging/telemetry without polling
+  `PrepareResult` on every call.
+
 ## [1.0.0] - 2026-06-01
 
 Initial public release of `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`,
