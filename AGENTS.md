@@ -22,12 +22,20 @@ Read a file before starting work that matches its trigger. When several triggers
 | Writing or changing C# under `src`, `tests`, or `samples` | [`docs/ai-rules/csharp-guidelines.md`](docs/ai-rules/csharp-guidelines.md) |
 | Writing or reviewing C# XML documentation comments | [`docs/ai-rules/csharp-xml-documentation.md`](docs/ai-rules/csharp-xml-documentation.md) |
 | Adding or changing tests, or claiming a change is complete | [`docs/ai-rules/testing.md`](docs/ai-rules/testing.md) |
-| Auditing a Codexplorer session transcript for token economy or compaction invariants | [`docs/ai-rules/audit-token-economy.md`](docs/ai-rules/audit-token-economy.md) |
 
 `samples/Codexplorer` carries its own `AGENTS.md`; it applies to work inside that project.
+
+## On-demand commands
+
+These are not rules. Run one only when the user asks for it or invokes it by name. Each lives as a skill in `.claude/skills/`, mirrored unchanged in `.agents/skills/`; both copies are versioned and must stay identical.
+
+| Command | Use for | File |
+| --- | --- | --- |
+| `audit-token-economy` | Auditing a Codexplorer session transcript for token economy and compaction invariants, and tracing violations to source | [`.claude/skills/audit-token-economy/SKILL.md`](.claude/skills/audit-token-economy/SKILL.md) |
 
 ## Maintaining these rules
 
 - Add a durable engineering rule to the file whose trigger already covers it. Create a new bounded file only when a genuinely new area appears, and add its trigger row here in the same change.
+- Put a procedure that runs only on request in a skill under `.claude/skills/` with its `.agents/skills/` mirror, and list it under on-demand commands, not in `docs/ai-rules/`.
 - Keep detailed and frequently changing requirements in `.specs/token-guard-spec.md` or task files, not in `docs/ai-rules/`.
 - Edits under `docs/ai-rules/` stay on this machine. They are never part of a commit.
