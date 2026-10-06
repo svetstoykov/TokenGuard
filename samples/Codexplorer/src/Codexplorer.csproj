@@ -19,7 +19,7 @@
         <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
         <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
         <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-        <PackageReference Include="SmartReader" Version="0.11.0" />
+        <PackageReference Include="SmartReader" Version="0.11.1" />
         <PackageReference Include="Spectre.Console" Version="0.55.2" />
         <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
     </ItemGroup>
