@@ -38,6 +38,8 @@ No long-lived NuGet API key belongs in GitHub secrets.
 4. Create and push Git tag pointing to exact commit to publish.
 5. Confirm `.github/workflows/release-validation.yml` passed for tagged commit.
 
+Release validation includes README snippet check. `tests/TokenGuard.ReadmeSnippets/verify.sh` packs `TokenGuard.Core` and `TokenGuard.Extensions.OpenAI` from working tree, builds README's OpenAI quick start against those packages instead of project references, and fails when quick start does not compile or when `README.md` or `src/TokenGuard.Core/PackageReadme.md` stops matching compiled text in `tests/TokenGuard.ReadmeSnippets/Program.cs`. Same check runs in validation job of publish workflow. When changing quick start, edit `Program.cs` and both READMEs together, then run script locally.
+
 Package projects:
 
 - `src/TokenGuard.Core/TokenGuard.Core.csproj`
@@ -52,7 +54,7 @@ Package projects:
 4. Enter existing tag.
 5. Select package to publish.
 6. Start workflow.
-7. Confirm validation job restores, builds, tests, packs, and uploads package artifacts.
+7. Confirm validation job restores, builds, tests, packs, builds README snippets, and uploads package artifacts.
 8. Approve `release` environment deployment.
 9. Confirm publication job completes.
 

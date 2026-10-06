@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    The TokenGuard packages resolve from the feed that verify.sh packs from the working tree (see nuget.config).
+    The OpenAI SDK arrives through TokenGuard.Extensions.OpenAI, as it does for a package consumer.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.7" />
+    <PackageReference Include="TokenGuard.Core" Version="*-*" />
+    <PackageReference Include="TokenGuard.Extensions.OpenAI" Version="*-*" />
+  </ItemGroup>
+
+</Project>

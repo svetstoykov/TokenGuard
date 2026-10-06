@@ -76,6 +76,9 @@ jobs:
       - name: Pack selected package
         run: dotnet pack "${{ steps.package.outputs.project }}" --configuration Release --no-build --nologo --output artifacts/release
 
+      - name: Build README snippets against packed packages
+        run: ./tests/TokenGuard.ReadmeSnippets/verify.sh
+
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:

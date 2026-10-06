@@ -31,7 +31,7 @@ var prepared = await conversationContext.PrepareAsync(cancellationToken);
 
 // Send only prepared snapshot to provider.
 var input = prepared.Messages.ForOpenAI();
-var response = await chatClient.CompleteChatAsync(input, cancellationToken: cancellationToken);
+ChatCompletion response = await chatClient.CompleteChatAsync(input, cancellationToken: cancellationToken);
 ```
 
 You keep appending system, user, assistant, and tool messages to `conversationContext`. Everything happens inside that
@@ -147,13 +147,12 @@ concurrent requests. Use `Create("analysis")` when you want a named profile.
 
 ### 3. Run the loop
 
+The loop continues with the `conversationContext` created in step 2.
+
 ```csharp
+using OpenAI.Chat;
 using TokenGuard.Core.Enums;
 using TokenGuard.Extensions.OpenAI;
-
-var factory = serviceProvider.GetRequiredService<IConversationContextFactory>();
-
-using var conversationContext = factory.Create();
 
 conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
@@ -166,7 +165,7 @@ while (true)
     if (prepared.Outcome == PrepareOutcome.CannotCompact)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
-    var response = await chatClient.CompleteChatAsync(
+    ChatCompletion response = await chatClient.CompleteChatAsync(
         prepared.Messages.ForOpenAI(),
         chatOptions,
         cancellationToken);
@@ -315,7 +314,7 @@ The core has no provider dependency. Adapters handle conversion in both directio
 var prepared = await conversationContext.PrepareAsync(cancellationToken);
 var messages = prepared.Messages.ForOpenAI();
 
-var response = await chatClient.CompleteChatAsync(messages, chatOptions, cancellationToken);
+ChatCompletion response = await chatClient.CompleteChatAsync(messages, chatOptions, cancellationToken);
 conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
 ```
 
@@ -393,6 +392,7 @@ samples/
 tests/
   TokenGuard.Tests                    unit tests
   TokenGuard.IntegrationTests         cross-component coverage
+  TokenGuard.ReadmeSnippets           README quick start compiled against packed packages
 
 docs/                                supporting notes and documentation
 ```

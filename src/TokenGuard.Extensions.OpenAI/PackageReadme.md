@@ -10,7 +10,7 @@ services.AddConversationContext(builder => builder
 var prepared = await conversation.PrepareAsync(cancellationToken);
 var messages = prepared.Messages.ForOpenAI();
 
-var response = await chatClient.CompleteChatAsync(messages, cancellationToken: cancellationToken);
+ChatCompletion response = await chatClient.CompleteChatAsync(messages, cancellationToken: cancellationToken);
 conversation.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
 ```
 
@@ -53,7 +53,7 @@ var messages = prepared.Messages.ForOpenAI();
 ### 3. Send the OpenAI request
 
 ```csharp
-var response = await chatClient.CompleteChatAsync(
+ChatCompletion response = await chatClient.CompleteChatAsync(
     messages,
     chatOptions,
     cancellationToken);

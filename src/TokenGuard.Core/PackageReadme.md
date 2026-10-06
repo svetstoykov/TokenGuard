@@ -17,7 +17,7 @@ var prepared = await conversationContext.PrepareAsync(cancellationToken);
 
 // Send only prepared snapshot to provider.
 var input = prepared.Messages.ForOpenAI();
-var response = await chatClient.CompleteChatAsync(input, cancellationToken: cancellationToken);
+ChatCompletion response = await chatClient.CompleteChatAsync(input, cancellationToken: cancellationToken);
 ```
 
 You keep appending system, user, assistant, and tool messages to `ConversationContext`. Everything happens inside that object. `PrepareAsync()` returns a `PrepareResult` describing what should go to the model right now.
@@ -36,7 +36,10 @@ You keep appending system, user, assistant, and tool messages to `ConversationCo
 
 ```bash
 dotnet add package TokenGuard.Core
+dotnet add package TokenGuard.Extensions.OpenAI
 ```
+
+`TokenGuard.Core` is provider-neutral. The quick start below sends requests through OpenAI, so it also needs the `TokenGuard.Extensions.OpenAI` adapter.
 
 ## Quick start
 
@@ -66,13 +69,12 @@ Configuration is singleton-scoped. Each `Create()` call returns an independent s
 
 ### 3. Run the loop
 
+The loop continues with the `conversationContext` created in step 2.
+
 ```csharp
+using OpenAI.Chat;
 using TokenGuard.Core.Enums;
 using TokenGuard.Extensions.OpenAI;
-
-var factory = serviceProvider.GetRequiredService<IConversationContextFactory>();
-
-using var conversationContext = factory.Create();
 
 conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
@@ -85,7 +87,7 @@ while (true)
     if (prepared.Outcome == PrepareOutcome.CannotCompact)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
-    var response = await chatClient.CompleteChatAsync(
+    ChatCompletion response = await chatClient.CompleteChatAsync(
         prepared.Messages.ForOpenAI(),
         chatOptions,
         cancellationToken);
