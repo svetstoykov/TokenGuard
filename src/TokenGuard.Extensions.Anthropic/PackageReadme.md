@@ -52,6 +52,13 @@ Use `messages` as the Anthropic message list and `systemPrompt` as the separate 
 
 `ForAnthropic()` keeps the shape aligned with Anthropic's API, where system content is separate from the main message array.
 
+## Observability
+
+When the conversation has a logger factory (`services.AddLogging()` with `AddConversationContext`, or
+`WithLoggerFactory(loggerFactory)` on the builder), each Anthropic summarizer call is logged at `Debug` with its duration
+and reported token usage, never its prompt or summary text.
+See [Observability](https://github.com/svetstoykov/TokenGuard/blob/main/docs/observability.md).
+
 ## More detail
 
 - [Root README](https://github.com/svetstoykov/TokenGuard/blob/main/README.md)

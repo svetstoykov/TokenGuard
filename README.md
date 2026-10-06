@@ -349,6 +349,17 @@ Provider-reported input tokens still help when they are available:
 
 ---
 
+## Observability
+
+Logs go to the container's `ILoggerFactory`, or to `WithLoggerFactory(...)` without DI. Tracing and metrics subscribe by name:
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithTracing(t => t.AddSource(TokenGuardDiagnostics.ActivitySourceName))
+    .WithMetrics(m => m.AddMeter(TokenGuardDiagnostics.MeterName));
+```
+None of it contains conversation content. See [Observability](docs/observability.md) for event IDs, instruments, and levels.
+
 ## Without DI
 
 If you're not using a container, construct a factory directly:
