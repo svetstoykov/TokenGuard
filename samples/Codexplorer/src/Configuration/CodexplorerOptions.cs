@@ -118,7 +118,7 @@ public sealed record ModelOptions
     /// <summary>
     /// Gets model identifier sent to OpenRouter.
     /// </summary>
-    public string? Name { get; init; } = "google/gemini-2.5-flash";
+    public string? Name { get; init; } = "deepseek/deepseek-v4.1-flash";
 
     /// <summary>
     /// Gets upper bound for model-generated output tokens.

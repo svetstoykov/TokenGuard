@@ -134,7 +134,7 @@ Then copy `samples/Codexplorer.Automation/src/appsettings.Development.example.js
     "CodexplorerExecutablePath": "/absolute/path/to/TokenGuard/samples/Codexplorer/src/bin/Debug/net10.0/Codexplorer",
     "ManifestPath": "./tasks/initial-corpus.json",
     "HelperAi": {
-      "ModelName": "openai/gpt-5.4-mini",
+      "ModelName": "deepseek/deepseek-v4.1-flash",
       "ApiKey": ""
     }
   }
@@ -233,7 +233,7 @@ Example:
 {
   "Codexplorer": {
     "Model": {
-      "Name": "openai/gpt-5.4-nano",
+      "Name": "deepseek/deepseek-v4.1-flash",
       "MaxOutputTokens": 8192,
       "Temperature": 0.0
     },

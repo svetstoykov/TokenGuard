@@ -88,7 +88,7 @@ internal sealed record AutomationHelperAiOptions
 {
     public string? Endpoint { get; init; } = "https://openrouter.ai/api/v1";
 
-    public string? ModelName { get; init; } = "openai/gpt-5.4-mini";
+    public string? ModelName { get; init; } = "deepseek/deepseek-v4.1-flash";
 
     public string? ApiKey { get; init; } = string.Empty;
 
