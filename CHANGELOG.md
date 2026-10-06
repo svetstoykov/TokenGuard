@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `TokenGuard.Core` now depends on `Microsoft.Extensions.Logging.Abstractions`.
+- `TokenGuard.Extensions.OpenAI` now requires `OpenAI` 2.14.0 or later (was 2.10.0).
+- `TokenGuard.Extensions.Anthropic` now requires `Anthropic` 12.53.0 or later (was 12.13.0).
+
+### Fixed
+- The OpenAI examples in the root, `TokenGuard.Core`, and `TokenGuard.Extensions.OpenAI` READMEs declare the completion
+  as `ChatCompletion`, so they compile as written. The `TokenGuard.Core` README lists both packages its quick start needs.
 
 ## [1.0.0] - 2026-06-01
 
