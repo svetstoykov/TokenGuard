@@ -478,19 +478,42 @@ provider request, and send `prepared.Messages`.
 
 ## 14. Benchmark snapshot
 
-Current public benchmark data comes from Codexplorer across 20 repository-analysis tasks:
+The public benchmark data comes from 20 Codexplorer sessions run on 12 May 2026 with `openai/gpt-5.4-nano`, one session
+per repository-analysis task, under a 20,000-token context budget:
 
 | Metric | Value |
 |---|---:|
-| Cumulative prompt tokens without TokenGuard | 128,058,079 |
-| Cumulative prompt tokens with TokenGuard | **16,158,357** |
-| Tokens saved | **111,899,722** |
+| Cumulative prompt tokens, uncompacted history (estimated) | 128,188,640 |
+| Cumulative prompt tokens, prepared by TokenGuard (estimated) | **16,158,138** |
+| Estimated tokens saved | **112,030,502** |
 | Reduction | **87.4%** |
-| Successful turns | **1,269 / 1,324** |
-| `CompactionInsufficient` turns | **55 / 1,324** |
-| `CannotCompact` turns | **0** |
+| Prepare calls with outcome `Ready` or `Compacted` | **1,270 / 1,325** |
+| Prepare calls with outcome `CompactionInsufficient` | **55 / 1,325** |
+| Prepare calls with outcome `CannotCompact` | **0** |
 
-Those numbers reflect the current masking + summarization + emergency fallback pipeline, not a masking-only prototype.
+Every session ran with TokenGuard. No run without TokenGuard was measured for this batch, so the uncompacted figure is
+an estimate taken from the same sessions, not a measured control. Both token figures are TokenGuard's own estimates; the
+provider reported 15,930,640 input tokens for the prepared requests. The outcome rows count prepare calls and say
+nothing about the correctness of the model's answers.
+
+The batch ran the masking, summarization, and emergency truncation pipeline as it was on 12 May 2026.
+
+### How the benchmark figures are calculated
+
+The input is the 20 markdown session transcripts Codexplorer wrote for the batch. Each turn of a session has a
+`## PrepareResult (turn N)` block with `TokensBeforeCompaction`, `TokensAfterCompaction`, and `Outcome`, and a
+`## Model response (turn N)` block with `InputTokensReported`.
+
+1. Read every `PrepareResult` block of every transcript. Each block is one prepare record; the batch has 1,325.
+2. Join each prepare record to its model response by session and turn number, not by position in the file.
+3. Parse the token fields as signed integers. Three prepared estimates in this batch are negative (-838, -1,348, and
+   -219) and are summed as recorded.
+4. Sum `TokensBeforeCompaction` over every prepare record for the uncompacted history: 128,188,640.
+5. Sum `TokensAfterCompaction` over every prepare record for the prepared requests: 16,158,138.
+6. Reduction is `(before - after) / before`: 112,030,502 / 128,188,640 = 87.395%.
+7. Count prepare records by `Outcome`: 115 `Ready`, 1,155 `Compacted`, and 55 `Degraded`, the name these transcripts
+   use for `CompactionInsufficient`.
+8. Sum `InputTokensReported` over the joined responses for the provider-reported total: 15,930,640.
 
 ---
 

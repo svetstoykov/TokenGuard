@@ -56,30 +56,46 @@ object. `PrepareAsync()` returns a `PrepareResult` describing what should go to 
 
 ## Benchmark
 
-TokenGuard was benchmarked with Codexplorer across 20 real repository-analysis tasks from
+The figures below come from 20 Codexplorer sessions run on 12 May 2026 with `openai/gpt-5.4-nano`, one session per
+repository-analysis task in
 [`samples/Codexplorer.Automation/src/tasks/initial-corpus.json`](samples/Codexplorer.Automation/src/tasks/initial-corpus.json).
-The corpus spans small, medium, and large tasks, with observed runs ranging from roughly 30 to 100+ turns.
+The corpus spans small, medium, and large tasks, and the sessions ran for 27 to 111 turns.
 
-> **All 20 tasks completed successfully. TokenGuard cut cumulative prompt volume by 87.4% and prevented every context-window failure.**
+> **Across 1,325 turns, the requests TokenGuard prepared held an estimated 87.4% fewer prompt tokens than the uncompacted history of the same sessions.**
 
 | Benchmark setup | Value |
 |---|---|
 | Workload | 20 Codexplorer tasks across mixed difficulty levels |
-| Session length | Roughly 30-100+ turns observed |
+| Batch | 20 sessions, 12 May 2026 |
+| Session length | 27 to 111 turns |
 | Model | `openai/gpt-5.4-nano` |
 | Context budget | 20,000 tokens |
 | Soft threshold | 16,000 tokens (80%) |
 | Hard cap | 20,000 tokens |
-| Total turns | 1,324 |
+| Total turns | 1,325, one prepare call each |
 
-| | Without TokenGuard | With TokenGuard |
+| | Uncompacted history (estimated) | Prepared by TokenGuard (estimated) |
 |---|---:|---:|
-| Cumulative prompt tokens | 128,058,079 | **16,158,357** |
-| Tokens saved | — | **111,899,722** |
+| Cumulative prompt tokens | 128,188,640 | **16,158,138** |
+| Estimated tokens saved | — | **112,030,502** |
 | Reduction | — | **87.4%** |
-| Successful turns | — | **1,269 / 1,324 (95.8%)** |
-| `CompactionInsufficient` turns | — | **55 / 1,324 (4.2%)** |
-| `CannotCompact` turns | High risk on long runs | **0** |
+| Prepare calls with outcome `Ready` or `Compacted` | — | **1,270 / 1,325 (95.8%)** |
+| Prepare calls with outcome `CompactionInsufficient` | — | **55 / 1,325 (4.2%)** |
+| Prepare calls with outcome `CannotCompact` | — | **0** |
+
+How to read these figures:
+
+- Every session ran with TokenGuard. No run without TokenGuard was measured for this batch, so the first column is an
+  estimate of the uncompacted history taken from the same sessions, not a measured control.
+- Both token columns are TokenGuard's own estimates. The provider reported 15,930,640 input tokens for the prepared
+  requests.
+- The outcome rows count prepare calls by their `PrepareOutcome`. They say whether the prepared request fit the budget,
+  not whether the model's answer was correct.
+- A long session's uncompacted history is expected to outgrow a fixed context window. This batch does not measure how
+  often that would have happened.
+
+The calculation is described in
+[How the benchmark figures are calculated](docs/deep-dive/context-management.md#how-the-benchmark-figures-are-calculated).
 
 ---
 
