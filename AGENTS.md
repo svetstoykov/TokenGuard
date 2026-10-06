@@ -1,56 +1,33 @@
-## Role
+# TokenGuard Repository Instructions
 
-You are an Expert C# .NET 10 Software Engineer and AI Systems Architect working on **TokenGuard** — a .NET library for automatic context management in LLM agent loops. You are a collaborative partner, not an autocomplete engine.
+This file is an index. The rules live in `docs/ai-rules/` as bounded context files so that only the relevant ones are loaded for a given task.
 
----
+`docs/ai-rules/` and `docs/superpowers/` are local and gitignored. Never add, stage, or commit anything under them. Read the rule files from disk when they are present; a published clone does not contain them. The rest of `docs/` is public library documentation and is versioned normally.
 
-## How We Work
+## Always read
 
-- **Consult before coding.** Before writing code for a new domain or feature, briefly propose your approach and wait for alignment. Never assume scope.
-- **Build incrementally.** Deliver small, focused pieces. Never produce large monoliths unprompted.
-- **Surface trade-offs.** When design decisions have competing options, name them and let me choose.
-- **Ask one question at a time.** If something is ambiguous, ask the most important clarifying question — not five at once.
+Read these two files before doing anything else in a session. They are short and always apply.
 
----
+| File | Contents |
+| --- | --- |
+| [`docs/ai-rules/core-principles.md`](docs/ai-rules/core-principles.md) | Role, product and technology stack, repository structure, design priority order, code organization rules. |
+| [`docs/ai-rules/workflow-and-boundaries.md`](docs/ai-rules/workflow-and-boundaries.md) | Consult-first collaboration, scope boundaries, reply and reference style, Superpowers skill approval, trust boundaries, Git workflow and commit format. |
 
-## Coding Philosophy
+## Read when the trigger applies
 
-In order of priority:
+Read a file before starting work that matches its trigger. When several triggers apply, read all of them.
 
-1. **Simplicity** — The interface must be simple. It is more important for the interface to be simple than the implementation.
-2. **Correctness** — Observable behavior must be correct. Incorrectness is not allowed.
-3. **Consistency** — A slightly less simple or complete design is acceptable to avoid inconsistency.
-4. **Completeness** — All reasonably expected cases must be covered. Simplicity cannot gut completeness.
+| Trigger | File |
+| --- | --- |
+| Writing or changing C# under `src`, `tests`, or `samples` | [`docs/ai-rules/csharp-guidelines.md`](docs/ai-rules/csharp-guidelines.md) |
+| Writing or reviewing C# XML documentation comments | [`docs/ai-rules/csharp-xml-documentation.md`](docs/ai-rules/csharp-xml-documentation.md) |
+| Adding or changing tests, or claiming a change is complete | [`docs/ai-rules/testing.md`](docs/ai-rules/testing.md) |
+| Auditing a Codexplorer session transcript for token economy or compaction invariants | [`docs/ai-rules/audit-token-economy.md`](docs/ai-rules/audit-token-economy.md) |
 
----
+`samples/Codexplorer` carries its own `AGENTS.md`; it applies to work inside that project.
 
-## C# Style Rules
+## Maintaining these rules
 
-- **No comment blocks.** Never use decorative separators like `// ===== Section =====`.
-- **Inline comments sparingly.** Only to explain something genuinely foreign or non-obvious.
-- **XML docs always.** Code Documentation Standard
-Document all public members using structured XML tags like <summary>, <remarks>, and <param> to establish a clear hierarchy of information. The summary must provide a concise "what" for the member, while the remarks section should detail "why" and "how," explicitly addressing architectural side effects, performance trade-offs, and deep-links to external documentation. Always utilize <see> tags for precise cross-referencing of types and ensure the documentation clarifies behavior regarding fluent API chaining or internal service provider interactions.
-- **Records for immutable data.** Prefer `record` and `record struct` for data types.
-- **Explicit nullability.** `T?` means optional or possibly absent — not "I forgot to think about it."
-- **Interfaces for everything injectable.** Any swappable service lives behind an interface.
-
----
-
-## Boundaries
-
-- Do not generate code outside the immediate task without being asked.
-- Do not refactor existing code unless the task specifically calls for it.
-- Do not propose adding dependencies without flagging it first.
-- The project spec lives in `.specs/token-guard-spec.md`. Consult it for domain context — do not re-derive architecture from scratch.
-
----
-
-## Skills
-
-- Shared skill guidance lives in `ai/skills/`. Treat that directory as the cross-agent source of truth.
-- Kilo may also load mirrored skills from `.kilo/skills/`, but do not assume other agents discover that directory automatically.
-- **Use `caveman` every single time.** Follow `ai/skills/caveman.md` on every response unless the user explicitly says `stop caveman` or `normal mode`.
-- **Use `task-writer` when task authoring is needed.** Follow `ai/skills/task-writing.md` when the user asks to create a task, write a ticket, define work items, plan a feature, break down work, or formalize a change into a scoped implementation task.
-- **Use `audit-token-economy` when auditing Codexplorer transcripts.** Follow `ai/skills/audit-token-economy.md` when the user asks to review a Codexplorer session transcript, analyze token economy, validate compaction invariants, or produce an audit report from transcript diagnostics.
-- **Use `testing-principles` when test guidance or test code is needed.** Follow `ai/skills/testing-principles.md` when the user asks to write, review, improve, or structure tests of any kind, including unit tests, integration tests, and live-LLM e2e coverage.
-- **Use `xml-doc` when writing or reviewing XML documentation comments.** Follow `ai/skills/xml-doc.md` whenever the user asks to write, add, fix, or review XML doc comments, or when producing code that requires documentation.
+- Add a durable engineering rule to the file whose trigger already covers it. Create a new bounded file only when a genuinely new area appears, and add its trigger row here in the same change.
+- Keep detailed and frequently changing requirements in `.specs/token-guard-spec.md` or task files, not in `docs/ai-rules/`.
+- Edits under `docs/ai-rules/` stay on this machine. They are never part of a commit.

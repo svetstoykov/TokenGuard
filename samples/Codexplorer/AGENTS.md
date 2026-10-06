@@ -43,9 +43,3 @@ In order of priority:
 - Do not refactor existing code unless the task calls for it.
 - Do not propose new dependencies without flagging it first.
 - Do not create any unit, integration or e2e tests. No testing.
-
----
-
-## Skills
-
-- **Use `caveman` on every response** unless told `stop caveman` or `normal mode`. Follow `ai/skills/caveman.md`.

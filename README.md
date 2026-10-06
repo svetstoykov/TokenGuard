@@ -384,7 +384,6 @@ tests/
   TokenGuard.IntegrationTests         cross-component coverage
 
 docs/                                supporting notes and documentation
-ai/skills/                           shared agent workflow guidance
 ```
 
 ---
