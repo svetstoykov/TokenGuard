@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
@@ -42,6 +43,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     private readonly ITokenCounter _tokenCounter;
     private readonly LlmSummarizationOptions _options;
     private readonly ILogger _logger;
+    private readonly ConversationDiagnostics _diagnostics;
     private SummaryCheckpoint? _checkpoint;
 
     /// <summary>
@@ -80,15 +82,41 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// </exception>
     public LlmSummarizationStrategy(
         ILlmSummarizer summarizer, ITokenCounter tokenCounter, LlmSummarizationOptions options, ILogger<LlmSummarizationStrategy> logger)
+        : this(
+            summarizer, tokenCounter, options, logger,
+            new ConversationDiagnostics(NullLoggerFactory.Instance, ConversationDiagnostics.DefaultContextName))
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="LlmSummarizationStrategy"/> class that reports as part of one conversation.
+    /// </summary>
+    /// <param name="summarizer">The summarizer that converts older history into a single text summary.</param>
+    /// <param name="tokenCounter">The token counter used to measure the protected tail and final compacted result.</param>
+    /// <param name="options">The configuration that controls the protected tail size.</param>
+    /// <param name="logger">The logger that receives the path, skip, and checkpoint records.</param>
+    /// <param name="diagnostics">The identity of the conversation this strategy serves, used to tag its measurements.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="summarizer"/>, <paramref name="tokenCounter"/>, <paramref name="logger"/>, or <paramref name="diagnostics"/>
+    /// is <see langword="null"/>.
+    /// </exception>
+    internal LlmSummarizationStrategy(
+        ILlmSummarizer summarizer,
+        ITokenCounter tokenCounter,
+        LlmSummarizationOptions options,
+        ILogger<LlmSummarizationStrategy> logger,
+        ConversationDiagnostics diagnostics)
     {
         ArgumentNullException.ThrowIfNull(summarizer);
         ArgumentNullException.ThrowIfNull(tokenCounter);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(diagnostics);
 
         this._summarizer = summarizer;
         this._tokenCounter = tokenCounter;
         this._options = options;
         this._logger = logger;
+        this._diagnostics = diagnostics;
     }
 
     /// <summary>
@@ -672,8 +700,38 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         CancellationToken cancellationToken)
     {
         var messagesToSummarize = messages.Take(summarizedMessageCount).ToArray();
-        var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+
+        using var activity = TokenGuardTelemetry.ActivitySource.StartActivity(TokenGuardTelemetry.SummarizeActivityName);
+        activity?.SetTag(TokenGuardTelemetry.MessageCountTag, summarizedMessageCount).SetTag(TokenGuardTelemetry.TargetTokensTag, targetTokens);
+
+        var timeCall = TokenGuardTelemetry.SummarizationDuration.Enabled;
+        var startTimestamp = timeCall ? Stopwatch.GetTimestamp() : 0;
+
+        string summary;
+        try
+        {
+            summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            activity?.AddException(exception).SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
+            TokenGuardTelemetry.SummarizationFailures.Add(1, this._diagnostics.ContextNameTag);
+            this.RecordSummarizationDuration(timeCall, startTimestamp, TokenGuardTelemetry.FailureResult);
+            throw;
+        }
+
+        this.RecordSummarizationDuration(timeCall, startTimestamp, TokenGuardTelemetry.SuccessResult);
         return ContextMessage.FromText(MessageRole.Model, summary) with { State = CompactionState.Summarized };
+    }
+
+    private void RecordSummarizationDuration(bool timeCall, long startTimestamp, string result)
+    {
+        if (timeCall)
+        {
+            TokenGuardTelemetry.SummarizationDuration.Record(
+                Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds,
+                TokenGuardTelemetry.Tag(TokenGuardTelemetry.ResultTag, result), this._diagnostics.ContextNameTag);
+        }
     }
 
     /// <summary>

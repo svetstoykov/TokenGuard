@@ -29,6 +29,7 @@ internal sealed class ConversationDiagnostics
         this.LoggerFactory = loggerFactory;
         this.ContextName = contextName;
         this.ConversationId = Guid.NewGuid().ToString("N");
+        this.ContextNameTag = TokenGuardTelemetry.Tag(TokenGuardTelemetry.ContextNameTag, contextName);
     }
 
     /// <summary>
@@ -45,4 +46,9 @@ internal sealed class ConversationDiagnostics
     ///     Gets the identifier generated for this conversation.
     /// </summary>
     internal string ConversationId { get; }
+
+    /// <summary>
+    ///     Gets the metric tag that names the configuration of this conversation.
+    /// </summary>
+    internal KeyValuePair<string, object?> ContextNameTag { get; }
 }

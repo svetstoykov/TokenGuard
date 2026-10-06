@@ -69,7 +69,8 @@ internal sealed class CapturingLoggerFactory(LogLevel minimumLevel = LogLevel.Tr
                 scope.AddRange(node.Properties);
             }
 
-            owner._records.Enqueue(new CapturedLogRecord(category, logLevel, eventId, formatter(state, exception), ReadProperties(state), scope, exception));
+            owner._records.Enqueue(
+                new CapturedLogRecord(category, logLevel, eventId, formatter(state, exception), ReadProperties(state), scope, exception));
         }
     }
 }

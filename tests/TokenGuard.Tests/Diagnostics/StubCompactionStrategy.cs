@@ -31,7 +31,8 @@ internal sealed class StubCompactionStrategy(Func<IReadOnlyList<ContextMessage>,
         new((messages, _) => Result(messages, messages.Skip(Math.Max(0, messages.Count - keep)).ToArray(), Math.Max(0, messages.Count - keep)));
 
     /// <inheritdoc />
-    public Task<CompactionResult> CompactAsync(IReadOnlyList<ContextMessage> messages, int availableTokens, CancellationToken cancellationToken = default) =>
+    public Task<CompactionResult> CompactAsync(
+        IReadOnlyList<ContextMessage> messages, int availableTokens, CancellationToken cancellationToken = default) =>
         Task.FromResult(compact(messages, availableTokens));
 
     private static CompactionResult Result(

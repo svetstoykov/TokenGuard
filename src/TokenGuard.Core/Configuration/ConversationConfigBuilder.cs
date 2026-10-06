@@ -324,7 +324,7 @@ public sealed class ConversationConfigBuilder
                 ? null
                 : new LlmSummarizationStrategy(
                     llmSummarizerFactory(loggerFactory), tokenCounter, llmSummarizationOptions ?? LlmSummarizationOptions.Default,
-                    loggerFactory.CreateLogger<LlmSummarizationStrategy>());
+                    loggerFactory.CreateLogger<LlmSummarizationStrategy>(), diagnostics);
 
             return new TieredCompactionStrategy(
                 tokenCounter, slidingWindowOptions, llmStrategy, loggerFactory.CreateLogger<TieredCompactionStrategy>(),

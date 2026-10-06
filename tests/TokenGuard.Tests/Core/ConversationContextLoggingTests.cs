@@ -223,7 +223,8 @@ public sealed class ConversationContextLoggingTests
     {
         // Arrange
         var logs = new CapturingLoggerFactory();
-        var strategy = new StubCompactionStrategy((messages, _) => new CompactionResult(messages, 150, 150, messagesAffected, StubCompactionStrategy.Name));
+        var strategy = new StubCompactionStrategy(
+            (messages, _) => new CompactionResult(messages, 150, 150, messagesAffected, StubCompactionStrategy.Name));
         using var context = CreateContext(logs, strategy, emergencyThreshold: null);
         context.AddUserMessage(Text(150));
 
