@@ -187,7 +187,10 @@ public sealed class TokenGuardTelemetryTests
         // Arrange
         using var capture = new TelemetryCapture();
         var contextName = NewContextName();
-        string[] allowed = ["tokenguard.context.name", "tokenguard.strategy", "tokenguard.outcome", "tokenguard.kind", "tokenguard.result"];
+        string[] allowed =
+        [
+            "tokenguard.context.name", "tokenguard.strategy", "tokenguard.outcome", "tokenguard.kind", "tokenguard.result", "tokenguard.signal",
+        ];
 
         // Act
         await RunScriptedConversationAsync(contextName);
@@ -272,9 +275,10 @@ public sealed class TokenGuardTelemetryTests
     /// </summary>
     /// <param name="contextName">The context name the conversation reports with.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the outcome of each prepare call.</returns>
-    private static async Task<IReadOnlyList<PrepareOutcome>> RunScriptedConversationAsync(string contextName)
+    internal static async Task<IReadOnlyList<PrepareOutcome>> RunScriptedConversationAsync(string contextName, ILoggerFactory? loggerFactory = null)
     {
-        using var context = CreateContext(contextName, ScriptedSummarizer.Throwing(new TimeoutException("provider timed out")));
+        using var context = CreateContext(
+            contextName, ScriptedSummarizer.Throwing(new TimeoutException("provider timed out")), loggerFactory: loggerFactory);
         var outcomes = new List<PrepareOutcome>();
 
         context.AddUserMessage(Text('a', 20));
@@ -295,9 +299,10 @@ public sealed class TokenGuardTelemetryTests
         return outcomes;
     }
 
-    private static ConversationContext CreateContext(string contextName, ILlmSummarizer? summarizer, double? emergencyThreshold = 1.0)
+    private static ConversationContext CreateContext(
+        string contextName, ILlmSummarizer? summarizer, double? emergencyThreshold = 1.0, ILoggerFactory? loggerFactory = null)
     {
-        var diagnostics = new ConversationDiagnostics(NullLoggerFactory.Instance, contextName);
+        var diagnostics = new ConversationDiagnostics(loggerFactory ?? NullLoggerFactory.Instance, contextName);
         var counter = new TimedTokenCounter(new TextLengthTokenCounter());
         var loggers = diagnostics.LoggerFactory;
         var summarization = summarizer is null

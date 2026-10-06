@@ -47,6 +47,7 @@ public sealed class ConversationContext : IConversationContext
     private readonly ICompactionStrategy _strategy;
     private readonly ConversationDiagnostics _diagnostics;
     private readonly ILogger _logger;
+    private readonly ConversationHealth _health;
     private readonly List<ContextMessage> _history = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
@@ -101,6 +102,7 @@ public sealed class ConversationContext : IConversationContext
         this._strategy = strategy;
         this._diagnostics = diagnostics;
         this._logger = diagnostics.LoggerFactory.CreateLogger<ConversationContext>();
+        this._health = new ConversationHealth(this._logger, diagnostics);
     }
 
     /// <summary>
@@ -369,6 +371,8 @@ public sealed class ConversationContext : IConversationContext
             .SetTag(TokenGuardTelemetry.TurnTag, this._currentTurn)
             .SetTag(TokenGuardTelemetry.MaxTokensTag, this._budget.MaxTokens);
 
+        this._health.OnPrepareStarted(this._pinnedTokenTotal, this._budget.MaxTokens);
+
         if (this._pinnedTokenTotal > this._budget.MaxTokens)
         {
             ConversationContextLog.PinnedBudgetExceeded(
@@ -393,6 +397,7 @@ public sealed class ConversationContext : IConversationContext
                 this._budget.MaxTokens);
             this.RecordPrepareTelemetry(
                 activity, PrepareOutcome.Ready, totalBeforeCompaction, totalBeforeCompaction, messagesCompacted: 0, startTimestamp, timeCounting);
+            this._health.OnPreparedBelowTrigger(totalBeforeCompaction);
 
             this._lastEstimatedTotalTokens = totalBeforeCompaction;
             return new PrepareResult(
@@ -467,12 +472,16 @@ public sealed class ConversationContext : IConversationContext
                 this._logger, compacted.SummarizationError, conversationId, contextName, this._currentTurn, compacted.StrategyName);
         }
 
+        var effectiveMaxTokens = (long)this._budget.MaxTokens + this._budget.OverrunToleranceTokens;
         if (isOverBudget)
         {
             ConversationContextLog.PrepareOverBudget(
-                this._logger, conversationId, contextName, this._currentTurn, outcome, estimatedFinalTokens,
-                (long)this._budget.MaxTokens + this._budget.OverrunToleranceTokens);
+                this._logger, conversationId, contextName, this._currentTurn, outcome, estimatedFinalTokens, effectiveMaxTokens);
         }
+
+        this._health.OnCompacted(
+            this._currentTurn, totalBeforeCompaction, estimatedFinalTokens, compacted.SummarizationError, isOverBudget, effectiveMaxTokens,
+            emergencyMessagesDropped > 0);
 
         this.RecordCompactionMeasurements(compactable, compacted, totalBeforeCompaction, estimatedFinalTokens, emergencyMessagesDropped);
         this.RecordPrepareTelemetry(
@@ -659,6 +668,16 @@ public sealed class ConversationContext : IConversationContext
             return;
 
         this._disposed = true;
+
+        try
+        {
+            this._health.LogSummary(this._currentTurn);
+        }
+        catch (Exception)
+        {
+            // A failing logger must not turn disposal into an error.
+        }
+
         this._history.Clear();
     }
 
@@ -1056,6 +1075,7 @@ public sealed class ConversationContext : IConversationContext
             return;
 
         this._anchorCorrection = providerInputTokens.Value - this._lastEstimatedTotalTokens;
+        this._health.OnProviderTokensReported(providerInputTokens.Value, this._lastEstimatedTotalTokens);
 
         ConversationContextLog.EstimateAnchored(
             this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, providerInputTokens.Value,

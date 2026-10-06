@@ -115,6 +115,11 @@ internal static class TokenGuardTelemetry
     internal const string ResultTag = "tokenguard.result";
 
     /// <summary>
+    ///     The tag that holds the name of a health signal.
+    /// </summary>
+    internal const string SignalTag = "tokenguard.signal";
+
+    /// <summary>
     ///     The <see cref="KindTag" /> value for messages whose tool results were replaced with placeholders.
     /// </summary>
     internal const string MaskedKind = "masked";
@@ -220,6 +225,12 @@ internal static class TokenGuardTelemetry
         Meter.CreateHistogram<double>(
             "tokenguard.estimate.error_ratio", "1",
             "Provider-reported input tokens minus the last estimate, divided by the provider-reported value.");
+
+    /// <summary>
+    ///     Counts health signals that started, tagged with signal.
+    /// </summary>
+    internal static readonly Counter<long> HealthSignals =
+        Meter.CreateCounter<long>("tokenguard.health.signals", "{signal}", "Conversation health signals that started.");
 
     /// <summary>
     ///     Returns the tag value for a prepare outcome.

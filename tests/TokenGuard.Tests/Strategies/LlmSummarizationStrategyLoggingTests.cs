@@ -20,6 +20,8 @@ public sealed class LlmSummarizationStrategyLoggingTests
     private const int CheckpointCreated = 3020;
     private const int CheckpointReused = 3021;
     private const int CheckpointCleared = 3022;
+    private const int CheckpointChurnDetected = 6007;
+    private const int HealthSignalCleared = 6050;
 
     private static readonly string ShortSummary = new('s', 10);
     private static readonly string LongSummary = new('s', 30);
@@ -230,6 +232,49 @@ public sealed class LlmSummarizationStrategyLoggingTests
         record.Property("Reason").Should().Be("HistoryShorterThanCheckpoint");
         record.Property("SummarizedMessages").Should().Be(4);
         record.Property("MessageCount").Should().Be(3);
+    }
+
+    [Fact]
+    public async Task CheckpointChurn_WhenItStartsHoldsAndStops_LogsOneWarningAndOneClearedRecord()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, ScriptedSummarizer.Returning(ShortSummary));
+        await strategy.CompactAsync(CreateHistory(5, fill: 'a'), availableTokens: 60);
+
+        // Act
+        foreach (var fill in "bcde")
+        {
+            await strategy.CompactAsync(CreateHistory(5, fill), availableTokens: 60);
+        }
+
+        await strategy.CompactAsync(CreateHistory(5, fill: 'e'), availableTokens: 60);
+
+        // Assert
+        var started = logs.WithEventId(CheckpointChurnDetected).Should().ContainSingle().Subject;
+        started.Level.Should().Be(LogLevel.Warning);
+        started.Property("ConsecutiveRebuilds").Should().Be(3);
+        var cleared = logs.WithEventId(HealthSignalCleared).Should().ContainSingle().Subject;
+        cleared.Level.Should().Be(LogLevel.Information);
+        cleared.Property("Signal").Should().Be("CheckpointChurn");
+    }
+
+    [Fact]
+    public async Task CheckpointChurn_WhenTheCheckpointIsReusedBetweenRebuilds_LogsNothing()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, ScriptedSummarizer.Returning(ShortSummary));
+
+        // Act
+        foreach (var fill in "abcdef")
+        {
+            await strategy.CompactAsync(CreateHistory(5, fill), availableTokens: 60);
+            await strategy.CompactAsync(CreateHistory(5, fill), availableTokens: 60);
+        }
+
+        // Assert
+        logs.WithEventId(CheckpointChurnDetected).Should().BeEmpty();
     }
 
     [Fact]

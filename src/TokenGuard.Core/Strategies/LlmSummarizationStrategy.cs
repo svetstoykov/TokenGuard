@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
@@ -45,6 +46,11 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     private readonly ILogger _logger;
     private readonly ConversationDiagnostics _diagnostics;
     private SummaryCheckpoint? _checkpoint;
+
+    // Checkpoint churn is tracked here because only this strategy sees a checkpoint being cleared and rebuilt.
+    private bool _checkpointClearedThisRun;
+    private int _checkpointRebuildStreak;
+    private bool _checkpointChurnActive;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LlmSummarizationStrategy"/> class with default options.
@@ -139,6 +145,8 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         ArgumentNullException.ThrowIfNull(messages);
         cancellationToken.ThrowIfCancellationRequested();
 
+        this._checkpointClearedThisRun = false;
+
         // Measure the original list first so the result can say how much compaction helped.
         var tokensBefore = CountTokens(messages, this._tokenCounter);
 
@@ -162,6 +170,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         if (this.TryGetValidCheckpoint(messages, out var checkpoint))
         {
             this.LogPath(LlmSummarizationLog.WithCheckpointPath, messages, tokensBefore, availableTokens, protectedTail);
+            this.UpdateCheckpointChurn(rebuiltAfterClear: false);
 
             return await this.CompactWithCheckpointAsync(
                 messages,
@@ -398,6 +407,9 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
 
         this.SetCheckpoint(protectedTail.FirstIndex, checkpointFingerprint, summaryMessage);
         LlmSummarizationLog.SummaryCheckpointCreated(this._logger, protectedTail.FirstIndex, summaryResult.TokensAfter);
+        if (this._checkpointClearedThisRun)
+            this.UpdateCheckpointChurn(rebuiltAfterClear: true);
+
         return summaryResult;
     }
 
@@ -536,12 +548,33 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
                 messages.Count, this._checkpoint.SummarizedMessageCount);
 
             this.ClearCheckpoint();
+            this._checkpointClearedThisRun = true;
             checkpoint = null!;
             return false;
         }
 
         checkpoint = this._checkpoint;
         return true;
+    }
+
+    /// <summary>
+    /// Counts consecutive runs that cleared and rebuilt the checkpoint and reports the churn signal when it starts or stops.
+    /// </summary>
+    /// <param name="rebuiltAfterClear">
+    /// <see langword="true"/> when this run cleared a checkpoint and saved a new one; <see langword="false"/> when the
+    /// saved checkpoint still matched the history.
+    /// </param>
+    private void UpdateCheckpointChurn(bool rebuiltAfterClear)
+    {
+        this._checkpointRebuildStreak = rebuiltAfterClear ? this._checkpointRebuildStreak + 1 : 0;
+
+        var churning = this._checkpointRebuildStreak >= ConversationHealthDefaults.CheckpointChurnRuns;
+        if (ConversationHealth.Update(
+            ref this._checkpointChurnActive, churning, ConversationHealthLog.CheckpointChurn, this._logger, this._diagnostics))
+        {
+            ConversationHealthLog.CheckpointChurnDetected(
+                this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._checkpointRebuildStreak);
+        }
     }
 
     /// <summary>
@@ -706,6 +739,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
 
         var timeCall = TokenGuardTelemetry.SummarizationDuration.Enabled;
         var startTimestamp = timeCall ? Stopwatch.GetTimestamp() : 0;
+        this._diagnostics.SummarizerCalls++;
 
         string summary;
         try
@@ -715,6 +749,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             activity?.AddException(exception).SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
+            this._diagnostics.SummarizerFailures++;
             TokenGuardTelemetry.SummarizationFailures.Add(1, this._diagnostics.ContextNameTag);
             this.RecordSummarizationDuration(timeCall, startTimestamp, TokenGuardTelemetry.FailureResult);
             throw;
