@@ -134,7 +134,7 @@ Then copy `samples/Codexplorer.Automation/src/appsettings.Development.example.js
     "CodexplorerExecutablePath": "/absolute/path/to/TokenGuard/samples/Codexplorer/src/bin/Debug/net10.0/Codexplorer",
     "ManifestPath": "./tasks/initial-corpus.json",
     "HelperAi": {
-      "ModelName": "openai/gpt-5.4-mini",
+      "ModelName": "deepseek/deepseek-v4.1-flash",
       "ApiKey": ""
     }
   }
@@ -233,7 +233,7 @@ Example:
 {
   "Codexplorer": {
     "Model": {
-      "Name": "openai/gpt-5.4-nano",
+      "Name": "deepseek/deepseek-v4.1-flash",
       "MaxOutputTokens": 8192,
       "Temperature": 0.0
     },
@@ -261,6 +261,27 @@ Example:
   }
 }
 ```
+
+### TokenGuard logs and telemetry
+
+Codexplorer hands its Serilog logger to TokenGuard through dependency injection, so TokenGuard's records land in the same
+console and `logs/codexplorer-*.log` file as the rest of the application. Each record names the conversation ID.
+
+The level is set by the top-level `Logging:LogLevel:TokenGuard` key in `src/appsettings.json` (default `Information`):
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "TokenGuard": "Debug"
+    }
+  }
+}
+```
+
+At `Debug`, Codexplorer also writes TokenGuard's tracing activities and metric measurements under the
+`TokenGuard.Telemetry` category. See [`docs/observability.md`](../../docs/observability.md) for what each level,
+event ID, activity, and instrument means.
 
 ## Startup guide
 

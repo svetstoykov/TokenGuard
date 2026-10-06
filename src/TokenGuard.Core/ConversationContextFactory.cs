@@ -1,5 +1,8 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
+using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.TokenCounting;
 
@@ -28,7 +31,8 @@ namespace TokenGuard.Core;
 public sealed class ConversationContextFactory : IConversationContextFactory
 {
     private readonly ConversationContextConfiguration _default;
-    private readonly Dictionary<string, ConversationContextConfiguration> _named = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ConversationContextConfiguration> _named;
+    private readonly ILoggerFactory? _fallbackLoggerFactory;
 
     /// <summary>
     /// Initialises a new <see cref="ConversationContextFactory"/> with the supplied default configuration.
@@ -46,6 +50,25 @@ public sealed class ConversationContextFactory : IConversationContextFactory
     {
         ArgumentNullException.ThrowIfNull(config);
         this._default = config;
+        this._named = new Dictionary<string, ConversationContextConfiguration>(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    ///     Initializes a new instance of the <see cref="ConversationContextFactory" /> class that shares the
+    ///     configurations of another factory and adds a fallback logger factory.
+    /// </summary>
+    /// <param name="source">The factory whose default and named configurations are shared. Cannot be <see langword="null" />.</param>
+    /// <param name="fallbackLoggerFactory">
+    ///     The logger factory used for configurations that name none, or <see langword="null" /> to write no log records
+    ///     for those configurations.
+    /// </param>
+    internal ConversationContextFactory(ConversationContextFactory source, ILoggerFactory? fallbackLoggerFactory)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        this._default = source._default;
+        this._named = source._named;
+        this._fallbackLoggerFactory = fallbackLoggerFactory;
     }
 
     /// <summary>
@@ -84,7 +107,7 @@ public sealed class ConversationContextFactory : IConversationContextFactory
     /// configured strategy delegate is invoked for every call, so no produced dependency instance is
     /// reused across contexts.
     /// </remarks>
-    public IConversationContext Create() => CreateContext(this._default);
+    public IConversationContext Create() => this.CreateContext(this._default, ConversationDiagnostics.DefaultContextName);
 
     /// <summary>
     /// Creates a new <see cref="ConversationContext"/> using a previously registered named configuration.
@@ -112,14 +135,18 @@ public sealed class ConversationContextFactory : IConversationContextFactory
         if (!this._named.TryGetValue(name, out var config))
             throw new InvalidOperationException($"No configuration registered for context name '{name}'.");
 
-        return CreateContext(config);
+        return this.CreateContext(config, name);
     }
 
-    private static ConversationContext CreateContext(ConversationContextConfiguration config)
+    private ConversationContext CreateContext(ConversationContextConfiguration config, string contextName)
     {
-        var counter = new EstimatedTokenCounter();
-        var strategy = config.StrategyFactory(counter);
+        var loggerFactory = config.LoggerFactory ?? this._fallbackLoggerFactory ?? NullLoggerFactory.Instance;
+        var diagnostics = new ConversationDiagnostics(loggerFactory, contextName);
+        var counter = new TimedTokenCounter(new EstimatedTokenCounter());
+        var strategy = config.DiagnosticStrategyFactory is { } createWithDiagnostics
+            ? createWithDiagnostics(counter, diagnostics)
+            : config.StrategyFactory(counter);
 
-        return new ConversationContext(config.Budget, counter, strategy);
+        return new ConversationContext(config.Budget, counter, strategy, diagnostics);
     }
 }

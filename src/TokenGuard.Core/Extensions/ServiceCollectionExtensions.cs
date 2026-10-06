@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Models;
@@ -171,7 +172,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton(factory);
         services.TryAddSingleton<IConversationContextFactory>(static sp =>
-            sp.GetRequiredService<ConversationContextFactory>());
+            new ConversationContextFactory(sp.GetRequiredService<ConversationContextFactory>(), sp.GetService<ILoggerFactory>()));
     }
 
     private static ConversationContextFactory GetConversationContextFactory(this IServiceCollection services)

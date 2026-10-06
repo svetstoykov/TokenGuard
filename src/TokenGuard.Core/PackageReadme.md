@@ -107,6 +107,13 @@ while (true)
 
 `PrepareAsync()` returns a `PrepareResult`, not just a message list. `PrepareResult.Messages` is the prepared snapshot to send to the provider. `ConversationContext.History` remains unchanged.
 
+## Observability
+
+TokenGuard logs through the container's `ILoggerFactory` once `AddConversationContext` is used, or through
+`WithLoggerFactory(loggerFactory)` on the builder without DI. It also emits activities and metrics under the names in
+`TokenGuardDiagnostics` (`ActivitySourceName` and `MeterName`, both `TokenGuard`). None of them contain conversation
+content. See [Observability](https://github.com/svetstoykov/TokenGuard/blob/main/docs/observability.md).
+
 ## More detail
 
 - [Root README](https://github.com/svetstoykov/TokenGuard/blob/main/README.md)

@@ -1,4 +1,8 @@
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Exceptions;
 using TokenGuard.Core.Models;
@@ -39,8 +43,11 @@ namespace TokenGuard.Core;
 public sealed class ConversationContext : IConversationContext
 {
     private readonly ContextBudget _budget;
-    private readonly ITokenCounter _counter;
+    private readonly TimedTokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
+    private readonly ConversationDiagnostics _diagnostics;
+    private readonly ILogger _logger;
+    private readonly ConversationHealth _health;
     private readonly List<ContextMessage> _history = [];
 
     // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
@@ -77,10 +84,25 @@ public sealed class ConversationContext : IConversationContext
     /// the configured budget.
     /// </param>
     internal ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy)
+        : this(budget, counter, strategy, new ConversationDiagnostics(NullLoggerFactory.Instance, ConversationDiagnostics.DefaultContextName))
+    {
+    }
+
+    /// <summary>
+    /// Creates a conversation context that reports its activity through the supplied diagnostics.
+    /// </summary>
+    /// <param name="budget">Defines the token limits for the conversation.</param>
+    /// <param name="counter">Counts tokens for individual messages.</param>
+    /// <param name="strategy">Produces a smaller message list when the history reaches the compaction trigger.</param>
+    /// <param name="diagnostics">The logger factory and identifiers this conversation reports with.</param>
+    internal ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy, ConversationDiagnostics diagnostics)
     {
         this._budget = budget;
-        this._counter = counter;
+        this._counter = counter as TimedTokenCounter ?? new TimedTokenCounter(counter);
         this._strategy = strategy;
+        this._diagnostics = diagnostics;
+        this._logger = diagnostics.LoggerFactory.CreateLogger<ConversationContext>();
+        this._health = new ConversationHealth(this._logger, diagnostics);
     }
 
     /// <summary>
@@ -340,16 +362,43 @@ public sealed class ConversationContext : IConversationContext
             this._lastPreparedVersion = this._historyVersion;
         }
 
+        var conversationId = this._diagnostics.ConversationId;
+        var contextName = this._diagnostics.ContextName;
+
+        using var activity = TokenGuardTelemetry.ActivitySource.StartActivity(TokenGuardTelemetry.PrepareActivityName);
+        activity?.SetTag(TokenGuardTelemetry.ConversationIdTag, conversationId)
+            .SetTag(TokenGuardTelemetry.ContextNameTag, contextName)
+            .SetTag(TokenGuardTelemetry.TurnTag, this._currentTurn)
+            .SetTag(TokenGuardTelemetry.MaxTokensTag, this._budget.MaxTokens);
+
+        this._health.OnPrepareStarted(this._pinnedTokenTotal, this._budget.MaxTokens);
+
         if (this._pinnedTokenTotal > this._budget.MaxTokens)
         {
+            ConversationContextLog.PinnedBudgetExceeded(
+                this._logger, conversationId, contextName, this._currentTurn, this._pinnedTokenTotal, this._budget.MaxTokens);
+            activity?.SetStatus(ActivityStatusCode.Error, nameof(PinnedTokenBudgetExceededException));
             throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.MaxTokens);
         }
+
+        var timePrepare = TokenGuardTelemetry.PrepareDuration.Enabled || this._logger.IsEnabled(LogLevel.Information);
+        var startTimestamp = timePrepare ? Stopwatch.GetTimestamp() : 0;
+        var timeCounting = TokenGuardTelemetry.TokenCountingDuration.Enabled;
+        if (timeCounting)
+            this._counter.StartTiming();
 
         IReadOnlyList<ContextMessage> messages = this._history;
         var totalBeforeCompaction = this.Sum(messages) + this._anchorCorrection;
 
         if (totalBeforeCompaction < this._budget.CompactionTriggerTokens)
         {
+            ConversationContextLog.PrepareBelowTrigger(
+                this._logger, conversationId, contextName, this._currentTurn, totalBeforeCompaction, this._budget.CompactionTriggerTokens,
+                this._budget.MaxTokens);
+            this.RecordPrepareTelemetry(
+                activity, PrepareOutcome.Ready, totalBeforeCompaction, totalBeforeCompaction, messagesCompacted: 0, startTimestamp, timeCounting);
+            this._health.OnPreparedBelowTrigger(totalBeforeCompaction);
+
             this._lastEstimatedTotalTokens = totalBeforeCompaction;
             return new PrepareResult(
                 messages,
@@ -379,7 +428,7 @@ public sealed class ConversationContext : IConversationContext
 
         var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
 
-        var compacted = await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
+        var compacted = await this.RunStrategyAsync(compactable, availableTokens, cancellationToken);
 
         var prepared = pinnedSlots.Count == 0
             ? compacted.Messages
@@ -397,9 +446,46 @@ public sealed class ConversationContext : IConversationContext
         this._anchorCorrection = 0;
 
         var outcome = this.DetermineOutcome(estimatedFinalTokens, messagesCompacted);
-        var budgetFailureReason = outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact
-            ? this.BuildBudgetFailureReason(outcome, estimatedFinalTokens, messagesCompacted)
-            : null;
+        var isOverBudget = outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact;
+        var budgetFailureReason = isOverBudget ? this.BuildBudgetFailureReason(outcome, estimatedFinalTokens, messagesCompacted) : null;
+
+        if (this._logger.IsEnabled(LogLevel.Information))
+        {
+            ConversationContextLog.CompactionCompleted(
+                this._logger, conversationId, contextName, this._currentTurn, outcome, totalBeforeCompaction, estimatedFinalTokens,
+                messagesCompacted, emergencyMessagesDropped, compacted.StrategyName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds);
+        }
+
+        if (emergencyMessagesDropped > 0)
+        {
+            ConversationContextLog.EmergencyTruncationApplied(
+                this._logger, conversationId, contextName, this._currentTurn, emergencyMessagesDropped, preparedTotal, estimatedFinalTokens);
+            TokenGuardTelemetry.EmergencyTruncations.Add(1, this._diagnostics.ContextNameTag);
+            activity?.AddEvent(new ActivityEvent(
+                TokenGuardTelemetry.EmergencyTruncationEventName,
+                tags: new ActivityTagsCollection { { TokenGuardTelemetry.MessagesDroppedTag, emergencyMessagesDropped } }));
+        }
+
+        if (compacted.SummarizationError is not null)
+        {
+            ConversationContextLog.SummarizationFailed(
+                this._logger, compacted.SummarizationError, conversationId, contextName, this._currentTurn, compacted.StrategyName);
+        }
+
+        var effectiveMaxTokens = (long)this._budget.MaxTokens + this._budget.OverrunToleranceTokens;
+        if (isOverBudget)
+        {
+            ConversationContextLog.PrepareOverBudget(
+                this._logger, conversationId, contextName, this._currentTurn, outcome, estimatedFinalTokens, effectiveMaxTokens);
+        }
+
+        this._health.OnCompacted(
+            this._currentTurn, totalBeforeCompaction, estimatedFinalTokens, compacted.SummarizationError, isOverBudget, effectiveMaxTokens,
+            emergencyMessagesDropped > 0);
+
+        this.RecordCompactionMeasurements(compactable, compacted, totalBeforeCompaction, estimatedFinalTokens, emergencyMessagesDropped);
+        this.RecordPrepareTelemetry(
+            activity, outcome, totalBeforeCompaction, estimatedFinalTokens, messagesCompacted, startTimestamp, timeCounting);
 
         return new PrepareResult(
             final,
@@ -410,6 +496,128 @@ public sealed class ConversationContext : IConversationContext
             budgetFailureReason,
             emergencyMessagesDropped,
             compacted.SummarizationError);
+    }
+
+    /// <summary>
+    /// Runs the compaction strategy inside the conversation log scope and the <c>tokenguard.compact</c> activity.
+    /// </summary>
+    /// <param name="compactable">The unpinned messages handed to the strategy.</param>
+    /// <param name="availableTokens">The token budget left after pinned messages.</param>
+    /// <param name="cancellationToken">A token that can cancel the strategy.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the strategy result.</returns>
+    private async Task<CompactionResult> RunStrategyAsync(
+        IReadOnlyList<ContextMessage> compactable, int availableTokens, CancellationToken cancellationToken)
+    {
+        using var scope = ConversationContextLog.BeginCompactionScope(
+            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn);
+        using var activity = TokenGuardTelemetry.ActivitySource.StartActivity(TokenGuardTelemetry.CompactActivityName);
+
+        var timeStrategy = TokenGuardTelemetry.CompactionDuration.Enabled;
+        var startTimestamp = timeStrategy ? Stopwatch.GetTimestamp() : 0;
+
+        var compacted = await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
+
+        if (timeStrategy)
+        {
+            TokenGuardTelemetry.CompactionDuration.Record(
+                Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds,
+                TokenGuardTelemetry.Tag(TokenGuardTelemetry.StrategyTag, compacted.StrategyName), this._diagnostics.ContextNameTag);
+        }
+
+        activity?.SetTag(TokenGuardTelemetry.StrategyTag, compacted.StrategyName)
+            .SetTag(TokenGuardTelemetry.AvailableTokensTag, availableTokens)
+            .SetTag(TokenGuardTelemetry.TokensBeforeTag, compacted.TokensBefore)
+            .SetTag(TokenGuardTelemetry.TokensAfterTag, compacted.TokensAfter)
+            .SetTag(TokenGuardTelemetry.MessagesAffectedTag, compacted.MessagesAffected);
+
+        return compacted;
+    }
+
+    /// <summary>
+    /// Completes the <c>tokenguard.prepare</c> activity and records the measurements taken on every prepare call.
+    /// </summary>
+    /// <param name="activity">The prepare activity, or <see langword="null"/> when no listener is subscribed.</param>
+    /// <param name="outcome">The outcome of the prepare call.</param>
+    /// <param name="tokensBefore">The estimated token total before compaction.</param>
+    /// <param name="tokensAfter">The estimated token total of the prepared payload.</param>
+    /// <param name="messagesCompacted">The number of messages compacted or dropped.</param>
+    /// <param name="startTimestamp">The timestamp taken when the call started, when the duration is being measured.</param>
+    /// <param name="timeCounting">Whether token-counting time was accumulated for this call.</param>
+    private void RecordPrepareTelemetry(
+        Activity? activity, PrepareOutcome outcome, int tokensBefore, int tokensAfter, int messagesCompacted, long startTimestamp, bool timeCounting)
+    {
+        var contextTag = this._diagnostics.ContextNameTag;
+        var outcomeName = TokenGuardTelemetry.OutcomeName(outcome);
+        var outcomeTag = TokenGuardTelemetry.Tag(TokenGuardTelemetry.OutcomeTag, outcomeName);
+
+        if (activity is not null)
+        {
+            activity.SetTag(TokenGuardTelemetry.TokensBeforeTag, tokensBefore)
+                .SetTag(TokenGuardTelemetry.TokensAfterTag, tokensAfter)
+                .SetTag(TokenGuardTelemetry.OutcomeTag, outcomeName)
+                .SetTag(TokenGuardTelemetry.MessagesCompactedTag, messagesCompacted);
+
+            if (outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
+                activity.SetStatus(ActivityStatusCode.Error, outcomeName);
+            else
+                activity.SetStatus(ActivityStatusCode.Ok);
+        }
+
+        TokenGuardTelemetry.PrepareCount.Add(1, outcomeTag, contextTag);
+        TokenGuardTelemetry.ContextTokens.Record(tokensAfter, outcomeTag, contextTag);
+
+        if (TokenGuardTelemetry.PrepareDuration.Enabled)
+            TokenGuardTelemetry.PrepareDuration.Record(Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds, outcomeTag, contextTag);
+
+        if (timeCounting)
+            TokenGuardTelemetry.TokenCountingDuration.Record(this._counter.StopTiming().TotalSeconds, contextTag);
+    }
+
+    /// <summary>
+    /// Records the measurements taken only on prepare calls that ran the compaction strategy.
+    /// </summary>
+    /// <remarks>
+    /// The split between masked and summarized messages is read from the <see cref="ContextMessage.State"/> of the
+    /// strategy result, and only while the message counter has a listener.
+    /// </remarks>
+    /// <param name="compactable">The unpinned messages handed to the strategy.</param>
+    /// <param name="compacted">The strategy result.</param>
+    /// <param name="tokensBefore">The estimated token total before compaction.</param>
+    /// <param name="tokensAfter">The estimated token total of the prepared payload.</param>
+    /// <param name="emergencyMessagesDropped">The number of messages dropped by emergency truncation.</param>
+    private void RecordCompactionMeasurements(
+        IReadOnlyList<ContextMessage> compactable, CompactionResult compacted, int tokensBefore, int tokensAfter, int emergencyMessagesDropped)
+    {
+        var contextTag = this._diagnostics.ContextNameTag;
+        TokenGuardTelemetry.TokensReclaimed.Record(tokensBefore - tokensAfter, contextTag);
+
+        if (!TokenGuardTelemetry.CompactionMessages.Enabled)
+            return;
+
+        var masked = 0;
+        var summaries = 0;
+        foreach (var message in compacted.Messages)
+        {
+            if (message.State == CompactionState.Masked)
+                masked++;
+            else if (message.State == CompactionState.Summarized)
+                summaries++;
+        }
+
+        var summarized = summaries > 0 ? compactable.Count - (compacted.Messages.Count - summaries) : 0;
+
+        this.AddCompactionMessages(masked, TokenGuardTelemetry.MaskedKind);
+        this.AddCompactionMessages(summarized, TokenGuardTelemetry.SummarizedKind);
+        this.AddCompactionMessages(emergencyMessagesDropped, TokenGuardTelemetry.DroppedKind);
+    }
+
+    private void AddCompactionMessages(int count, string kind)
+    {
+        if (count > 0)
+        {
+            TokenGuardTelemetry.CompactionMessages.Add(
+                count, TokenGuardTelemetry.Tag(TokenGuardTelemetry.KindTag, kind), this._diagnostics.ContextNameTag);
+        }
     }
 
     /// <summary>
@@ -460,6 +668,16 @@ public sealed class ConversationContext : IConversationContext
             return;
 
         this._disposed = true;
+
+        try
+        {
+            this._health.LogSummary(this._currentTurn);
+        }
+        catch (Exception)
+        {
+            // A failing logger must not turn disposal into an error.
+        }
+
         this._history.Clear();
     }
 
@@ -527,6 +745,7 @@ public sealed class ConversationContext : IConversationContext
         // Nothing to drop when the prepared list already consists only of the preserved floor.
         if (preservedFloorStartIndex <= 0)
         {
+            this.LogEmergencyEvaluation(currentTotal, emergencyLimit, 0, 0, preservedFloorStartIndex, floorExceedsTrigger: true);
             truncated = null;
             return false;
         }
@@ -538,6 +757,7 @@ public sealed class ConversationContext : IConversationContext
 
         if (turnGroups.Count == 0)
         {
+            this.LogEmergencyEvaluation(currentTotal, emergencyLimit, 0, 0, preservedFloorStartIndex, floorExceedsTrigger: true);
             truncated = null;
             return false;
         }
@@ -545,6 +765,7 @@ public sealed class ConversationContext : IConversationContext
         // Drop whole turn groups oldest-first until the budget is satisfied or groups are exhausted.
         var dropIndices = new HashSet<int>();
         var total = currentTotal;
+        var groupsDropped = 0;
         foreach (var (groupIndices, groupTokens) in turnGroups)
         {
             if (total <= emergencyLimit)
@@ -554,7 +775,11 @@ public sealed class ConversationContext : IConversationContext
                 dropIndices.Add(idx);
 
             total -= groupTokens;
+            groupsDropped++;
         }
+
+        this.LogEmergencyEvaluation(
+            currentTotal, emergencyLimit, turnGroups.Count, groupsDropped, preservedFloorStartIndex, floorExceedsTrigger: total > emergencyLimit);
 
         if (dropIndices.Count == 0)
         {
@@ -747,6 +972,8 @@ public sealed class ConversationContext : IConversationContext
         {
             this._pinnedTokenTotal += tokenCount;
         }
+
+        this.LogMessageRecorded(message);
     }
 
     /// <summary>
@@ -770,7 +997,19 @@ public sealed class ConversationContext : IConversationContext
         {
             this._pinnedTokenTotal += tokenCount;
         }
+
+        this.LogMessageRecorded(message);
     }
+
+    private void LogEmergencyEvaluation(
+        int currentTokens, int emergencyTriggerTokens, int turnGroups, int turnGroupsDropped, int preservedFloorIndex, bool floorExceedsTrigger) =>
+        ConversationContextLog.EmergencyTruncationEvaluated(
+            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn, currentTokens,
+            emergencyTriggerTokens, turnGroups, turnGroupsDropped, preservedFloorIndex, floorExceedsTrigger);
+
+    private void LogMessageRecorded(ContextMessage message) =>
+        ConversationContextLog.MessageRecorded(
+            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, message.Role, message.IsPinned, message.Segments.Count);
 
     /// <summary>
     /// Reassembles pinned messages into the compacted stream at their original positions.
@@ -832,7 +1071,20 @@ public sealed class ConversationContext : IConversationContext
     /// </param>
     private void ApplyAnchor(int? providerInputTokens)
     {
-        if (providerInputTokens.HasValue)
-            this._anchorCorrection = providerInputTokens.Value - this._lastEstimatedTotalTokens;
+        if (!providerInputTokens.HasValue)
+            return;
+
+        this._anchorCorrection = providerInputTokens.Value - this._lastEstimatedTotalTokens;
+        this._health.OnProviderTokensReported(providerInputTokens.Value, this._lastEstimatedTotalTokens);
+
+        ConversationContextLog.EstimateAnchored(
+            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, providerInputTokens.Value,
+            this._lastEstimatedTotalTokens, this._anchorCorrection);
+
+        if (providerInputTokens.Value > 0)
+        {
+            TokenGuardTelemetry.EstimateErrorRatio.Record(
+                (double)this._anchorCorrection / providerInputTokens.Value, this._diagnostics.ContextNameTag);
+        }
     }
 }

@@ -1,4 +1,9 @@
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Defaults;
+using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
@@ -38,7 +43,14 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     private readonly ILlmSummarizer _summarizer;
     private readonly ITokenCounter _tokenCounter;
     private readonly LlmSummarizationOptions _options;
+    private readonly ILogger _logger;
+    private readonly ConversationDiagnostics _diagnostics;
     private SummaryCheckpoint? _checkpoint;
+
+    // Checkpoint churn is tracked here because only this strategy sees a checkpoint being cleared and rebuilt.
+    private bool _checkpointClearedThisRun;
+    private int _checkpointRebuildStreak;
+    private bool _checkpointChurnActive;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LlmSummarizationStrategy"/> class with default options.
@@ -60,13 +72,57 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// Thrown when <paramref name="summarizer"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
     /// </exception>
     public LlmSummarizationStrategy(ILlmSummarizer summarizer, ITokenCounter tokenCounter, LlmSummarizationOptions options)
+        : this(summarizer, tokenCounter, options, NullLogger<LlmSummarizationStrategy>.Instance)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="LlmSummarizationStrategy"/> class that logs its summarization decisions.
+    /// </summary>
+    /// <param name="summarizer">The summarizer that converts older history into a single text summary.</param>
+    /// <param name="tokenCounter">The token counter used to measure the protected tail and final compacted result.</param>
+    /// <param name="options">The configuration that controls the protected tail size.</param>
+    /// <param name="logger">The logger that receives the path, skip, and checkpoint records.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="summarizer"/>, <paramref name="tokenCounter"/>, or <paramref name="logger"/> is <see langword="null"/>.
+    /// </exception>
+    public LlmSummarizationStrategy(
+        ILlmSummarizer summarizer, ITokenCounter tokenCounter, LlmSummarizationOptions options, ILogger<LlmSummarizationStrategy> logger)
+        : this(
+            summarizer, tokenCounter, options, logger,
+            new ConversationDiagnostics(NullLoggerFactory.Instance, ConversationDiagnostics.DefaultContextName))
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="LlmSummarizationStrategy"/> class that reports as part of one conversation.
+    /// </summary>
+    /// <param name="summarizer">The summarizer that converts older history into a single text summary.</param>
+    /// <param name="tokenCounter">The token counter used to measure the protected tail and final compacted result.</param>
+    /// <param name="options">The configuration that controls the protected tail size.</param>
+    /// <param name="logger">The logger that receives the path, skip, and checkpoint records.</param>
+    /// <param name="diagnostics">The identity of the conversation this strategy serves, used to tag its measurements.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="summarizer"/>, <paramref name="tokenCounter"/>, <paramref name="logger"/>, or <paramref name="diagnostics"/>
+    /// is <see langword="null"/>.
+    /// </exception>
+    internal LlmSummarizationStrategy(
+        ILlmSummarizer summarizer,
+        ITokenCounter tokenCounter,
+        LlmSummarizationOptions options,
+        ILogger<LlmSummarizationStrategy> logger,
+        ConversationDiagnostics diagnostics)
     {
         ArgumentNullException.ThrowIfNull(summarizer);
         ArgumentNullException.ThrowIfNull(tokenCounter);
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(diagnostics);
 
         this._summarizer = summarizer;
         this._tokenCounter = tokenCounter;
         this._options = options;
+        this._logger = logger;
+        this._diagnostics = diagnostics;
     }
 
     /// <summary>
@@ -89,6 +145,8 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         ArgumentNullException.ThrowIfNull(messages);
         cancellationToken.ThrowIfCancellationRequested();
 
+        this._checkpointClearedThisRun = false;
+
         // Measure the original list first so the result can say how much compaction helped.
         var tokensBefore = CountTokens(messages, this._tokenCounter);
 
@@ -98,6 +156,8 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         // Nothing is old enough to summarize, so return the input exactly as it came in.
         if (protectedTail.FirstIndex == 0)
         {
+            LlmSummarizationLog.SummarizationSkippedNothingToSummarize(this._logger, messages.Count, this._options.WindowSize);
+
             return new CompactionResult(
                 messages,
                 tokensBefore,
@@ -109,6 +169,9 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         // Use the saved summary when the old part of the conversation has not changed.
         if (this.TryGetValidCheckpoint(messages, out var checkpoint))
         {
+            this.LogPath(LlmSummarizationLog.WithCheckpointPath, messages, tokensBefore, availableTokens, protectedTail);
+            this.UpdateCheckpointChurn(rebuiltAfterClear: false);
+
             return await this.CompactWithCheckpointAsync(
                 messages,
                 tokensBefore,
@@ -119,7 +182,32 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         }
 
         // No saved summary fits this history, so try to create the first one.
+        this.LogPath(LlmSummarizationLog.WithoutCheckpointPath, messages, tokensBefore, availableTokens, protectedTail);
+
         return await this.CompactWithoutCheckpointAsync(messages, tokensBefore, availableTokens, protectedTail, cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes the debug record that names the summarization path and the numbers it starts from.
+    /// </summary>
+    /// <param name="path">The name of the path about to run.</param>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="tokensBefore">The token count before compaction.</param>
+    /// <param name="availableTokens">The maximum token budget for the compacted result.</param>
+    /// <param name="protectedTail">The tail that must remain verbatim.</param>
+    private void LogPath(string path, IReadOnlyList<ContextMessage> messages, int tokensBefore, int availableTokens, ProtectedTail protectedTail)
+    {
+        if (!this._logger.IsEnabled(LogLevel.Debug))
+            return;
+
+        var remainingBudget = availableTokens - protectedTail.TokenCount;
+        var targetTokens = path == LlmSummarizationLog.WithCheckpointPath
+            ? ChooseTargetTokensForCheckpointRewrite(remainingBudget, this._options.MinSummaryTokens, this._options.MaxSummaryTokens)
+            : Math.Min(remainingBudget, this._options.MaxSummaryTokens);
+
+        LlmSummarizationLog.SummarizationPathSelected(
+            this._logger, path, protectedTail.FirstIndex, messages.Count - protectedTail.FirstIndex, protectedTail.FirstIndex,
+            tokensBefore - protectedTail.TokenCount, targetTokens);
     }
 
     /// <summary>
@@ -188,6 +276,8 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
 
         if (cachedTokensAfter <= availableTokens)
         {
+            LlmSummarizationLog.SummaryCheckpointReused(this._logger, checkpoint.SummarizedMessageCount, cachedTokensAfter, availableTokens);
+
             return new CompactionResult(
                 cachedResult,
                 tokensBefore,
@@ -220,10 +310,12 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
 
             if (promotedResult.TokensAfter > availableTokens)
             {
+                LlmSummarizationLog.PromotedSummaryOvershot(this._logger, promotedResult.TokensAfter, availableTokens, protectedTail.FirstIndex);
                 return CreateUnchangedResult(messages, tokensBefore);
             }
 
             this.SetCheckpoint(protectedTail.FirstIndex, promotedFingerprint, promotedSummaryMessage);
+            LlmSummarizationLog.SummaryCheckpointCreated(this._logger, protectedTail.FirstIndex, promotedResult.TokensAfter);
             return promotedResult;
         }
 
@@ -242,10 +334,13 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
 
         if (refreshedResult.TokensAfter > availableTokens)
         {
+            LlmSummarizationLog.RefreshedSummaryOvershot(
+                this._logger, refreshedResult.TokensAfter, availableTokens, checkpoint.SummarizedMessageCount);
             return CreateUnchangedResult(messages, tokensBefore);
         }
 
         this._checkpoint = checkpoint with { SummaryMessage = refreshedSummaryMessage };
+        LlmSummarizationLog.SummaryCheckpointCreated(this._logger, checkpoint.SummarizedMessageCount, refreshedResult.TokensAfter);
         return refreshedResult;
     }
 
@@ -280,6 +375,8 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         // Not enough room for a useful first summary. Return the input unchanged.
         if (remainingBudget < this._options.MinSummaryTokens)
         {
+            LlmSummarizationLog.SummarizationSkippedInsufficientBudget(
+                this._logger, remainingBudget, this._options.MinSummaryTokens, availableTokens, protectedTail.TokenCount);
             return CreateUnchangedResult(messages, tokensBefore);
         }
 
@@ -304,10 +401,15 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         // emergency truncation can still act on real history instead of a summary-blocked list.
         if (summaryResult.TokensAfter > availableTokens)
         {
+            LlmSummarizationLog.FirstSummaryOvershot(this._logger, summaryResult.TokensAfter, availableTokens, protectedTail.FirstIndex);
             return CreateUnchangedResult(messages, tokensBefore);
         }
 
         this.SetCheckpoint(protectedTail.FirstIndex, checkpointFingerprint, summaryMessage);
+        LlmSummarizationLog.SummaryCheckpointCreated(this._logger, protectedTail.FirstIndex, summaryResult.TokensAfter);
+        if (this._checkpointClearedThisRun)
+            this.UpdateCheckpointChurn(rebuiltAfterClear: true);
+
         return summaryResult;
     }
 
@@ -438,13 +540,41 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         if (messages.Count < this._checkpoint.SummarizedMessageCount
             || ComputeFingerprint(messages, this._checkpoint.SummarizedMessageCount) != this._checkpoint.Fingerprint)
         {
+            LlmSummarizationLog.SummaryCheckpointCleared(
+                this._logger,
+                messages.Count < this._checkpoint.SummarizedMessageCount
+                    ? LlmSummarizationLog.HistoryShorterThanCheckpoint
+                    : LlmSummarizationLog.SummarizedPrefixChanged,
+                messages.Count, this._checkpoint.SummarizedMessageCount);
+
             this.ClearCheckpoint();
+            this._checkpointClearedThisRun = true;
             checkpoint = null!;
             return false;
         }
 
         checkpoint = this._checkpoint;
         return true;
+    }
+
+    /// <summary>
+    /// Counts consecutive runs that cleared and rebuilt the checkpoint and reports the churn signal when it starts or stops.
+    /// </summary>
+    /// <param name="rebuiltAfterClear">
+    /// <see langword="true"/> when this run cleared a checkpoint and saved a new one; <see langword="false"/> when the
+    /// saved checkpoint still matched the history.
+    /// </param>
+    private void UpdateCheckpointChurn(bool rebuiltAfterClear)
+    {
+        this._checkpointRebuildStreak = rebuiltAfterClear ? this._checkpointRebuildStreak + 1 : 0;
+
+        var churning = this._checkpointRebuildStreak >= ConversationHealthDefaults.CheckpointChurnRuns;
+        if (ConversationHealth.Update(
+            ref this._checkpointChurnActive, churning, ConversationHealthLog.CheckpointChurn, this._logger, this._diagnostics))
+        {
+            ConversationHealthLog.CheckpointChurnDetected(
+                this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._checkpointRebuildStreak);
+        }
     }
 
     /// <summary>
@@ -603,8 +733,40 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         CancellationToken cancellationToken)
     {
         var messagesToSummarize = messages.Take(summarizedMessageCount).ToArray();
-        var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+
+        using var activity = TokenGuardTelemetry.ActivitySource.StartActivity(TokenGuardTelemetry.SummarizeActivityName);
+        activity?.SetTag(TokenGuardTelemetry.MessageCountTag, summarizedMessageCount).SetTag(TokenGuardTelemetry.TargetTokensTag, targetTokens);
+
+        var timeCall = TokenGuardTelemetry.SummarizationDuration.Enabled;
+        var startTimestamp = timeCall ? Stopwatch.GetTimestamp() : 0;
+        this._diagnostics.SummarizerCalls++;
+
+        string summary;
+        try
+        {
+            summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            activity?.AddException(exception).SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
+            this._diagnostics.SummarizerFailures++;
+            TokenGuardTelemetry.SummarizationFailures.Add(1, this._diagnostics.ContextNameTag);
+            this.RecordSummarizationDuration(timeCall, startTimestamp, TokenGuardTelemetry.FailureResult);
+            throw;
+        }
+
+        this.RecordSummarizationDuration(timeCall, startTimestamp, TokenGuardTelemetry.SuccessResult);
         return ContextMessage.FromText(MessageRole.Model, summary) with { State = CompactionState.Summarized };
+    }
+
+    private void RecordSummarizationDuration(bool timeCall, long startTimestamp, string result)
+    {
+        if (timeCall)
+        {
+            TokenGuardTelemetry.SummarizationDuration.Record(
+                Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds,
+                TokenGuardTelemetry.Tag(TokenGuardTelemetry.ResultTag, result), this._diagnostics.ContextNameTag);
+        }
     }
 
     /// <summary>

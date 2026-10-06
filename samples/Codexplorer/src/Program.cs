@@ -1,6 +1,7 @@
 using Codexplorer.CLI;
 using Codexplorer.Configuration;
 using Codexplorer.Automation;
+using Codexplorer.Diagnostics;
 using Codexplorer.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +17,9 @@ namespace Codexplorer;
 
 internal sealed class Program
 {
+    private const string TokenGuardLogCategory = "TokenGuard";
+    private const string TokenGuardLogLevelKey = "Logging:LogLevel:TokenGuard";
+
     public static async Task<int> Main(string[] args)
     {
         try
@@ -35,8 +39,12 @@ internal sealed class Program
                 builder.Services.Replace(ServiceDescriptor.Singleton(SessionRenderer.CreateDisabled()));
             }
 
+            var tokenGuardLogLevel = ToSerilogLevel(builder.Configuration.GetValue(TokenGuardLogLevelKey, LogLevel.Information));
+            builder.Services.AddHostedService<TokenGuardTelemetryListener>();
+
             builder.Services.AddSerilog((_, loggerConfiguration) => loggerConfiguration
                 .MinimumLevel.Information()
+                .MinimumLevel.Override(TokenGuardLogCategory, tokenGuardLogLevel)
                 .WriteTo.Console(
                     theme: AnsiConsoleTheme.Code,
                     standardErrorFromLevel: startupOptions.AutomationMode ? LogEventLevel.Verbose : LogEventLevel.Fatal)
@@ -112,6 +120,17 @@ internal sealed class Program
             }
         };
     }
+
+    private static LogEventLevel ToSerilogLevel(LogLevel level) =>
+        level switch
+        {
+            LogLevel.Trace => LogEventLevel.Verbose,
+            LogLevel.Debug => LogEventLevel.Debug,
+            LogLevel.Information => LogEventLevel.Information,
+            LogLevel.Warning => LogEventLevel.Warning,
+            LogLevel.Error => LogEventLevel.Error,
+            _ => LogEventLevel.Fatal,
+        };
 
     private static StartupOptions ParseStartupOptions(string[] args)
     {
