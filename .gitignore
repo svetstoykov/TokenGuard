@@ -530,3 +530,7 @@ appsettings.Development.json
 
 # Internal tasks for agents
 .tasks
+
+# Local agent rules and workflow artifacts
+docs/ai-rules/
+docs/superpowers/
