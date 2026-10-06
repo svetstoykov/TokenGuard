@@ -236,8 +236,11 @@ conversationContext.AddPinnedMessage(MessageRole.User, "All file paths must be r
 ```
 
 Pinned messages are never masked, never summarized, and never dropped by emergency truncation. They are removed from the
-compactable slice before compaction, then reinserted at their original positions in the prepared output. They still
-count against the budget.
+compactable slice before compaction, then put back between the messages they were recorded between: after every
+surviving message recorded before them and before every surviving message recorded after them. A pin recorded after
+messages that a summary replaced follows the summary. A pin never separates a model message that carries tool calls from
+its tool results; one recorded there is placed before that model message. Pinned messages still count against the
+budget.
 
 ---
 

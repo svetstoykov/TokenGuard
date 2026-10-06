@@ -150,7 +150,7 @@ If it is above the trigger:
 1. pinned messages are extracted
 2. their token cost is subtracted from `MaxTokens`
 3. only the unpinned slice is passed to the strategy as `availableTokens`
-4. pinned messages are reinserted at their original positions
+4. pinned messages are put back between the surviving messages they were recorded between
 5. emergency truncation may remove old unpinned turn groups from the prepared list
 6. `PrepareResult` is built from the final prepared list
 
@@ -262,7 +262,8 @@ Pinned messages:
 - are excluded from masking
 - are excluded from summarization
 - are excluded from emergency truncation
-- are reinserted at their original recorded positions after the normal compaction strategy runs
+- are put back between the surviving messages they were recorded between after the normal compaction strategy runs,
+  after the summary when it replaced the messages before them, and never between a tool call and its result
 - still count against the total budget
 
 If pinned messages alone exceed `MaxTokens`, `PrepareAsync()` throws `PinnedTokenBudgetExceededException`. In that case

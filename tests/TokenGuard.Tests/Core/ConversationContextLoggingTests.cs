@@ -22,6 +22,7 @@ public sealed class ConversationContextLoggingTests
     private const int PrepareOverBudget = 1014;
     private const int PinnedBudgetExceeded = 1015;
     private const int EmergencyTruncationEvaluated = 1016;
+    private const int PinnedMessagePlaced = 1017;
 
     public static TheoryData<string, MessageRole, bool, int> RecordingMethods => new()
     {
@@ -395,6 +396,26 @@ public sealed class ConversationContextLoggingTests
 
         // Assert
         logs.Records.Should().ContainSingle().Which.Category.Should().Be("TokenGuard.Core.ConversationContext");
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenPinnedMessagesAreReassembledAfterCompaction_LogsOneDebugRecordPerPinWithItsPreparedIndex()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.KeepNewest(1));
+        context.SetSystemPrompt(Text(5));
+        context.AddUserMessage(Text(30));
+        context.AddPinnedMessage(MessageRole.User, Text(5));
+        context.RecordModelResponse([new TextContent(Text(30))]);
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        var records = logs.WithEventId(PinnedMessagePlaced);
+        records.Should().OnlyContain(record => record.Level == LogLevel.Debug);
+        records.Select(record => (record.Property("HistoryIndex"), record.Property("PreparedIndex"))).Should().Equal((0, 0), (2, 1));
     }
 
     private static ConversationContext CreateContext(

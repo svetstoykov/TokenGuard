@@ -74,7 +74,9 @@ public interface IConversationContext : IDisposable
     /// <param name="role">The participant role that produced the message.</param>
     /// <param name="text">The plain-text payload to record.</param>
     /// <remarks>
-    /// Pinned messages remain at their recorded position and are excluded from compaction and emergency truncation.
+    /// Pinned messages are excluded from compaction and emergency truncation, and stay between the surviving messages
+    /// they were recorded between. A pinned message recorded inside a tool exchange is placed before the model message
+    /// that carries the tool calls.
     /// Use this for durable instructions, constraints, or definitions that must always survive in the prepared payload.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
@@ -176,8 +178,8 @@ public interface IConversationContext : IDisposable
     /// directly with <see cref="Models.PrepareResult.Outcome"/> set to <see cref="Enums.PrepareOutcome.Ready"/>.
     /// If the trigger is reached, the configured compaction strategy is awaited to produce a smaller list.
     /// Pinned messages are handled specially: they are excluded from the compactable set, their token cost
-    /// is added to the reserved budget passed into the compaction strategy, and they are reassembled into
-    /// the final result at their original positions after compaction finishes.
+    /// is added to the reserved budget passed into the compaction strategy, and they are put back between
+    /// the surviving messages they were recorded between after compaction finishes.
     /// </para>
     /// <para>
     /// Calling this method does not modify <see cref="History"/>. It only determines what subset or

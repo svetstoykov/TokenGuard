@@ -202,4 +202,22 @@ internal static partial class ConversationContextLog
     internal static partial void EmergencyTruncationEvaluated(
         ILogger logger, string conversationId, string contextName, int turn, int currentTokens, int emergencyTriggerTokens, int turnGroups,
         int turnGroupsDropped, int preservedFloorIndex, bool floorExceedsTrigger);
+
+    /// <summary>
+    ///     Logs where one pinned message sits in the prepared payload.
+    /// </summary>
+    /// <param name="logger">The logger to write to.</param>
+    /// <param name="conversationId">The identifier of the conversation.</param>
+    /// <param name="contextName">The configuration name of the conversation.</param>
+    /// <param name="turn">The turn number of the prepare call.</param>
+    /// <param name="historyIndex">The index of the pinned message in the recorded history.</param>
+    /// <param name="preparedIndex">The index of the pinned message in the prepared payload.</param>
+    [LoggerMessage(
+        EventId = 1017,
+        EventName = "PinnedMessagePlaced",
+        Level = LogLevel.Debug,
+        Message = "Conversation {ConversationId} ({ContextName}) turn {Turn}: pinned message at history index {HistoryIndex} placed at "
+            + "index {PreparedIndex} of the prepared payload.")]
+    internal static partial void PinnedMessagePlaced(
+        ILogger logger, string conversationId, string contextName, int turn, int historyIndex, int preparedIndex);
 }
