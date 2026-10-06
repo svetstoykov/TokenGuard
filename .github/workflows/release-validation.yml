@@ -39,6 +39,9 @@ jobs:
           dotnet pack src/TokenGuard.Extensions.OpenAI/TokenGuard.Extensions.OpenAI.csproj --configuration Release --no-build --nologo --output artifacts/ci-validation-packages
           dotnet pack src/TokenGuard.Extensions.Anthropic/TokenGuard.Extensions.Anthropic.csproj --configuration Release --no-build --nologo --output artifacts/ci-validation-packages
 
+      - name: Build README snippets against packed packages
+        run: ./tests/TokenGuard.ReadmeSnippets/verify.sh
+
       - name: Verify tracked files remain unchanged
         shell: bash
         run: |
