@@ -1,4 +1,7 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
@@ -29,6 +32,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 {
     private readonly ITokenCounter _tokenCounter;
     private readonly SlidingWindowOptions _options;
+    private readonly ILogger _logger;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="SlidingWindowStrategy"/> class with default options.
@@ -55,11 +59,27 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <param name="tokenCounter">The token counter used to measure candidate and compacted messages.</param>
     /// <param name="options">The sliding-window configuration that controls boundary selection and placeholder generation.</param>
     public SlidingWindowStrategy(ITokenCounter tokenCounter, SlidingWindowOptions options)
+        : this(tokenCounter, options, NullLogger<SlidingWindowStrategy>.Instance)
+    {
+    }
+
+    /// <summary>
+    ///     Initializes a new instance of the <see cref="SlidingWindowStrategy"/> class that logs its masking decisions.
+    /// </summary>
+    /// <param name="tokenCounter">The token counter used to measure candidate and compacted messages.</param>
+    /// <param name="options">The sliding-window configuration that controls boundary selection and placeholder generation.</param>
+    /// <param name="logger">The logger that receives one record per pass and one per masked tool result.</param>
+    /// <exception cref="ArgumentNullException">
+    ///     <paramref name="tokenCounter"/> or <paramref name="logger"/> is <see langword="null"/>.
+    /// </exception>
+    public SlidingWindowStrategy(ITokenCounter tokenCounter, SlidingWindowOptions options, ILogger<SlidingWindowStrategy> logger)
     {
         ArgumentNullException.ThrowIfNull(tokenCounter);
+        ArgumentNullException.ThrowIfNull(logger);
 
         this._tokenCounter = tokenCounter;
         this._options = options;
+        this._logger = logger;
     }
 
     /// <summary>
@@ -132,6 +152,9 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         if (protectedCount == messages.Count)
         {
+            SlidingWindowLog.SlidingWindowApplied(
+                this._logger, messages.Count, availableTokens, tokensBefore, tokensBefore, this._options.WindowSize, protectedCount, 0);
+
             return Task.FromResult(new CompactionResult(
                 messages,
                 tokensBefore,
@@ -143,6 +166,8 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         var toolNameLookup = BuildToolNameLookup(messages);
         var result = new ContextMessage[messages.Count];
         var messagesAffected = 0;
+        var toolResultsMasked = 0;
+        var logMasking = this._logger.IsEnabled(LogLevel.Debug);
 
         for (var i = 0; i < boundary; i++)
         {
@@ -151,6 +176,11 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             if (messages[i].State == CompactionState.Original && result[i].State == CompactionState.Masked)
             {
                 messagesAffected++;
+            }
+
+            if (logMasking && !ReferenceEquals(result[i], messages[i]))
+            {
+                toolResultsMasked += this.LogMaskedToolResults(i, messages[i], result[i]);
             }
         }
 
@@ -161,12 +191,45 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         var tokensAfter = CountTokens(result, this._tokenCounter);
 
+        SlidingWindowLog.SlidingWindowApplied(
+            this._logger, messages.Count, availableTokens, tokensBefore, tokensAfter, this._options.WindowSize, protectedCount, toolResultsMasked);
+
         return Task.FromResult(new CompactionResult(
             result,
             tokensBefore,
             tokensAfter,
             messagesAffected,
             nameof(SlidingWindowStrategy)));
+    }
+
+    /// <summary>
+    ///     Writes one trace record for each tool result masked in a message and counts them.
+    /// </summary>
+    /// <remarks>
+    ///     Call this only when debug logging is enabled. The per-message token counts are computed only when trace
+    ///     logging is enabled.
+    /// </remarks>
+    /// <param name="messageIndex">The index of the message in the compactable history.</param>
+    /// <param name="original">The message before masking.</param>
+    /// <param name="masked">The message after masking.</param>
+    /// <returns>The number of tool results masked in the message.</returns>
+    private int LogMaskedToolResults(int messageIndex, ContextMessage original, ContextMessage masked)
+    {
+        var traceEnabled = this._logger.IsEnabled(LogLevel.Trace);
+        var tokensBefore = traceEnabled ? original.TokenCount ?? this._tokenCounter.Count(original) : 0;
+        var tokensAfter = traceEnabled ? this._tokenCounter.Count(masked) : 0;
+        var toolResults = 0;
+
+        foreach (var segment in masked.Segments)
+        {
+            if (segment is not ToolResultContent toolResult)
+                continue;
+
+            toolResults++;
+            SlidingWindowLog.ToolResultMasked(this._logger, messageIndex, toolResult.ToolCallId, toolResult.ToolName, tokensBefore, tokensAfter);
+        }
+
+        return toolResults;
     }
 
     private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)

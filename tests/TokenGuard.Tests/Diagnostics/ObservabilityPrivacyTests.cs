@@ -14,6 +14,11 @@ public sealed class ObservabilityPrivacyTests
     private const string Sentinel = "SENTINEL";
     private const int CompactionCompleted = 1011;
     private const int EmergencyTruncationApplied = 1012;
+    private const int SlidingWindowApplied = 2000;
+    private const int ToolResultMasked = 2001;
+    private const int SummarizationPathSelected = 3000;
+    private const int SummaryCheckpointCreated = 3020;
+    private const int TieredResultSelected = 4000;
 
     [Fact]
     public async Task FullCompactionCycle_AtTraceLevel_WritesNoConversationContentToLogs()
@@ -35,6 +40,34 @@ public sealed class ObservabilityPrivacyTests
         // Assert
         logs.WithEventId(CompactionCompleted).Should().NotBeEmpty("the scripted conversation must reach compaction");
         logs.WithEventId(EmergencyTruncationApplied).Should().NotBeEmpty("the scripted conversation must reach emergency truncation");
+        logs.WithEventId(SlidingWindowApplied).Should().NotBeEmpty("the scripted conversation must run the sliding window");
+        logs.WithEventId(ToolResultMasked).Should().NotBeEmpty("the scripted conversation must mask tool results");
+        logs.WithEventId(TieredResultSelected).Should().NotBeEmpty("the scripted conversation must run the tiered strategy");
+        logs.Records.Should().OnlyContain(record => !ContainsSentinel(record));
+    }
+
+    [Fact]
+    public async Task FullCompactionCycleWithSummarizer_AtTraceLevel_WritesNoConversationContentToLogs()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory(LogLevel.Trace);
+        var summarizer = ScriptedSummarizer.Returning(Content("summary", 40));
+        var builder = new ConversationConfigBuilder()
+            .WithMaxTokens(400)
+            .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 2))
+            .WithLoggerFactory(logs);
+        builder.SetLlmSummarizer(() => summarizer, "Test", new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 10, maxSummaryTokens: 100));
+
+        // Act
+        using (var context = new ConversationContextFactory(builder.Build()).Create())
+        {
+            await RunConversationAsync(context);
+        }
+
+        // Assert
+        summarizer.Calls.Should().BeGreaterThan(0, "the scripted conversation must reach summarization");
+        logs.WithEventId(SummarizationPathSelected).Should().NotBeEmpty();
+        logs.WithEventId(SummaryCheckpointCreated).Should().NotBeEmpty();
         logs.Records.Should().OnlyContain(record => !ContainsSentinel(record));
     }
 

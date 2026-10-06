@@ -49,6 +49,21 @@ public sealed class ConversationContextFactoryTests
     }
 
     [Fact]
+    public void Create_WhenStrategyFactoryIsReplacedOnBuiltConfiguration_UsesTheReplacement()
+    {
+        // Arrange
+        var replacement = new StubCompactionStrategy();
+        var configuration = ConversationConfigBuilder.Default() with { StrategyFactory = _ => replacement };
+        var factory = new ConversationContextFactory(configuration);
+
+        // Act
+        using var context = (ConversationContext)factory.Create();
+
+        // Assert
+        GetPrivateField<ICompactionStrategy>(context, "_strategy").Should().BeSameAs(replacement);
+    }
+
+    [Fact]
     public void Create_ReturnedInstanceIsNotDisposed()
     {
         // Arrange

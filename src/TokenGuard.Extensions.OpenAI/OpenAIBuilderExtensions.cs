@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using OpenAI.Chat;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Options;
@@ -42,6 +43,7 @@ public static class OpenAIBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(client);
 
-        return builder.SetLlmSummarizer(() => new OpenAISummarizer(client), "OpenAI", options);
+        return builder.SetLlmSummarizer(
+            loggerFactory => new OpenAISummarizer(client, loggerFactory.CreateLogger<OpenAISummarizer>()), "OpenAI", options);
     }
 }

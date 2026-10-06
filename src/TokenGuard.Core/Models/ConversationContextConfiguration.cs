@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
+using TokenGuard.Core.Diagnostics;
 
 namespace TokenGuard.Core.Models;
 
@@ -40,6 +41,27 @@ public sealed record ConversationContextConfiguration(
     ContextBudget Budget,
     Func<ITokenCounter, ICompactionStrategy> StrategyFactory)
 {
+    private readonly Func<ITokenCounter, ICompactionStrategy> _strategyFactory = StrategyFactory;
+
+    /// <summary>
+    ///     Gets the delegate that creates the <see cref="ICompactionStrategy" /> used by one conversation-context instance.
+    /// </summary>
+    public Func<ITokenCounter, ICompactionStrategy> StrategyFactory
+    {
+        get => this._strategyFactory;
+        init
+        {
+            this._strategyFactory = value;
+            this.DiagnosticStrategyFactory = null;
+        }
+    }
+
+    /// <summary>
+    ///     Gets the delegate that creates the same strategy as <see cref="StrategyFactory" /> with the loggers of one
+    ///     conversation attached, or <see langword="null" /> when <see cref="StrategyFactory" /> is a caller-supplied delegate.
+    /// </summary>
+    internal Func<ITokenCounter, ConversationDiagnostics, ICompactionStrategy>? DiagnosticStrategyFactory { get; init; }
+
     /// <summary>
     ///     Gets the logger factory set through <see cref="ConversationConfigBuilder.WithLoggerFactory" />, or
     ///     <see langword="null" /> when the configuration names none.

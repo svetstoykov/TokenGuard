@@ -409,7 +409,11 @@ public sealed class ConversationContext : IConversationContext
 
         var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
 
-        var compacted = await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
+        CompactionResult compacted;
+        using (ConversationContextLog.BeginCompactionScope(this._logger, conversationId, contextName, this._currentTurn))
+        {
+            compacted = await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
+        }
 
         var prepared = pinnedSlots.Count == 0
             ? compacted.Messages
@@ -582,6 +586,7 @@ public sealed class ConversationContext : IConversationContext
         // Nothing to drop when the prepared list already consists only of the preserved floor.
         if (preservedFloorStartIndex <= 0)
         {
+            this.LogEmergencyEvaluation(currentTotal, emergencyLimit, 0, 0, preservedFloorStartIndex, floorExceedsTrigger: true);
             truncated = null;
             return false;
         }
@@ -593,6 +598,7 @@ public sealed class ConversationContext : IConversationContext
 
         if (turnGroups.Count == 0)
         {
+            this.LogEmergencyEvaluation(currentTotal, emergencyLimit, 0, 0, preservedFloorStartIndex, floorExceedsTrigger: true);
             truncated = null;
             return false;
         }
@@ -600,6 +606,7 @@ public sealed class ConversationContext : IConversationContext
         // Drop whole turn groups oldest-first until the budget is satisfied or groups are exhausted.
         var dropIndices = new HashSet<int>();
         var total = currentTotal;
+        var groupsDropped = 0;
         foreach (var (groupIndices, groupTokens) in turnGroups)
         {
             if (total <= emergencyLimit)
@@ -609,7 +616,11 @@ public sealed class ConversationContext : IConversationContext
                 dropIndices.Add(idx);
 
             total -= groupTokens;
+            groupsDropped++;
         }
+
+        this.LogEmergencyEvaluation(
+            currentTotal, emergencyLimit, turnGroups.Count, groupsDropped, preservedFloorStartIndex, floorExceedsTrigger: total > emergencyLimit);
 
         if (dropIndices.Count == 0)
         {
@@ -830,6 +841,12 @@ public sealed class ConversationContext : IConversationContext
 
         this.LogMessageRecorded(message);
     }
+
+    private void LogEmergencyEvaluation(
+        int currentTokens, int emergencyTriggerTokens, int turnGroups, int turnGroupsDropped, int preservedFloorIndex, bool floorExceedsTrigger) =>
+        ConversationContextLog.EmergencyTruncationEvaluated(
+            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn, currentTokens,
+            emergencyTriggerTokens, turnGroups, turnGroupsDropped, preservedFloorIndex, floorExceedsTrigger);
 
     private void LogMessageRecorded(ContextMessage message) =>
         ConversationContextLog.MessageRecorded(

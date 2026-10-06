@@ -1,4 +1,5 @@
 using Anthropic;
+using Microsoft.Extensions.Logging;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Options;
 
@@ -48,6 +49,7 @@ public static class AnthropicBuilderExtensions
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
 
-        return builder.SetLlmSummarizer(() => new AnthropicSummarizer(client, model), "Anthropic", options);
+        return builder.SetLlmSummarizer(
+            loggerFactory => new AnthropicSummarizer(client, model, loggerFactory.CreateLogger<AnthropicSummarizer>()), "Anthropic", options);
     }
 }

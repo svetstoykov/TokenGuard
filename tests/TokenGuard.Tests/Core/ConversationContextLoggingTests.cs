@@ -21,6 +21,7 @@ public sealed class ConversationContextLoggingTests
     private const int SummarizationFailed = 1013;
     private const int PrepareOverBudget = 1014;
     private const int PinnedBudgetExceeded = 1015;
+    private const int EmergencyTruncationEvaluated = 1016;
 
     public static TheoryData<string, MessageRole, bool, int> RecordingMethods => new()
     {
@@ -99,6 +100,101 @@ public sealed class ConversationContextLoggingTests
         record.Property("TokensBefore").Should().Be(180);
         record.Property("TokensAfter").Should().Be(60);
         logs.WithEventId(CompactionCompleted).Last().Property("EmergencyMessagesDropped").Should().Be(2);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationDropsMessages_LogsOneDebugRecordWithTheEvaluation()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.Unchanged());
+        context.AddUserMessage(Text(60));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(60))]);
+        context.AddUserMessage(Text(60));
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        var record = logs.WithEventId(EmergencyTruncationEvaluated).Should().ContainSingle().Subject;
+        record.Level.Should().Be(LogLevel.Debug);
+        record.Property("CurrentTokens").Should().Be(180);
+        record.Property("EmergencyTriggerTokens").Should().Be(100);
+        record.Property("TurnGroups").Should().Be(2);
+        record.Property("TurnGroupsDropped").Should().Be(2);
+        record.Property("PreservedFloorIndex").Should().Be(2);
+        record.Property("FloorExceedsTrigger").Should().Be(false);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenThePreservedFloorAloneExceedsTheTrigger_LogsThatNothingCouldBeDropped()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.Unchanged());
+        context.AddUserMessage(Text(150));
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        var record = logs.WithEventId(EmergencyTruncationEvaluated).Should().ContainSingle().Subject;
+        record.Property("TurnGroups").Should().Be(0);
+        record.Property("TurnGroupsDropped").Should().Be(0);
+        record.Property("PreservedFloorIndex").Should().Be(0);
+        record.Property("FloorExceedsTrigger").Should().Be(true);
+        logs.WithEventId(EmergencyTruncationApplied).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenPreparedPayloadIsWithinTheEmergencyTrigger_LogsNoEmergencyEvaluation()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.Unchanged());
+        context.AddUserMessage(Text(60));
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        logs.WithEventId(EmergencyTruncationEvaluated).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenTheStrategyLogs_ItsRecordsCarryTheConversationScope()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = new ScopeProbeStrategy(logs.CreateLogger("Probe"));
+        using var context = CreateContext(logs, strategy, contextName: "research");
+        context.AddUserMessage(Text(60));
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        var contextRecord = logs.WithEventId(CompactionCompleted).Single();
+        var strategyRecord = logs.Records.Single(record => record.Category == "Probe");
+        strategyRecord.Property("ConversationId").Should().Be(contextRecord.Property("ConversationId"));
+        strategyRecord.Property("ContextName").Should().Be("research");
+        strategyRecord.Property("Turn").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenTheStrategyReturned_TheConversationScopeIsClosed()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.Unchanged());
+        context.AddUserMessage(Text(60));
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        logs.Records.Should().OnlyContain(record => record.Scope.Count == 0);
     }
 
     [Fact]
@@ -338,4 +434,14 @@ public sealed class ConversationContextLoggingTests
     }
 
     private static string Text(int length) => new('a', length);
+
+    private sealed class ScopeProbeStrategy(ILogger logger) : ICompactionStrategy
+    {
+        public Task<CompactionResult> CompactAsync(
+            IReadOnlyList<ContextMessage> messages, int availableTokens, CancellationToken cancellationToken = default)
+        {
+            logger.LogDebug("strategy ran");
+            return Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(ScopeProbeStrategy)));
+        }
+    }
 }

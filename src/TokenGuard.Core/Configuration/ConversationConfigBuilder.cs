@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Defaults;
+using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
@@ -31,7 +33,7 @@ public sealed class ConversationConfigBuilder
     private double? _emergencyThreshold = ConversationDefaults.EmergencyThreshold;
     private double? _overrunTolerance;
     private SlidingWindowOptions? _slidingWindowOptions;
-    private Func<ILlmSummarizer>? _llmSummarizerFactory;
+    private Func<ILoggerFactory, ILlmSummarizer>? _llmSummarizerFactory;
     private LlmSummarizationOptions? _llmSummarizationOptions;
     private string? _llmSummarizationProviderName;
     private ILoggerFactory? _loggerFactory;
@@ -231,7 +233,11 @@ public sealed class ConversationConfigBuilder
             this._llmSummarizerFactory,
             this._llmSummarizationOptions);
 
-        return new ConversationContextConfiguration(budget, strategyFactory) { LoggerFactory = this._loggerFactory };
+        return new ConversationContextConfiguration(budget, tokenCounter => strategyFactory(tokenCounter, CreateSilentDiagnostics()))
+        {
+            LoggerFactory = this._loggerFactory,
+            DiagnosticStrategyFactory = strategyFactory,
+        };
     }
 
     /// <summary>
@@ -260,6 +266,36 @@ public sealed class ConversationConfigBuilder
         LlmSummarizationOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(summarizerFactory);
+
+        return this.SetLlmSummarizer(_ => summarizerFactory(), providerName, options);
+    }
+
+    /// <summary>
+    /// Registers provider-backed LLM summarization whose summarizer logs through the conversation's logger factory.
+    /// </summary>
+    /// <param name="summarizerFactory">
+    /// A factory that creates the provider implementation from the logger factory of the conversation it serves.
+    /// </param>
+    /// <param name="providerName">The human-readable provider name used in conflict messages.</param>
+    /// <param name="options">
+    /// Optional summarization options. When omitted, <see cref="LlmSummarizationOptions.Default"/> is used.
+    /// </param>
+    /// <returns>The current builder instance.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// Thrown when <paramref name="summarizerFactory"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="providerName"/> is <see langword="null"/>, empty, or whitespace.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a summarization provider has already been registered on this builder instance.
+    /// </exception>
+    internal ConversationConfigBuilder SetLlmSummarizer(
+        Func<ILoggerFactory, ILlmSummarizer> summarizerFactory,
+        string providerName,
+        LlmSummarizationOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(summarizerFactory);
         ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
 
         if (this._llmSummarizerFactory is not null)
@@ -276,25 +312,28 @@ public sealed class ConversationConfigBuilder
         return this;
     }
 
-    private static Func<ITokenCounter, ICompactionStrategy> BuildStrategyFactory(
+    private static Func<ITokenCounter, ConversationDiagnostics, ICompactionStrategy> BuildStrategyFactory(
         SlidingWindowOptions slidingWindowOptions,
-        Func<ILlmSummarizer>? llmSummarizerFactory,
+        Func<ILoggerFactory, ILlmSummarizer>? llmSummarizerFactory,
         LlmSummarizationOptions? llmSummarizationOptions)
     {
-        if (llmSummarizerFactory is null)
+        return (tokenCounter, diagnostics) =>
         {
-            return tokenCounter => new TieredCompactionStrategy(tokenCounter, slidingWindowOptions);
-        }
+            var loggerFactory = diagnostics.LoggerFactory;
+            var llmStrategy = llmSummarizerFactory is null
+                ? null
+                : new LlmSummarizationStrategy(
+                    llmSummarizerFactory(loggerFactory), tokenCounter, llmSummarizationOptions ?? LlmSummarizationOptions.Default,
+                    loggerFactory.CreateLogger<LlmSummarizationStrategy>());
 
-        return tokenCounter =>
-        {
-            var llmStrategy = llmSummarizationOptions.HasValue
-                ? new LlmSummarizationStrategy(llmSummarizerFactory(), tokenCounter, llmSummarizationOptions.Value)
-                : new LlmSummarizationStrategy(llmSummarizerFactory(), tokenCounter);
-
-            return new TieredCompactionStrategy(tokenCounter, slidingWindowOptions, llmStrategy);
+            return new TieredCompactionStrategy(
+                tokenCounter, slidingWindowOptions, llmStrategy, loggerFactory.CreateLogger<TieredCompactionStrategy>(),
+                loggerFactory.CreateLogger<SlidingWindowStrategy>());
         };
     }
+
+    private static ConversationDiagnostics CreateSilentDiagnostics() =>
+        new(NullLoggerFactory.Instance, ConversationDiagnostics.DefaultContextName);
 
     private static string BuildProviderConflictMessage(string existingProviderName, string conflictingProviderName)
     {

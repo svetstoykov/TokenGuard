@@ -12,6 +12,20 @@ namespace TokenGuard.Core.Diagnostics;
 /// </remarks>
 internal static partial class ConversationContextLog
 {
+    private static readonly Func<ILogger, string, string, int, IDisposable?> CompactionScope =
+        LoggerMessage.DefineScope<string, string, int>("Conversation {ConversationId} ({ContextName}) turn {Turn}");
+
+    /// <summary>
+    ///     Begins the scope that tags every record written while the compaction strategy runs.
+    /// </summary>
+    /// <param name="logger">The logger to begin the scope on.</param>
+    /// <param name="conversationId">The identifier of the conversation.</param>
+    /// <param name="contextName">The configuration name of the conversation.</param>
+    /// <param name="turn">The turn number of the prepare call.</param>
+    /// <returns>The scope to dispose when the strategy returns, or <see langword="null" /> when the logger has no scope support.</returns>
+    internal static IDisposable? BeginCompactionScope(ILogger logger, string conversationId, string contextName, int turn) =>
+        CompactionScope(logger, conversationId, contextName, turn);
+
     /// <summary>
     ///     Logs that a message was recorded in the conversation history.
     /// </summary>
@@ -164,4 +178,28 @@ internal static partial class ConversationContextLog
             + "above the maximum of {MaxTokens}.")]
     internal static partial void PinnedBudgetExceeded(
         ILogger logger, string conversationId, string contextName, int turn, int pinnedTokens, int maxTokens);
+
+    /// <summary>
+    ///     Logs how emergency truncation evaluated a prepared payload that exceeds the emergency trigger.
+    /// </summary>
+    /// <param name="logger">The logger to write to.</param>
+    /// <param name="conversationId">The identifier of the conversation.</param>
+    /// <param name="contextName">The configuration name of the conversation.</param>
+    /// <param name="turn">The turn number of the prepare call.</param>
+    /// <param name="currentTokens">The estimated token total before truncation.</param>
+    /// <param name="emergencyTriggerTokens">The token total above which truncation starts.</param>
+    /// <param name="turnGroups">The number of turn groups that could be dropped.</param>
+    /// <param name="turnGroupsDropped">The number of turn groups dropped.</param>
+    /// <param name="preservedFloorIndex">The index of the first message that is always kept.</param>
+    /// <param name="floorExceedsTrigger">Whether the kept messages alone still exceed the trigger.</param>
+    [LoggerMessage(
+        EventId = 1016,
+        EventName = "EmergencyTruncationEvaluated",
+        Level = LogLevel.Debug,
+        Message = "Conversation {ConversationId} ({ContextName}) turn {Turn}: emergency truncation evaluated {CurrentTokens} tokens against "
+            + "a trigger of {EmergencyTriggerTokens}: {TurnGroups} turn groups considered, {TurnGroupsDropped} dropped, preserved floor "
+            + "starts at index {PreservedFloorIndex}, floor still exceeds the trigger: {FloorExceedsTrigger}.")]
+    internal static partial void EmergencyTruncationEvaluated(
+        ILogger logger, string conversationId, string contextName, int turn, int currentTokens, int emergencyTriggerTokens, int turnGroups,
+        int turnGroupsDropped, int preservedFloorIndex, bool floorExceedsTrigger);
 }

@@ -143,7 +143,9 @@ public sealed class ConversationContextFactory : IConversationContextFactory
         var loggerFactory = config.LoggerFactory ?? this._fallbackLoggerFactory ?? NullLoggerFactory.Instance;
         var diagnostics = new ConversationDiagnostics(loggerFactory, contextName);
         var counter = new EstimatedTokenCounter();
-        var strategy = config.StrategyFactory(counter);
+        var strategy = config.DiagnosticStrategyFactory is { } createWithDiagnostics
+            ? createWithDiagnostics(counter, diagnostics)
+            : config.StrategyFactory(counter);
 
         return new ConversationContext(config.Budget, counter, strategy, diagnostics);
     }

@@ -1,4 +1,7 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 
@@ -24,6 +27,7 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
 {
     private readonly SlidingWindowStrategy _slidingWindowStrategy;
     private readonly LlmSummarizationStrategy? _llmSummarizationStrategy;
+    private readonly ILogger _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TieredCompactionStrategy"/> class.
@@ -38,11 +42,40 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
         ITokenCounter tokenCounter,
         SlidingWindowOptions slidingWindowOptions,
         LlmSummarizationStrategy? llmSummarizationStrategy = null)
+        : this(
+            tokenCounter, slidingWindowOptions, llmSummarizationStrategy, NullLogger<TieredCompactionStrategy>.Instance,
+            NullLogger<SlidingWindowStrategy>.Instance)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TieredCompactionStrategy"/> class that logs which stage produced each result.
+    /// </summary>
+    /// <param name="tokenCounter">The token counter used by the sliding-window stage to evaluate message cost.</param>
+    /// <param name="slidingWindowOptions">The masking configuration used for the always-on sliding-window stage.</param>
+    /// <param name="llmSummarizationStrategy">
+    /// The optional LLM-backed summarization stage used only when masking remains over budget, or <see langword="null"/>
+    /// to keep tiered compaction in sliding-window-only mode.
+    /// </param>
+    /// <param name="logger">The logger that receives one record per compaction call.</param>
+    /// <param name="slidingWindowLogger">The logger handed to the sliding-window stage.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="tokenCounter"/>, <paramref name="logger"/>, or <paramref name="slidingWindowLogger"/> is <see langword="null"/>.
+    /// </exception>
+    public TieredCompactionStrategy(
+        ITokenCounter tokenCounter,
+        SlidingWindowOptions slidingWindowOptions,
+        LlmSummarizationStrategy? llmSummarizationStrategy,
+        ILogger<TieredCompactionStrategy> logger,
+        ILogger<SlidingWindowStrategy> slidingWindowLogger)
     {
         ArgumentNullException.ThrowIfNull(tokenCounter);
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(slidingWindowLogger);
 
-        this._slidingWindowStrategy = new SlidingWindowStrategy(tokenCounter, slidingWindowOptions);
+        this._slidingWindowStrategy = new SlidingWindowStrategy(tokenCounter, slidingWindowOptions, slidingWindowLogger);
         this._llmSummarizationStrategy = llmSummarizationStrategy;
+        this._logger = logger;
     }
 
     /// <summary>
@@ -75,6 +108,13 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
 
         if (slidingWindowResult.TokensAfter <= availableTokens || this._llmSummarizationStrategy is null)
         {
+            this.LogSelection(
+                TieredCompactionLog.SlidingWindowResult,
+                slidingWindowResult.TokensAfter <= availableTokens
+                    ? TieredCompactionLog.SlidingWindowSufficient
+                    : TieredCompactionLog.NoSummarizerConfigured,
+                slidingWindowResult, slidingWindowResult, availableTokens);
+
             return BuildCompactionResult(slidingWindowResult);
         }
 
@@ -95,6 +135,10 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
             // The optional summarization stage failed (e.g. provider rate-limit, timeout, network error).
             // Degrade to the masked sliding-window result so the agent loop never crashes, and carry the
             // failure forward so callers can observe it on PrepareResult.SummarizationError.
+            this.LogSelection(
+                TieredCompactionLog.SlidingWindowResult, TieredCompactionLog.SummarizationThrew, slidingWindowResult, slidingWindowResult,
+                availableTokens);
+
             return BuildCompactionResult(slidingWindowResult, summarizationError);
         }
 
@@ -103,11 +147,23 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
         // receives a summary-free list that emergency truncation can still reduce.
         if (summarizationResult.TokensAfter > availableTokens)
         {
+            this.LogSelection(
+                TieredCompactionLog.SlidingWindowResult, TieredCompactionLog.SummarizationOvershot, slidingWindowResult, slidingWindowResult,
+                availableTokens);
+
             return BuildCompactionResult(slidingWindowResult);
         }
 
+        this.LogSelection(
+            TieredCompactionLog.SummarizationResult, TieredCompactionLog.SummarizationSucceeded, slidingWindowResult, summarizationResult,
+            availableTokens);
+
         return BuildCompactionResult(summarizationResult);
     }
+
+    private void LogSelection(string result, string reason, CompactionResult slidingWindowResult, CompactionResult returned, int availableTokens) =>
+        TieredCompactionLog.TieredResultSelected(
+            this._logger, result, reason, slidingWindowResult.TokensAfter, returned.TokensAfter, availableTokens);
 
     private static CompactionResult BuildCompactionResult(CompactionResult result, Exception? summarizationError = null)
     {
