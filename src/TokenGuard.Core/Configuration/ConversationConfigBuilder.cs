@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Models;
@@ -33,6 +34,7 @@ public sealed class ConversationConfigBuilder
     private Func<ILlmSummarizer>? _llmSummarizerFactory;
     private LlmSummarizationOptions? _llmSummarizationOptions;
     private string? _llmSummarizationProviderName;
+    private ILoggerFactory? _loggerFactory;
 
     /// <summary>
     ///     Creates a <see cref="ConversationContextConfiguration"/> using the default builder configuration.
@@ -169,6 +171,25 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
+    ///     Sets the logger factory that conversation contexts created from this configuration log through.
+    /// </summary>
+    /// <remarks>
+    ///     Without a logger factory, a context created outside dependency injection writes no log records. A context
+    ///     created through <c>AddConversationContext(...)</c> uses the container's <see cref="ILoggerFactory"/> unless
+    ///     this method supplies another one.
+    /// </remarks>
+    /// <param name="loggerFactory">The logger factory to log through. Cannot be <see langword="null"/>.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="loggerFactory"/> is <see langword="null"/>.</exception>
+    public ConversationConfigBuilder WithLoggerFactory(ILoggerFactory loggerFactory)
+    {
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+
+        this._loggerFactory = loggerFactory;
+        return this;
+    }
+
+    /// <summary>
     ///     Captures an immutable construction recipe from the current builder state as a
     ///     <see cref="ConversationContextConfiguration"/>.
     /// </summary>
@@ -210,7 +231,7 @@ public sealed class ConversationConfigBuilder
             this._llmSummarizerFactory,
             this._llmSummarizationOptions);
 
-        return new ConversationContextConfiguration(budget, strategyFactory);
+        return new ConversationContextConfiguration(budget, strategyFactory) { LoggerFactory = this._loggerFactory };
     }
 
     /// <summary>

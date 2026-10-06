@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
 
@@ -37,4 +38,11 @@ namespace TokenGuard.Core.Models;
 /// </param>
 public sealed record ConversationContextConfiguration(
     ContextBudget Budget,
-    Func<ITokenCounter, ICompactionStrategy> StrategyFactory);
+    Func<ITokenCounter, ICompactionStrategy> StrategyFactory)
+{
+    /// <summary>
+    ///     Gets the logger factory set through <see cref="ConversationConfigBuilder.WithLoggerFactory" />, or
+    ///     <see langword="null" /> when the configuration names none.
+    /// </summary>
+    internal ILoggerFactory? LoggerFactory { get; init; }
+}

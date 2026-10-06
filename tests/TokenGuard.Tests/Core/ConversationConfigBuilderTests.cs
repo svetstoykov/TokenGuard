@@ -1,7 +1,9 @@
 using System.Runtime.CompilerServices;
 using Anthropic;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using OpenAI.Chat;
+using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Enums;
@@ -11,6 +13,7 @@ using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
 using TokenGuard.Extensions.Anthropic;
 using TokenGuard.Extensions.OpenAI;
+using TokenGuard.Tests.Diagnostics;
 
 namespace TokenGuard.Tests.Core;
 
@@ -185,6 +188,50 @@ public sealed class ConversationConfigBuilderTests
         withoutEmergencyThreshold.Should().BeSameAs(builder);
         withSlidingWindowOptions.Should().BeSameAs(builder);
         withOverrunTolerance.Should().BeSameAs(builder);
+    }
+
+    [Fact]
+    public void WithLoggerFactory_ReturnsSameBuilderInstance()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder();
+
+        // Act
+        var returned = builder.WithLoggerFactory(new CapturingLoggerFactory());
+
+        // Assert
+        returned.Should().BeSameAs(builder);
+    }
+
+    [Fact]
+    public void WithLoggerFactory_WhenLoggerFactoryIsNull_Throws()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder();
+
+        // Act
+        var act = () => builder.WithLoggerFactory(null!);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("loggerFactory");
+    }
+
+    [Fact]
+    public void WithLoggerFactory_ContextCreatedFromConfiguration_LogsThroughSuppliedFactory()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(8_192)
+            .WithLoggerFactory(logs)
+            .Build();
+        using var context = new ConversationContextFactory(configuration).Create();
+
+        // Act
+        context.AddUserMessage("hello");
+
+        // Assert
+        logs.Records.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Trace);
     }
 
     [Theory]
