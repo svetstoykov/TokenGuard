@@ -75,6 +75,21 @@ internal static class TokenGuardTelemetry
     internal const string TargetTokensTag = "tokenguard.tokens.target";
 
     /// <summary>
+    ///     The tag that holds the output tokens the provider reported for a summarizer call.
+    /// </summary>
+    internal const string OutputTokensTag = "tokenguard.tokens.output";
+
+    /// <summary>
+    ///     The tag that holds the reasoning tokens the provider reported for a summarizer call.
+    /// </summary>
+    internal const string ReasoningTokensTag = "tokenguard.tokens.reasoning";
+
+    /// <summary>
+    ///     The tag that holds the reason the provider gave for ending a summarizer answer.
+    /// </summary>
+    internal const string FinishReasonTag = "tokenguard.finish_reason";
+
+    /// <summary>
     ///     The tag that holds the outcome of a prepare call.
     /// </summary>
     internal const string OutcomeTag = "tokenguard.outcome";
@@ -254,4 +269,30 @@ internal static class TokenGuardTelemetry
     /// <param name="value">The tag value.</param>
     /// <returns>The tag.</returns>
     internal static KeyValuePair<string, object?> Tag(string name, object? value) => new(name, value);
+
+    /// <summary>
+    ///     Adds what the provider reported about a summarizer answer to the current summarize activity.
+    /// </summary>
+    /// <remarks>
+    ///     Provider summarizers call this as soon as a response arrives, so the tags are present on an answer that is
+    ///     then rejected as empty. A value that is <see langword="null" /> adds no tag. Nothing is added when the
+    ///     current activity is not the <see cref="SummarizeActivityName" /> activity of <see cref="ActivitySource" />.
+    /// </remarks>
+    /// <param name="finishReason">The provider's reason for ending the answer, or <see langword="null" /> when not reported.</param>
+    /// <param name="outputTokens">The output tokens reported by the provider, or <see langword="null" /> when not reported.</param>
+    /// <param name="reasoningTokens">The reasoning tokens reported by the provider, or <see langword="null" /> when not reported.</param>
+    internal static void RecordSummarizerResponse(string? finishReason, long? outputTokens, long? reasoningTokens)
+    {
+        if (Activity.Current is not { OperationName: SummarizeActivityName } activity || activity.Source != ActivitySource)
+            return;
+
+        if (finishReason is not null)
+            activity.SetTag(FinishReasonTag, finishReason);
+
+        if (outputTokens is not null)
+            activity.SetTag(OutputTokensTag, outputTokens.Value);
+
+        if (reasoningTokens is not null)
+            activity.SetTag(ReasoningTokensTag, reasoningTokens.Value);
+    }
 }

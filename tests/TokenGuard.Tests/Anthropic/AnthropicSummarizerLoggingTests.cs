@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using Anthropic;
 using FluentAssertions;
@@ -26,6 +27,15 @@ public sealed class AnthropicSummarizerLoggingTests
           "content": [ { "type": "text", "text": "SENTINEL-summary of the older turns" } ],
           "stop_reason": "end_turn", "stop_sequence": null,
           "usage": { "input_tokens": 11, "output_tokens": 7 }
+        }
+        """;
+
+    private const string EmptyMessageJson = """
+        {
+          "id": "msg_2", "type": "message", "role": "assistant", "model": "claude-test",
+          "content": [],
+          "stop_reason": "max_tokens", "stop_sequence": null,
+          "usage": { "input_tokens": 11, "output_tokens": 20 }
         }
         """;
 
@@ -77,6 +87,88 @@ public sealed class AnthropicSummarizerLoggingTests
         failed.Exception.Should().BeNull();
         failed.Property("ExceptionType").Should().Be(thrown!.GetType().Name);
         failed.Property("ElapsedMilliseconds").Should().BeOfType<double>();
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheCallSucceeds_LogsTheStopReasonOnTheCompletedRecord()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, MessageJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        logs.WithEventId(CallCompleted).Single().Property("FinishReason").Should().Be("end_turn");
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheCallSucceeds_TagsTheSummarizeActivityWithTheStopReasonAndOutputTokens()
+    {
+        // Arrange
+        using var capture = new TelemetryCapture();
+        using var root = new Activity("test-root").Start();
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, MessageJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        var summarize = capture.ActivitiesNamed("tokenguard.summarize").Should().ContainSingle(activity => activity.TraceId == root.TraceId).Subject;
+        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("end_turn");
+        summarize.GetTagItem("tokenguard.tokens.output").Should().Be(7L);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerIsEmpty_ThrowsWithTheStopReasonAndOutputTokensInTheMessage()
+    {
+        // Arrange
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, EmptyMessageJson);
+
+        // Act
+        var result = await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        result.SummarizationError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be(
+            "Anthropic summarization returned an empty answer. Stop reason: max_tokens; output tokens: 20.");
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerIsEmpty_LogsTheStopReasonAndOutputTokensOnTheFailedRecord()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, EmptyMessageJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        SummarizerRecords(logs).Select(record => record.EventId.Id).Should().Equal(CallStarting, CallFailed);
+
+        var failed = logs.WithEventId(CallFailed).Single();
+        failed.Property("ExceptionType").Should().Be(nameof(InvalidOperationException));
+        failed.Property("FinishReason").Should().Be("max_tokens");
+        failed.Property("OutputTokens").Should().Be(20L);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerIsEmpty_TagsTheSummarizeActivityWithTheStopReasonAndOutputTokens()
+    {
+        // Arrange
+        using var capture = new TelemetryCapture();
+        using var root = new Activity("test-root").Start();
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, EmptyMessageJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        var summarize = capture.ActivitiesNamed("tokenguard.summarize").Should().ContainSingle(activity => activity.TraceId == root.TraceId).Subject;
+        summarize.Status.Should().Be(ActivityStatusCode.Error);
+        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("max_tokens");
+        summarize.GetTagItem("tokenguard.tokens.output").Should().Be(20L);
     }
 
     [Fact]

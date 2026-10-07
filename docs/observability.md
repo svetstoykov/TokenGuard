@@ -88,7 +88,7 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | 1010 | PrepareBelowTrigger | Debug | A prepare call returned the history unchanged because the total is below the compaction trigger. Carries total, trigger, and maximum tokens. |
 | 1011 | CompactionCompleted | Information | A prepare call ran the compaction strategy. Carries outcome, tokens before and after, messages compacted, messages dropped by emergency truncation, strategy name, and elapsed milliseconds. |
 | 1012 | EmergencyTruncationApplied | Warning | Emergency truncation removed messages. Carries the count and the token totals before and after. |
-| 1013 | SummarizationFailed | Warning | The strategy reported a summarization failure and returned a result without a summary. The exception is attached. |
+| 1013 | SummarizationFailed | Warning | The strategy reported a summarization failure and returned a result without a summary. The exception is attached; for an empty answer from a provider summarizer its message states the finish reason and the output tokens. |
 | 1014 | PrepareOverBudget | Error | The prepared payload exceeds the effective maximum (maximum tokens plus overrun tolerance). Carries the outcome, final tokens, and the effective maximum. |
 | 1015 | PinnedBudgetExceeded | Error | Pinned messages alone exceed the maximum. Written before `PinnedTokenBudgetExceededException` is thrown. |
 | 1016 | EmergencyTruncationEvaluated | Debug | The prepared payload exceeded the emergency trigger. Carries current tokens, the trigger, drop units considered and dropped (`TurnGroups` and `TurnGroupsDropped`: each whole turn group before the newest one, and each user message or model message with its tool results inside the newest one), the index of the first unpinned message that is always kept (`PreservedFloorIndex`: the user message that opened the tool loop when the payload ends with a tool result, otherwise the start of the preserved floor), and whether the kept messages alone still exceed the trigger. |
@@ -107,8 +107,8 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | 3022 | SummaryCheckpointCleared | Debug | A saved checkpoint was discarded. `Reason` is `HistoryShorterThanCheckpoint` or `SummarizedPrefixChanged`. |
 | 4000 | TieredResultSelected | Debug | Which stage's result the tiered strategy returned and why. `Reason` is `SlidingWindowSufficient`, `NoSummarizerConfigured`, `SummarizationSucceeded`, `SummarizationOvershot`, or `SummarizationThrew`. |
 | 5000 | SummarizerCallStarting | Debug | A provider summarizer request is about to be sent. Carries provider, message count, target tokens, and the model when the summarizer knows it. |
-| 5001 | SummarizerCallCompleted | Debug | A provider summarizer request returned. Carries elapsed milliseconds, summary length in characters, and provider-reported input and output tokens. |
-| 5002 | SummarizerCallFailed | Debug | A provider summarizer request failed. Carries elapsed milliseconds and the exception type. The exception itself is logged once, by event 1013. |
+| 5001 | SummarizerCallCompleted | Debug | A provider summarizer request returned. Carries elapsed milliseconds, summary length in characters, provider-reported input, output, and reasoning tokens, and the provider's finish reason. |
+| 5002 | SummarizerCallFailed | Debug | A provider summarizer request failed. Carries elapsed milliseconds and the exception type. When the provider answered and the answer was rejected as empty, also carries the provider-reported output and reasoning tokens and the finish reason; these are null when the request itself failed. The exception itself is logged once, by event 1013. |
 | 6001 | EstimatorDriftDetected | Warning | Health signal started: the token estimate differs from the provider-reported value by more than the threshold. |
 | 6002 | RepeatedCompactionDetected | Warning | Health signal started: the strategy ran on consecutive turns. Carries the tokens reclaimed on each. |
 | 6003 | LowCompactionYieldDetected | Warning | Health signal started: a strategy run reclaimed almost nothing. |
@@ -136,13 +136,19 @@ TokenGuard does not reference OpenTelemetry. The snippet needs the OpenTelemetry
 | --- | --- | --- |
 | `tokenguard.prepare` | One `PrepareAsync()` call | `tokenguard.conversation.id`, `tokenguard.context.name`, `tokenguard.turn`, `tokenguard.tokens.max`, `tokenguard.tokens.before`, `tokenguard.tokens.after`, `tokenguard.outcome`, `tokenguard.messages.compacted` |
 | `tokenguard.compact` | One compaction strategy call. Child of `tokenguard.prepare`. | `tokenguard.strategy`, `tokenguard.tokens.available`, `tokenguard.tokens.before`, `tokenguard.tokens.after`, `tokenguard.messages.affected` |
-| `tokenguard.summarize` | One summarizer call made by the LLM summarization strategy. Child of `tokenguard.compact`. | `tokenguard.messages.count`, `tokenguard.tokens.target` |
+| `tokenguard.summarize` | One summarizer call made by the LLM summarization strategy. Child of `tokenguard.compact`. | `tokenguard.messages.count`, `tokenguard.tokens.target`, `tokenguard.finish_reason`, `tokenguard.tokens.output`, `tokenguard.tokens.reasoning` |
 
 `tokenguard.tokens.before` and `tokenguard.tokens.after` on `tokenguard.prepare` are the `TokensBeforeCompaction` and
 `TokensAfterCompaction` of the returned `PrepareResult`. Both include the provider correction when one is known, as do
 the token figures of events 1010, 1011, 1012, 1014, and 1016, the `tokenguard.context.tokens` and
 `tokenguard.compaction.tokens_reclaimed` measurements, and the health signals. The same tags on `tokenguard.compact`,
 and the figures logged by the strategies, are sums of per-message estimates without the correction.
+
+`tokenguard.finish_reason`, `tokenguard.tokens.output`, and `tokenguard.tokens.reasoning` are set by the OpenAI and
+Anthropic summarizers when the provider answers, including an answer that is then rejected as empty. The finish reason
+is the provider's own value, such as `stop` or `length` for OpenAI and `end_turn` or `max_tokens` for Anthropic. A value
+the provider does not report adds no tag; `tokenguard.tokens.reasoning` is set by the OpenAI summarizer only. An empty
+answer with `length` and reasoning tokens close to the output tokens means reasoning used the whole summary budget.
 
 Status and events:
 
