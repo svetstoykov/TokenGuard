@@ -9,9 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] - 2026-10-07
 
-Released packages: `TokenGuard.Core` 1.1.0 and `TokenGuard.Extensions.OpenAI` 1.1.0.
-`TokenGuard.Extensions.Anthropic` stays at 1.0.1 on nuget.org; its source changes since 1.0.1 (the `Anthropic` 12.53.0
-requirement and summarizer logging) ship with its next release.
+Released packages: `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and `TokenGuard.Extensions.Anthropic`, all at
+1.1.0.
 
 ### Behavior changes
 
@@ -53,6 +52,8 @@ under Changed or Fixed below.
 - `TokenGuard.Core` now depends on `Microsoft.Extensions.Logging.Abstractions`.
 - `TokenGuard.Extensions.OpenAI` now requires `OpenAI` 2.14.0 or later (was 2.10.0) and `TokenGuard.Core` 1.1.0 or
   later.
+- `TokenGuard.Extensions.Anthropic` now requires `Anthropic` 12.53.0 or later (was 12.13.0) and `TokenGuard.Core` 1.1.0
+  or later.
 - `new SlidingWindowOptions()` returns the documented defaults, the same value as `SlidingWindowOptions.Default`. It used
   to return the zero value, which could not be used: masking a tool result threw from `string.Format`.
 - `ConversationConfigBuilder.Build()` rejects configurations it used to accept. A compaction or emergency threshold that
