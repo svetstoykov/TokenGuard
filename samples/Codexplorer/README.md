@@ -281,6 +281,9 @@ Manual baseline reports live under `samples/Codexplorer.Automation/baselines/`. 
 and this implementation. Baselines come from real provider calls after committing the implementation; credentials stay in local
 configuration or the environment. Deterministic sample tests live in `tests/Codexplorer.Automation.Tests`; live runs remain manual.
 
+The [2026-10-07 treatment baseline](../Codexplorer.Automation/baselines/README.md) records a successful real run of
+`report-baseline.json`, including its implementation commit, effective settings, and measurement checks.
+
 ## Configuration
 
 ### Requirements
