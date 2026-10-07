@@ -128,6 +128,20 @@ internal static partial class LlmSummarizationLog
     internal static partial void FirstSummaryOvershot(ILogger logger, int tokensAfter, int availableTokens, int summarizedMessages);
 
     /// <summary>
+    ///     Logs that the history was returned unchanged, without a summarizer call, because the same attempt already failed.
+    /// </summary>
+    /// <param name="logger">The logger to write to.</param>
+    /// <param name="messageCount">The number of messages passed to the strategy.</param>
+    /// <param name="availableTokens">The token budget available to the compacted result.</param>
+    [LoggerMessage(
+        EventId = 3015,
+        EventName = "SummarizationSkippedRejectedAttempt",
+        Level = LogLevel.Debug,
+        Message = "Summarization left the history unchanged without calling the summarizer: an earlier attempt over the same "
+            + "{MessageCount} messages with {AvailableTokens} available tokens threw or exceeded the budget.")]
+    internal static partial void SummarizationSkippedRejectedAttempt(ILogger logger, int messageCount, int availableTokens);
+
+    /// <summary>
     ///     Logs that a summary checkpoint was saved.
     /// </summary>
     /// <param name="logger">The logger to write to.</param>

@@ -345,6 +345,15 @@ builder.UseLlmSummarization(chatClient, new LlmSummarizationOptions(
 
 Only one provider per builder. Registering both OpenAI and Anthropic on the same builder throws at startup.
 
+TokenGuard sets no time limit on a summarizer call. The call is bounded only by the cancellation token you pass to
+`PrepareAsync()` and by the network timeout of the provider client you registered. Pass a token, or set the client's
+timeout, if a slow summary must not hold up your loop.
+
+When a summarizer call fails, or returns a summary that is too large for the budget, TokenGuard falls back to the masked
+history and does not ask again while the history and the budget stay the same. Calling `PrepareAsync()` again without
+recording a message makes no second summarizer request, and `SummarizationError` is set only on the call that made the
+request. The next recorded message allows a new attempt. A call that you cancel is not counted as a failed attempt.
+
 ---
 
 ## Provider adapters

@@ -86,6 +86,26 @@ public sealed class TieredCompactionStrategyLoggingTests
         logs.Records.Should().OnlyContain(record => record.Exception == null);
     }
 
+    [Fact]
+    public async Task CompactAsync_WhenSummarizationThrewForTheSameHistoryBefore_ReturnsTheSlidingWindowResultWithoutANewError()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var summarizer = ScriptedSummarizer.Throwing(new TimeoutException("provider timed out"));
+        var strategy = CreateStrategy(logs, summarizer);
+        var history = CreateHistory();
+        await strategy.CompactAsync(history, availableTokens: 60);
+
+        // Act
+        var result = await strategy.CompactAsync(history, availableTokens: 60);
+
+        // Assert
+        summarizer.Calls.Should().Be(1);
+        result.SummarizationError.Should().BeNull();
+        result.TokensAfter.Should().Be(100);
+        result.Messages.Should().Equal(history);
+    }
+
     private static void AssertSelection(CapturingLoggerFactory logs, string result, string reason, int returnedTokens, int availableTokens)
     {
         var record = logs.WithEventId(TieredResultSelected).Should().ContainSingle().Subject;

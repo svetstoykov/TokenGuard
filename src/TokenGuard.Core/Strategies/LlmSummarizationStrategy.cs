@@ -39,6 +39,16 @@ namespace TokenGuard.Core.Strategies;
 /// <c>[MinSummaryTokens, MaxSummaryTokens]</c> range so repair requests never ask the provider for a one-token summary.
 /// </para>
 /// <para>
+/// When the summarizer throws, or returns a summary that is too large for the budget, the strategy remembers that
+/// attempt. A later call with the same messages and the same <c>availableTokens</c> returns the messages unchanged
+/// without calling the summarizer. A call with different messages or a different budget makes a new attempt. An
+/// attempt that ends because the caller cancelled is not remembered.
+/// </para>
+/// <para>
+/// The strategy sets no time limit on a summarizer call. The call ends when the summarizer returns or throws, which
+/// leaves the caller's <see cref="CancellationToken"/> and the provider SDK's network timeout as the only bounds.
+/// </para>
+/// <para>
 /// Checkpoint reuse is intentionally stateful and sequential. One <see cref="LlmSummarizationStrategy"/> instance is
 /// expected to serve exactly one conversation flow at a time; concurrent use of the same instance is undefined.
 /// </para>
@@ -51,6 +61,9 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     private readonly ILogger _logger;
     private readonly ConversationDiagnostics _diagnostics;
     private SummaryCheckpoint? _checkpoint;
+
+    // The last attempt that threw or overshot. It stops an identical call from paying for the same request again.
+    private RejectedSummaryAttempt? _rejectedAttempt;
 
     // Checkpoint churn is tracked here because only this strategy sees a checkpoint being cleared and rebuilt.
     private bool _checkpointClearedThisRun;
@@ -170,6 +183,15 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
                 0,
                 nameof(LlmSummarizationStrategy));
         }
+
+        // The same history and budget already failed or overshot, so asking again would only repeat the cost.
+        if (this.IsRejectedAttempt(messages, availableTokens))
+        {
+            LlmSummarizationLog.SummarizationSkippedRejectedAttempt(this._logger, messages.Count, availableTokens);
+            return CreateUnchangedResult(messages, tokensBefore);
+        }
+
+        this._rejectedAttempt = null;
 
         // Use the saved summary when the old part of the conversation has not changed.
         if (this.TryGetValidCheckpoint(messages, out var checkpoint))
@@ -311,6 +333,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
                 messages,
                 protectedTail.FirstIndex,
                 targetTokens,
+                availableTokens,
                 cancellationToken);
             var promotedResult = CreateSummaryResult(
                 messages,
@@ -322,6 +345,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             if (promotedResult.TokensAfter > availableTokens)
             {
                 LlmSummarizationLog.PromotedSummaryOvershot(this._logger, promotedResult.TokensAfter, availableTokens, protectedTail.FirstIndex);
+                this.RememberRejectedAttempt(messages, availableTokens);
                 return CreateUnchangedResult(messages, tokensBefore);
             }
 
@@ -335,6 +359,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             messages,
             checkpoint.SummarizedMessageCount,
             targetTokens,
+            availableTokens,
             cancellationToken);
         var refreshedResult = CreateSummaryResult(
             messages,
@@ -347,6 +372,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         {
             LlmSummarizationLog.RefreshedSummaryOvershot(
                 this._logger, refreshedResult.TokensAfter, availableTokens, checkpoint.SummarizedMessageCount);
+            this.RememberRejectedAttempt(messages, availableTokens);
             return CreateUnchangedResult(messages, tokensBefore);
         }
 
@@ -398,6 +424,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             messages,
             protectedTail.FirstIndex,
             targetTokens,
+            availableTokens,
             cancellationToken);
 
         var summaryResult = CreateSummaryResult(
@@ -413,6 +440,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         if (summaryResult.TokensAfter > availableTokens)
         {
             LlmSummarizationLog.FirstSummaryOvershot(this._logger, summaryResult.TokensAfter, availableTokens, protectedTail.FirstIndex);
+            this.RememberRejectedAttempt(messages, availableTokens);
             return CreateUnchangedResult(messages, tokensBefore);
         }
 
@@ -639,6 +667,42 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     }
 
     /// <summary>
+    /// Checks whether the last remembered attempt ran over exactly this history and budget.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The message count and the budget are compared first, so the fingerprint of the whole history is computed only
+    /// when both already match.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="availableTokens">The maximum token budget for the compacted result.</param>
+    /// <returns><see langword="true"/> when an identical attempt already threw or overshot the budget.</returns>
+    private bool IsRejectedAttempt(IReadOnlyList<ContextMessage> messages, int availableTokens)
+    {
+        return this._rejectedAttempt is { } rejected
+            && rejected.MessageCount == messages.Count
+            && rejected.AvailableTokens == availableTokens
+            && rejected.Fingerprint == ComputeFingerprint(messages, messages.Count);
+    }
+
+    /// <summary>
+    /// Remembers that summarizing this history under this budget threw or produced a summary that was too large.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The whole history and the budget identify the attempt, because together they decide which messages are sent to
+    /// the summarizer, the requested summary size, and whether the returned summary fits.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="availableTokens">The maximum token budget for the compacted result.</param>
+    private void RememberRejectedAttempt(IReadOnlyList<ContextMessage> messages, int availableTokens)
+    {
+        this._rejectedAttempt = new RejectedSummaryAttempt(messages.Count, ComputeFingerprint(messages, messages.Count), availableTokens);
+    }
+
+    /// <summary>
     /// Builds a result that keeps all messages unchanged.
     /// </summary>
     /// <remarks>
@@ -739,16 +803,22 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// The summarizer returns text only. This method turns that text into a model message and marks it as summarized so
     /// callers can tell it is synthetic.
     /// </para>
+    /// <para>
+    /// The call has no time limit of its own. When the summarizer throws for a reason other than the caller's
+    /// cancellation, the attempt is remembered before the exception is rethrown.
+    /// </para>
     /// </remarks>
     /// <param name="messages">The ordered compactable message history.</param>
     /// <param name="summarizedMessageCount">The number of messages to send to the summarizer.</param>
     /// <param name="targetTokens">The requested summary size.</param>
+    /// <param name="availableTokens">The maximum token budget for the compacted result.</param>
     /// <param name="cancellationToken">A token that can cancel the summarizer call.</param>
     /// <returns>The synthetic summary message.</returns>
     private async Task<ContextMessage> SummarizePrefixAsync(
         IReadOnlyList<ContextMessage> messages,
         int summarizedMessageCount,
         int targetTokens,
+        int availableTokens,
         CancellationToken cancellationToken)
     {
         var messagesToSummarize = messages.Take(summarizedMessageCount).ToArray();
@@ -771,6 +841,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             this._diagnostics.SummarizerFailures++;
             TokenGuardTelemetry.SummarizationFailures.Add(1, this._diagnostics.ContextNameTag);
             this.RecordSummarizationDuration(timeCall, startTimestamp, TokenGuardTelemetry.FailureResult);
+            this.RememberRejectedAttempt(messages, availableTokens);
             throw;
         }
 

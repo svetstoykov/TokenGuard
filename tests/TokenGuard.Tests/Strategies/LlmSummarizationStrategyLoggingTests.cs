@@ -17,6 +17,7 @@ public sealed class LlmSummarizationStrategyLoggingTests
     private const int RefreshedSummaryOvershot = 3012;
     private const int SkippedInsufficientBudget = 3013;
     private const int FirstSummaryOvershot = 3014;
+    private const int SkippedRejectedAttempt = 3015;
     private const int CheckpointCreated = 3020;
     private const int CheckpointReused = 3021;
     private const int CheckpointCleared = 3022;
@@ -138,6 +139,28 @@ public sealed class LlmSummarizationStrategyLoggingTests
         record.Property("AvailableTokens").Should().Be(60);
         record.Property("SummarizedMessages").Should().Be(3);
         logs.WithEventId(CheckpointCreated).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenTheSameHistoryOvershotBefore_LogsTheSkipAndNoSecondOvershoot()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, ScriptedSummarizer.Returning(LongSummary));
+        var history = CreateHistory(5);
+        await strategy.CompactAsync(history, availableTokens: 60);
+
+        // Act
+        await strategy.CompactAsync(history, availableTokens: 60);
+        await strategy.CompactAsync(history, availableTokens: 60);
+
+        // Assert
+        logs.WithEventId(FirstSummaryOvershot).Should().ContainSingle();
+        var skips = logs.WithEventId(SkippedRejectedAttempt);
+        skips.Should().HaveCount(2);
+        skips.Should().OnlyContain(record => record.Level == LogLevel.Debug);
+        skips.Last().Property("MessageCount").Should().Be(5);
+        skips.Last().Property("AvailableTokens").Should().Be(60);
     }
 
     [Fact]

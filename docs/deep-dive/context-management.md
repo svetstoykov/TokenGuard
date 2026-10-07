@@ -265,6 +265,26 @@ Later calls can:
 
 This is why summarization does **not** blindly make a fresh LLM call every turn.
 
+### Failed and oversized summaries
+
+A summarizer call can throw, for example on a provider error or an empty answer, or return a summary that is still too
+large for the budget. In both cases no checkpoint is saved and the tiered strategy returns the masked history.
+
+`LlmSummarizationStrategy` remembers that attempt by the message count, a fingerprint of the whole compactable history,
+and the available tokens. A later call with the same three values returns the history unchanged without calling the
+summarizer and logs `Debug` event 3015. So repeated `PrepareAsync()` calls with no new message make one summarizer
+request, not one per call. A recorded message, an edited history, or a different budget allows a new attempt.
+
+A skipped attempt is not a failure: it does not set `SummarizationError`, does not add to
+`tokenguard.summarization.failures`, and the strategy run counts as one without a summarization failure for the
+`SummarizationFailureStreak` health signal. A call that the caller cancelled is not remembered.
+
+### Time limit
+
+TokenGuard sets no time limit on a summarizer call. The call is bounded only by the cancellation token passed to
+`PrepareAsync()` and by the network timeout of the provider client. Without a token, `PrepareAsync()` waits for as long
+as the provider SDK does.
+
 ### Important lifecycle constraint
 
 `LlmSummarizationStrategy` is intentionally stateful. One instance is expected to serve one conversation flow at a time.

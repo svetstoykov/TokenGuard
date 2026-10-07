@@ -102,6 +102,7 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | 3012 | RefreshedSummaryOvershot | Debug | History returned unchanged: a smaller rewrite of the saved summary still exceeded the available tokens. |
 | 3013 | SummarizationSkippedInsufficientBudget | Debug | History returned unchanged: the tokens left after the protected tail are below the minimum summary size. |
 | 3014 | FirstSummaryOvershot | Debug | History returned unchanged: the first summary still exceeded the available tokens. |
+| 3015 | SummarizationSkippedRejectedAttempt | Debug | History returned unchanged without a summarizer call: an earlier attempt over the same messages with the same available tokens threw or exceeded them. Carries the message count and the available tokens. |
 | 3020 | SummaryCheckpointCreated | Debug | A summary checkpoint was saved or replaced. |
 | 3021 | SummaryCheckpointReused | Debug | A saved checkpoint was reused without calling the summarizer. |
 | 3022 | SummaryCheckpointCleared | Debug | A saved checkpoint was discarded. `Reason` is `HistoryShorterThanCheckpoint` or `SummarizedPrefixChanged`. |
@@ -204,6 +205,11 @@ nothing more while the condition keeps holding, and one `HealthSignalCleared` re
 large, and a budget that is too small for the workload. The thresholds are fixed in this release.
 
 A single summarization failure is a `Warning` (event 1013). A streak of them is an `Error` (event 6004).
+
+A summarizer call that threw, or returned a summary too large for the budget, is not repeated while the history and the
+available tokens stay the same. The skipped run writes event 3015, makes no summarizer call, and records no failure: it
+adds nothing to `tokenguard.summarization.failures` or to the summarizer call count, writes no event 1013, and counts
+toward `SummarizationFailureStreak` as a run without a failure, so it ends a streak.
 
 When a context that had `PrepareAsync()` called at least once is disposed, it writes one `ConversationSummary` record with
 the totals for the conversation.

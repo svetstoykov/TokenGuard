@@ -23,6 +23,16 @@ public static class AnthropicBuilderExtensions
     /// <summary>
     /// Adds Anthropic-backed LLM summarization as the fallback compaction stage for the builder.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// TokenGuard sets no time limit on a summarizer call. The call is bounded only by the cancellation token passed to
+    /// <c>PrepareAsync</c> and by the network timeout configured on <paramref name="client"/>.
+    /// </para>
+    /// <para>
+    /// When a summarizer call fails, or returns a summary that is too large for the budget, TokenGuard does not ask
+    /// again until a message is added or the token budget changes.
+    /// </para>
+    /// </remarks>
     /// <param name="builder">The builder to update.</param>
     /// <param name="client">The Anthropic <see cref="AnthropicClient"/> used to generate summaries.</param>
     /// <param name="model">The Anthropic model identifier used for summarization requests.</param>
