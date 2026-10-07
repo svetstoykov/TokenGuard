@@ -65,7 +65,7 @@ using var conversationContext = serviceProvider
     .Create();
 ```
 
-Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, safe to use across concurrent requests.
+Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, so separate contexts can be used concurrently. A single context is for one caller at a time and nothing enforces that: if you record tool results from parallel tool calls on one context, serialize the calls yourself.
 
 ### 3. Run the loop
 
@@ -111,8 +111,8 @@ while (true)
 
 ## Observability
 
-TokenGuard logs through the container's `ILoggerFactory` once `AddConversationContext` is used, or through
-`WithLoggerFactory(loggerFactory)` on the builder without DI. It also emits activities and metrics under the names in
+Contexts created by an `IConversationContextFactory` resolved from a container that has a logging provider registered log through the container's `ILoggerFactory`. Without DI, pass
+`WithLoggerFactory(loggerFactory)` to the builder. TokenGuard also emits activities and metrics under the names in
 `TokenGuardDiagnostics` (`ActivitySourceName` and `MeterName`, both `TokenGuard`). None of them contain conversation
 content. See [Observability](https://github.com/svetstoykov/TokenGuard/blob/main/docs/observability.md).
 

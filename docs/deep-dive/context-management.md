@@ -68,6 +68,7 @@ large enough. That is expected. The prepared view is not persisted back into his
 | `MessagesCompacted` | Count of messages replaced or dropped during this call |
 | `MessagesDropped` | Count of messages removed specifically by emergency truncation |
 | `BudgetFailureReason` | Diagnostic text for over-budget outcomes |
+| `SummarizationError` | The exception captured when LLM summarization failed during this call and TokenGuard fell back to sliding-window masking; `null` otherwise. Caller cancellation is not reported here |
 
 That shape matters for consumers:
 
@@ -349,7 +350,7 @@ reports that instead of sending a tool loop with no request in view.
 
 | Outcome | Meaning |
 |---|---|
-| `Ready` | Total stayed below the compaction trigger, no compaction ran |
+| `Ready` | The final estimate fits within the allowed ceiling and no message was compacted or dropped: the total stayed below the compaction trigger, or a strategy ran and changed nothing |
 | `Compacted` | Compaction ran and the final estimate fits within the allowed ceiling |
 | `CompactionInsufficient` | Some messages were compacted or dropped, but the final estimate still exceeds the allowed ceiling |
 | `CannotCompact` | Final estimate still exceeds the allowed ceiling and no safe compaction or truncation was possible |
@@ -437,8 +438,8 @@ var config = new ConversationConfigBuilder()
     .Build();
 ```
 
-Current public builder surface stops there. It does not expose `WithTokenCounter(...)`, `WithStrategy(...)`, or
-reserved-token configuration.
+The builder also has `WithLoggerFactory(ILoggerFactory)`, which supplies the logger factory for contexts created without
+dependency injection. It does not expose `WithTokenCounter(...)`, `WithStrategy(...)`, or reserved-token configuration.
 
 ### `ContextBudget`
 

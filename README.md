@@ -135,6 +135,9 @@ services.AddConversationContext("analysis", builder => builder
     .WithCompactionThreshold(0.75));
 ```
 
+Register the default profile first. Registering a named profile before it creates the default profile with the built-in
+settings, and a later default registration then throws `InvalidOperationException`.
+
 Sliding-window masking is always active. Add provider-backed summarization through the provider extension packages:
 
 ```csharp
@@ -158,8 +161,10 @@ using var conversationContext = serviceProvider
     .Create();
 ```
 
-Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, safe to use across
-concurrent requests. Use `Create("analysis")` when you want a named profile.
+Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, so separate contexts can
+be used concurrently. A single context is for one caller at a time and nothing enforces that: if you record tool results
+from parallel tool calls on one context, serialize the calls yourself. Use `Create("analysis")` when you want a named
+profile.
 
 ### 3. Run the loop
 
@@ -219,6 +224,7 @@ to send to the provider. `ConversationContext.History` remains unchanged.
 | `MessagesCompacted` | Count of messages replaced or dropped during this call |
 | `MessagesDropped` | Count of messages removed specifically by emergency truncation |
 | `BudgetFailureReason` | Diagnostic text for over-budget outcomes |
+| `SummarizationError` | The exception captured when LLM summarization failed during this call and TokenGuard fell back to sliding-window masking; `null` otherwise. Caller cancellation is not reported here |
 
 Both token figures are estimates on one scale: the summed per-message estimates plus the provider correction, when one is
 known. The correction is the input token count you last passed to `RecordModelResponse` minus TokenGuard's estimate of
@@ -226,7 +232,8 @@ the payload that count measured. It stays in effect, across compaction, until th
 payload at least as large as the measured one carries the whole correction; a smaller one carries a proportional share.
 On a call that changes no messages the two figures are equal.
 
-`Ready` and `Compacted` are healthy outcomes. `CompactionInsufficient` means TokenGuard reduced the payload but it still
+`Ready` and `Compacted` are healthy outcomes. `Ready` is returned when the history stayed below the compaction trigger,
+and also when a strategy ran but changed no messages and the result fits. `CompactionInsufficient` means TokenGuard reduced the payload but it still
 exceeds the configured limit plus any allowed overrun tolerance. `CannotCompact` means the remaining preserved content is
 already too large and the call should not be attempted.
 
@@ -246,7 +253,8 @@ compactable slice before compaction, then put back between the messages they wer
 surviving message recorded before them and before every surviving message recorded after them. A pin recorded after
 messages that a summary replaced follows the summary. A pin never separates a model message that carries tool calls from
 its tool results; one recorded there is placed before that model message. Pinned messages still count against the
-budget.
+budget. When pinned messages alone exceed `MaxTokens`, `PrepareAsync()` throws `PinnedTokenBudgetExceededException`. A
+pinned message cannot be removed once recorded, so size pinned content to leave room for the conversation.
 
 ---
 
@@ -386,7 +394,8 @@ Provider-reported input tokens still help when they are available:
 
 ## Observability
 
-Logs go to the container's `ILoggerFactory`, or to `WithLoggerFactory(...)` without DI. Tracing and metrics subscribe by name:
+Logs go to the container's `ILoggerFactory` for contexts created by `IConversationContextFactory` resolved from the
+container, or to `WithLoggerFactory(...)` without DI. Tracing and metrics subscribe by name:
 
 ```csharp
 builder.Services.AddOpenTelemetry()
@@ -465,7 +474,7 @@ Trusted Publishing without a long-lived API key.
 
 - .NET SDK 10.0+
 - LLM provider API key for live samples
-- macOS, Linux, or Windows
+- Linux and macOS. Windows is expected to work and is not covered by CI
 
 ---
 

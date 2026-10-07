@@ -31,7 +31,9 @@ namespace TokenGuard.Core.Abstractions;
 /// A conversation context is <b>not</b> safe for concurrent use. Recording methods and
 /// <see cref="PrepareAsync"/> mutate internal history and counters without synchronization. Do not call
 /// members of one instance from multiple threads at the same time; if a conversation is driven from
-/// multiple threads, the caller must serialize access externally.
+/// multiple threads, the caller must serialize access externally. Separate contexts are independent of each
+/// other and can be used concurrently. The case most likely to hit this rule is running parallel tool calls
+/// and calling <see cref="RecordToolResult"/> from each one: the caller must serialize those calls.
 /// </para>
 /// </remarks>
 public interface IConversationContext : IDisposable

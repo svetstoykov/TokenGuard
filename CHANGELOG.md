@@ -59,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   throwing.
 - The OpenAI examples in the root, `TokenGuard.Core`, and `TokenGuard.Extensions.OpenAI` READMEs declare the completion
   as `ChatCompletion`, so they compile as written. The `TokenGuard.Core` README lists both packages its quick start needs.
+- Documentation states that one context is for one caller at a time, that `PrepareAsync()` throws
+  `PinnedTokenBudgetExceededException` when pinned messages alone exceed the budget, that the default profile is
+  registered before named ones, and that `Ready` is also returned when a strategy ran and changed nothing.
+  `SummarizationError` is in the `PrepareResult` tables, the `RecordToolResult` exception documentation matches the
+  code, and the logging, platform, summarize-activity, and `CheckpointChurn` category statements match the code.
 - `PrepareResult.Messages` is a separate list on every path. Below the compaction trigger it used to be the context's own
   history list, so it grew when more messages were recorded and emptied when the context was disposed.
 - Threshold rejections name the setting that is wrong. An emergency threshold outside `(0.0, 1.0]` is reported as

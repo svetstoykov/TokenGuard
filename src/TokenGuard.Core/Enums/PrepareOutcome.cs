@@ -5,7 +5,8 @@ namespace TokenGuard.Core.Enums;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="Ready"/> means the context is within budget and no compaction ran.
+/// <see cref="Ready"/> means the context is within budget and no message was compacted or dropped. That covers a history
+/// below the compaction trigger and a compaction strategy that ran and changed nothing.
 /// <see cref="Compacted"/> means compaction ran and the result fits within the budget.
 /// <see cref="CompactionInsufficient"/> means compaction and emergency truncation ran but the result still exceeds the budget.
 /// <see cref="CannotCompact"/> means the context contains irreducible content that alone exceeds the budget.
@@ -14,7 +15,7 @@ namespace TokenGuard.Core.Enums;
 public enum PrepareOutcome
 {
     /// <summary>
-    /// The context is within budget and no compaction was required.
+    /// The context is within budget and no message was compacted or dropped.
     /// </summary>
     Ready,
 

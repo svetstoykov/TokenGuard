@@ -14,7 +14,8 @@ TokenGuard writes only to these standard .NET types. It has no sink, exporter, o
 ### With dependency injection
 
 Register logging and call `AddConversationContext`. Contexts created by the resolved `IConversationContextFactory` log
-through the container's `ILoggerFactory` without further setup.
+through the container's `ILoggerFactory` without further setup. Resolve `IConversationContextFactory` from the container;
+the concrete `ConversationContextFactory` registered beside it does not take the container's logger factory.
 
 ```csharp
 services.AddLogging();
@@ -43,10 +44,10 @@ Each type logs under its own full name, so one `TokenGuard` prefix covers the wh
 
 | Category | Writes |
 | --- | --- |
-| `TokenGuard.Core.ConversationContext` | Recorded messages, prepare calls, emergency truncation, health signals, the conversation summary |
+| `TokenGuard.Core.ConversationContext` | Recorded messages, prepare calls, emergency truncation, every health signal except `CheckpointChurn`, the conversation summary |
 | `TokenGuard.Core.Strategies.TieredCompactionStrategy` | Which compaction stage produced the result |
 | `TokenGuard.Core.Strategies.SlidingWindowStrategy` | Masking of old tool results |
-| `TokenGuard.Core.Strategies.LlmSummarizationStrategy` | Summarization paths, skips, and checkpoint changes |
+| `TokenGuard.Core.Strategies.LlmSummarizationStrategy` | Summarization paths, skips, checkpoint changes, and the `CheckpointChurn` health signal |
 | `TokenGuard.Extensions.OpenAI.OpenAISummarizer` | OpenAI summarizer calls |
 | `TokenGuard.Extensions.Anthropic.AnthropicSummarizer` | Anthropic summarizer calls |
 
@@ -135,7 +136,7 @@ TokenGuard does not reference OpenTelemetry. The snippet needs the OpenTelemetry
 | --- | --- | --- |
 | `tokenguard.prepare` | One `PrepareAsync()` call | `tokenguard.conversation.id`, `tokenguard.context.name`, `tokenguard.turn`, `tokenguard.tokens.max`, `tokenguard.tokens.before`, `tokenguard.tokens.after`, `tokenguard.outcome`, `tokenguard.messages.compacted` |
 | `tokenguard.compact` | One compaction strategy call. Child of `tokenguard.prepare`. | `tokenguard.strategy`, `tokenguard.tokens.available`, `tokenguard.tokens.before`, `tokenguard.tokens.after`, `tokenguard.messages.affected` |
-| `tokenguard.summarize` | One summarizer call, including custom `ILlmSummarizer` implementations. Child of `tokenguard.compact`. | `tokenguard.messages.count`, `tokenguard.tokens.target` |
+| `tokenguard.summarize` | One summarizer call made by the LLM summarization strategy. Child of `tokenguard.compact`. | `tokenguard.messages.count`, `tokenguard.tokens.target` |
 
 `tokenguard.tokens.before` and `tokenguard.tokens.after` on `tokenguard.prepare` are the `TokensBeforeCompaction` and
 `TokensAfterCompaction` of the returned `PrepareResult`. Both include the provider correction when one is known, as do
@@ -191,7 +192,7 @@ nothing more while the condition keeps holding, and one `HealthSignalCleared` re
 | `SummarizationFailureStreak` | 6004 | Error | A summarization failure was reported on 3 consecutive strategy runs |
 | `RepeatedOverBudget` | 6005 | Error | 2 consecutive prepare calls ended `CompactionInsufficient` or `CannotCompact` |
 | `PinnedPressure` | 6006 | Warning | Pinned messages use more than 50% of the maximum tokens |
-| `CheckpointChurn` | 6007 | Warning | The summary checkpoint was cleared and rebuilt on 3 consecutive summarization runs |
+| `CheckpointChurn` | 6007 | Warning | The summary checkpoint was cleared and rebuilt on 3 consecutive summarization runs. Logged under the `TokenGuard.Core.Strategies.LlmSummarizationStrategy` category |
 
 `LowCompactionYield` and `RepeatedCompaction` often start together but have different causes: a protected tail that is too
 large, and a budget that is too small for the workload. The thresholds are fixed in this release.
