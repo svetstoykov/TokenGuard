@@ -1,5 +1,6 @@
 using System.ClientModel;
 using System.ClientModel.Primitives;
+using System.Diagnostics;
 using System.Net;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
@@ -30,6 +31,19 @@ public sealed class OpenAISummarizerLoggingTests
             { "index": 0, "message": { "role": "assistant", "content": "SENTINEL-summary of the older turns" }, "finish_reason": "stop" }
           ],
           "usage": { "prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18 }
+        }
+        """;
+
+    private const string EmptyCompletionJson = """
+        {
+          "id": "chatcmpl-2", "object": "chat.completion", "created": 1, "model": "gpt-test",
+          "choices": [
+            { "index": 0, "message": { "role": "assistant", "content": "" }, "finish_reason": "length" }
+          ],
+          "usage": {
+            "prompt_tokens": 11, "completion_tokens": 20, "total_tokens": 31,
+            "completion_tokens_details": { "reasoning_tokens": 19 }
+          }
         }
         """;
 
@@ -80,6 +94,111 @@ public sealed class OpenAISummarizerLoggingTests
         failed.Exception.Should().BeNull();
         failed.Property("ExceptionType").Should().Be(thrown!.GetType().Name);
         failed.Property("ElapsedMilliseconds").Should().BeOfType<double>();
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheCallSucceeds_LogsTheFinishReasonOnTheCompletedRecord()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, CompletionJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        var completed = logs.WithEventId(CallCompleted).Single();
+        completed.Property("FinishReason").Should().Be("stop");
+        completed.Property("ReasoningTokens").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheCallSucceeds_TagsTheSummarizeActivityWithTheFinishReasonAndOutputTokens()
+    {
+        // Arrange
+        using var capture = new TelemetryCapture();
+        using var root = new Activity("test-root").Start();
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, CompletionJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        var summarize = capture.ActivitiesNamed("tokenguard.summarize").Should().ContainSingle(activity => activity.TraceId == root.TraceId).Subject;
+        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("stop");
+        summarize.GetTagItem("tokenguard.tokens.output").Should().Be(7L);
+        summarize.GetTagItem("tokenguard.tokens.reasoning").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerIsEmpty_ThrowsWithTheFinishReasonAndTokenCountsInTheMessage()
+    {
+        // Arrange
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, EmptyCompletionJson);
+
+        // Act
+        var result = await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        result.SummarizationError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be(
+            "OpenAI summarization returned an empty answer. Finish reason: length; output tokens: 20; reasoning tokens: 19.");
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerIsEmpty_LogsTheFinishReasonAndTokenCountsOnTheFailedRecord()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, EmptyCompletionJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        SummarizerRecords(logs).Select(record => record.EventId.Id).Should().Equal(CallStarting, CallFailed);
+
+        var failed = logs.WithEventId(CallFailed).Single();
+        failed.Property("ExceptionType").Should().Be(nameof(InvalidOperationException));
+        failed.Property("FinishReason").Should().Be("length");
+        failed.Property("OutputTokens").Should().Be(20L);
+        failed.Property("ReasoningTokens").Should().Be(19L);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerIsEmpty_TagsTheSummarizeActivityWithTheFinishReasonAndTokenCounts()
+    {
+        // Arrange
+        using var capture = new TelemetryCapture();
+        using var root = new Activity("test-root").Start();
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, EmptyCompletionJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        var summarize = capture.ActivitiesNamed("tokenguard.summarize").Should().ContainSingle(activity => activity.TraceId == root.TraceId).Subject;
+        summarize.Status.Should().Be(ActivityStatusCode.Error);
+        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("length");
+        summarize.GetTagItem("tokenguard.tokens.output").Should().Be(20L);
+        summarize.GetTagItem("tokenguard.tokens.reasoning").Should().Be(19L);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheRequestIsRejected_LogsNoResponseValuesOnTheFailedRecord()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(
+            logs, HttpStatusCode.BadRequest, """{ "error": { "message": "bad request", "type": "invalid_request_error" } }""");
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        var failed = logs.WithEventId(CallFailed).Single();
+        failed.Property("FinishReason").Should().BeNull();
+        failed.Property("OutputTokens").Should().BeNull();
+        failed.Property("ReasoningTokens").Should().BeNull();
     }
 
     [Fact]

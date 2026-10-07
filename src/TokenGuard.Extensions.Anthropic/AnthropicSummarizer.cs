@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Anthropic;
 using Anthropic.Models.Messages;
 using Microsoft.Extensions.Logging;
@@ -77,6 +78,9 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
         var startTimestamp = logCall ? Stopwatch.GetTimestamp() : 0;
         SummarizerLog.SummarizerCallStarting(this._logger, ProviderName, this._model, messages.Count, targetTokens);
 
+        string? stopReason = null;
+        long? outputTokens = null;
+
         try
         {
             var response = await this._client.Messages.Create(
@@ -109,6 +113,10 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            stopReason = response.StopReason?.Raw();
+            outputTokens = response.Usage.OutputTokens;
+            TokenGuardTelemetry.RecordSummarizerResponse(stopReason, outputTokens, reasoningTokens: null);
+
             var summary = string.Join(
                     Environment.NewLine,
                     response.TextSegments()
@@ -117,13 +125,17 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                 .Trim();
 
             if (string.IsNullOrWhiteSpace(summary))
-                throw new InvalidOperationException("Anthropic summarization returned an empty answer.");
+            {
+                throw new InvalidOperationException(
+                    $"Anthropic summarization returned an empty answer. Stop reason: {stopReason ?? "not reported"}; "
+                    + $"output tokens: {outputTokens.Value.ToString(CultureInfo.InvariantCulture)}.");
+            }
 
             if (logCall)
             {
                 SummarizerLog.SummarizerCallCompleted(
                     this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, summary.Length,
-                    response.Usage.InputTokens, response.Usage.OutputTokens);
+                    response.Usage.InputTokens, outputTokens, reasoningTokens: null, stopReason);
             }
 
             return summary;
@@ -131,7 +143,8 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
         catch (Exception exception) when (logCall)
         {
             SummarizerLog.SummarizerCallFailed(
-                this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, exception.GetType().Name);
+                this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, exception.GetType().Name,
+                outputTokens, reasoningTokens: null, stopReason);
             throw;
         }
     }

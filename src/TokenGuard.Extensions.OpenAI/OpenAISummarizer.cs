@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpenAI.Chat;
@@ -70,6 +71,10 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
         var startTimestamp = logCall ? Stopwatch.GetTimestamp() : 0;
         SummarizerLog.SummarizerCallStarting(this._logger, ProviderName, model: null, messages.Count, targetTokens);
 
+        string? finishReason = null;
+        long? outputTokens = null;
+        long? reasoningTokens = null;
+
         try
         {
             var completion = (await this._client.CompleteChatAsync(
@@ -84,6 +89,11 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
                     cancellationToken)
                 .ConfigureAwait(false)).Value;
 
+            finishReason = FinishReasonName(completion.FinishReason);
+            outputTokens = completion.Usage?.OutputTokenCount;
+            reasoningTokens = completion.Usage?.OutputTokenDetails?.ReasoningTokenCount;
+            TokenGuardTelemetry.RecordSummarizerResponse(finishReason, outputTokens, reasoningTokens);
+
             var summary = string.Join(
                     Environment.NewLine,
                     completion.TextSegments()
@@ -92,13 +102,17 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
                 .Trim();
 
             if (string.IsNullOrWhiteSpace(summary))
-                throw new InvalidOperationException("OpenAI summarization returned an empty answer.");
+            {
+                throw new InvalidOperationException(
+                    $"OpenAI summarization returned an empty answer. Finish reason: {finishReason}; output tokens: {Reported(outputTokens)}; "
+                    + $"reasoning tokens: {Reported(reasoningTokens)}.");
+            }
 
             if (logCall)
             {
                 SummarizerLog.SummarizerCallCompleted(
                     this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, summary.Length,
-                    completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount);
+                    completion.Usage?.InputTokenCount, outputTokens, reasoningTokens, finishReason);
             }
 
             return summary;
@@ -106,8 +120,25 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
         catch (Exception exception) when (logCall)
         {
             SummarizerLog.SummarizerCallFailed(
-                this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, exception.GetType().Name);
+                this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, exception.GetType().Name,
+                outputTokens, reasoningTokens, finishReason);
             throw;
         }
     }
+
+    /// <summary>
+    ///     Returns the OpenAI wire name of a finish reason, such as <c>length</c> for an answer cut off by the output limit.
+    /// </summary>
+    private static string FinishReasonName(ChatFinishReason finishReason) =>
+        finishReason switch
+        {
+            ChatFinishReason.Stop => "stop",
+            ChatFinishReason.Length => "length",
+            ChatFinishReason.ContentFilter => "content_filter",
+            ChatFinishReason.ToolCalls => "tool_calls",
+            ChatFinishReason.FunctionCall => "function_call",
+            _ => finishReason.ToString(),
+        };
+
+    private static string Reported(long? tokens) => tokens?.ToString(CultureInfo.InvariantCulture) ?? "not reported";
 }

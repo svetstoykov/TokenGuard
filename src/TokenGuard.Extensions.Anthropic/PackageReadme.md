@@ -56,7 +56,7 @@ Use `messages` as the Anthropic message list and `systemPrompt` as the separate 
 
 When the conversation has a logger factory (`services.AddLogging()` with `AddConversationContext`, or
 `WithLoggerFactory(loggerFactory)` on the builder), each Anthropic summarizer call is logged at `Debug` with its duration
-and reported token usage, never its prompt or summary text.
+and the reported token usage and finish reason, never its prompt or summary text.
 See [Observability](https://github.com/svetstoykov/TokenGuard/blob/main/docs/observability.md).
 
 ## More detail

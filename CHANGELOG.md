@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The provider's finish reason and token counts on every summarizer answer, so an empty answer carries its cause. The
+  `tokenguard.summarize` activity gains the tags `tokenguard.finish_reason`, `tokenguard.tokens.output`, and
+  `tokenguard.tokens.reasoning`; events 5001 (`SummarizerCallCompleted`) and 5002 (`SummarizerCallFailed`) gain
+  `FinishReason`, `ReasoningTokens`, and, on 5002, `OutputTokens`. Reasoning tokens are reported by the OpenAI summarizer
+  only.
+
 ### Changed
 
 - `TokenGuard.Extensions.OpenAI` and `TokenGuard.Extensions.Anthropic` depend on exactly the `TokenGuard.Core` version
@@ -16,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version conflict when two extensions pin different Core versions, and as a `NU1608` warning when the project also
   references a different Core version directly. Upgrading Core requires the extension release built against it.
   Extension versions 1.0.1 and 1.1.0 keep the open-ended dependency.
+- The `InvalidOperationException` thrown for an empty summarizer answer states the finish reason and the output tokens
+  in its message, for example `OpenAI summarization returned an empty answer. Finish reason: length; output tokens: 20;
+  reasoning tokens: 19.` The exception is attached to event 1013 (`SummarizationFailed`) and returned as
+  `PrepareResult.SummarizationError`.
 
 ## [1.1.0] - 2026-10-07
 
