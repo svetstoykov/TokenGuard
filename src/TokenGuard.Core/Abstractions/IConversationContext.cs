@@ -126,9 +126,10 @@ public interface IConversationContext : IDisposable
     /// </para>
     /// <para>
     /// When <paramref name="providerInputTokens"/> is provided, the context compares the provider's
-    /// count with its most recent prepared estimate and stores the difference as an additive correction
-    /// factor. That correction is applied to later <see cref="PrepareAsync"/> calls until the next
-    /// compaction cycle resets it.
+    /// count with the summed message estimates of its most recently prepared payload and stores the difference as the
+    /// provider correction. That correction is applied to every later <see cref="PrepareAsync"/> call, including calls
+    /// that compact, until the next provider report replaces it. <see cref="PrepareResult.TokensAfterCompaction"/>
+    /// describes how it is scaled to a smaller payload.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>

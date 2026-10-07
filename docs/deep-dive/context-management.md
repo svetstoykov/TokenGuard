@@ -63,8 +63,8 @@ large enough. That is expected. The prepared view is not persisted back into his
 |---|---|
 | `Messages` | Prepared message list for the provider call |
 | `Outcome` | `Ready`, `Compacted`, `CompactionInsufficient`, or `CannotCompact` |
-| `TokensBeforeCompaction` | Estimated total before any compaction or truncation ran |
-| `TokensAfterCompaction` | Estimated total of the returned `Messages` |
+| `TokensBeforeCompaction` | Estimated total of the recorded history before any compaction or truncation ran, including the provider correction |
+| `TokensAfterCompaction` | Estimated total of the returned `Messages` on the same scale. `Outcome` is decided from it |
 | `MessagesCompacted` | Count of messages replaced or dropped during this call |
 | `MessagesDropped` | Count of messages removed specifically by emergency truncation |
 | `BudgetFailureReason` | Diagnostic text for over-budget outcomes |
@@ -109,22 +109,36 @@ var total = messageOverhead
 This still is an estimate. To reduce systematic drift, `RecordModelResponse(..., providerInputTokens)` feeds actual
 provider counts back into the context.
 
-The anchor correction is:
+The anchor correction, also called the provider correction, is:
 
 ```text
-anchorCorrection = providerInputTokens - lastPreparedEstimate
+anchorCorrection = providerInputTokens - sum(lastPreparedMessages)
+anchorBase       = sum(lastPreparedMessages)
 ```
 
-`PrepareAsync()` adds that correction to later pre-compaction totals. This lets TokenGuard compensate when the heuristic
-is consistently high or low for a given provider and workload.
+`sum(...)` is the sum of the per-message estimates, without any correction. The correction stays in effect on every
+later `PrepareAsync()` call, including calls that compact, until the next provider report replaces it. This lets
+TokenGuard compensate when the heuristic is consistently high or low for a given provider and workload.
 
-After a compaction path runs, TokenGuard:
+Every total that `PrepareAsync()` reports or compares uses one scale:
 
-- updates `_lastEstimatedTotalTokens` to the final prepared estimate
-- resets `_anchorCorrection` to `0`
+```text
+corrected(messages) = sum(messages) + anchorCorrection                                if sum(messages) >= anchorBase
+corrected(messages) = sum(messages) + anchorCorrection * sum(messages) / anchorBase   otherwise (rounded toward zero)
+```
 
-The reset is important because the correction was calibrated against the previously prepared message shape. Reusing it
-after masking, summarization, or truncation would bias the next threshold check.
+A list at least as large as the payload the provider measured gets the whole correction, so messages recorded since the
+report count at their estimate. A smaller list, such as a compacted view, gets a proportional share, because the
+correction was learned on more content than the list still holds. A payload unchanged since the report totals exactly
+the provider count.
+
+`TokensBeforeCompaction` is `corrected(history)` and `TokensAfterCompaction` is `corrected(prepared.Messages)`. The
+compaction trigger, the emergency trigger, and the outcome are all compared on this scale, so a call that changes no
+messages reports the same figure twice. With no provider report recorded, the correction is zero and every figure is the
+plain sum.
+
+The strategy itself works on per-message estimates. `availableTokens` and the `tokenguard.compact` activity tags do not
+include the correction.
 
 ---
 
@@ -137,10 +151,11 @@ The built-in pipeline is `TieredCompactionStrategy`:
 3. emergency truncation runs afterward inside `ConversationContext` when the prepared result is still above the
    emergency trigger
 
-The threshold check in `ConversationContext` is against the full history estimate plus any active anchor correction:
+The threshold check in `ConversationContext` is against the full history estimate with any active anchor correction
+applied (section 4 defines `corrected`):
 
 ```text
-totalBeforeCompaction = sum(history) + anchorCorrection
+totalBeforeCompaction = corrected(history)
 ```
 
 If that total is below `ContextBudget.CompactionTriggerTokens`, the context returns `Ready` and skips all strategy work.

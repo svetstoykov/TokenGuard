@@ -50,8 +50,12 @@ internal static partial class ConversationContextLog
     /// <param name="conversationId">The identifier of the conversation.</param>
     /// <param name="contextName">The configuration name of the conversation.</param>
     /// <param name="providerInputTokens">The input token count reported by the provider.</param>
-    /// <param name="lastEstimatedTokens">The token estimate of the most recently prepared payload.</param>
-    /// <param name="correction">The signed correction added to later estimates.</param>
+    /// <param name="lastEstimatedTokens">
+    ///     The token total reported for the most recently prepared payload, with the correction active on that call included.
+    /// </param>
+    /// <param name="correction">
+    ///     The signed correction added to later estimates: the provider count minus the summed message estimates of that payload.
+    /// </param>
     [LoggerMessage(
         EventId = 1001,
         EventName = "EstimateAnchored",
@@ -220,4 +224,26 @@ internal static partial class ConversationContextLog
             + "index {PreparedIndex} of the prepared payload.")]
     internal static partial void PinnedMessagePlaced(
         ILogger logger, string conversationId, string contextName, int turn, int historyIndex, int preparedIndex);
+
+    /// <summary>
+    ///     Logs the provider correction included in the token totals of one prepare call.
+    /// </summary>
+    /// <param name="logger">The logger to write to.</param>
+    /// <param name="conversationId">The identifier of the conversation.</param>
+    /// <param name="contextName">The configuration name of the conversation.</param>
+    /// <param name="turn">The turn number of the prepare call.</param>
+    /// <param name="correction">The signed correction learned from the last provider report.</param>
+    /// <param name="correctionBaseTokens">The summed message estimates of the payload the provider measured.</param>
+    /// <param name="correctionBefore">The part of the correction included in the total before compaction.</param>
+    /// <param name="correctionAfter">The part of the correction included in the total of the prepared payload.</param>
+    [LoggerMessage(
+        EventId = 1018,
+        EventName = "ProviderCorrectionApplied",
+        Level = LogLevel.Debug,
+        Message = "Conversation {ConversationId} ({ContextName}) turn {Turn}: provider correction of {Correction} tokens, learned on a "
+            + "payload estimated at {CorrectionBaseTokens}, adds {CorrectionBefore} tokens to the total before compaction and "
+            + "{CorrectionAfter} to the prepared payload.")]
+    internal static partial void ProviderCorrectionApplied(
+        ILogger logger, string conversationId, string contextName, int turn, int correction, int correctionBaseTokens, int correctionBefore,
+        int correctionAfter);
 }

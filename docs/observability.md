@@ -68,7 +68,7 @@ around the compaction strategy. To see them on those records, turn on scopes in 
 | Level | Contents |
 | --- | --- |
 | `Trace` | One record per recorded message and one per masked tool result. A long conversation produces thousands of lines. |
-| `Debug` | Every compaction decision: below-trigger prepare calls, the sliding-window pass, the summarization path and why it skipped, checkpoint changes, the tiered result, the emergency truncation evaluation, summarizer calls, and estimate corrections. Nothing at this level is written per message. |
+| `Debug` | Every compaction decision: below-trigger prepare calls, the sliding-window pass, the summarization path and why it skipped, checkpoint changes, the tiered result, the emergency truncation evaluation, summarizer calls, estimate corrections, and the provider correction included in each prepare call's totals. Nothing at this level is written per message. |
 | `Information` | One record for each prepare call that ran the compaction strategy, one when a health signal clears, and one summary when a context that was prepared at least once is disposed. |
 | `Warning` | Emergency truncation removed messages, a summarization failure was absorbed, or a health signal started. |
 | `Error` | The prepared payload is over budget, pinned messages alone exceed the maximum, summarization keeps failing, or prepare calls keep ending over budget. |
@@ -83,7 +83,7 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | Event ID | Name | Level | Meaning |
 | --- | --- | --- | --- |
 | 1000 | MessageRecorded | Trace | A message was recorded. Carries role, pinned flag, and segment count. |
-| 1001 | EstimateAnchored | Debug | The provider reported its input tokens. Carries the provider total, the last estimate, and the signed correction applied to later estimates. |
+| 1001 | EstimateAnchored | Debug | The provider reported its input tokens. Carries the provider total, the last estimate (the total reported for the last prepared payload, with the correction then active), and the signed correction applied to later estimates (the provider total minus the summed message estimates of that payload). |
 | 1010 | PrepareBelowTrigger | Debug | A prepare call returned the history unchanged because the total is below the compaction trigger. Carries total, trigger, and maximum tokens. |
 | 1011 | CompactionCompleted | Information | A prepare call ran the compaction strategy. Carries outcome, tokens before and after, messages compacted, messages dropped by emergency truncation, strategy name, and elapsed milliseconds. |
 | 1012 | EmergencyTruncationApplied | Warning | Emergency truncation removed messages. Carries the count and the token totals before and after. |
@@ -92,6 +92,7 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | 1015 | PinnedBudgetExceeded | Error | Pinned messages alone exceed the maximum. Written before `PinnedTokenBudgetExceededException` is thrown. |
 | 1016 | EmergencyTruncationEvaluated | Debug | The prepared payload exceeded the emergency trigger. Carries current tokens, the trigger, drop units considered and dropped (`TurnGroups` and `TurnGroupsDropped`: each whole turn group before the newest one, and each user message or model message with its tool results inside the newest one), the index of the first unpinned message that is always kept (`PreservedFloorIndex`: the user message that opened the tool loop when the payload ends with a tool result, otherwise the start of the preserved floor), and whether the kept messages alone still exceed the trigger. |
 | 1017 | PinnedMessagePlaced | Debug | One pinned message was placed in a prepared payload that was reassembled around pinned messages. Carries the message's index in the recorded history and its index in the prepared payload. |
+| 1018 | ProviderCorrectionApplied | Debug | A prepare call included a provider correction in its token totals. Carries the correction, the summed message estimates of the payload the provider measured (`CorrectionBaseTokens`), and the part of the correction included in the total before compaction and in the total of the prepared payload. Written on every prepare call while the correction is not zero. |
 | 2000 | SlidingWindowApplied | Debug | One sliding-window pass. Carries message count, available tokens, tokens before and after, window size, protected messages, and tool results masked. |
 | 2001 | ToolResultMasked | Trace | One tool result was replaced with a placeholder. Carries message index, tool call ID, tool name, and the message's tokens before and after. |
 | 3000 | SummarizationPathSelected | Debug | Summarization started with or without a reusable checkpoint. Carries the protected tail's first index and size, the number and token total of older messages, and the target summary size. |
@@ -136,6 +137,12 @@ TokenGuard does not reference OpenTelemetry. The snippet needs the OpenTelemetry
 | `tokenguard.compact` | One compaction strategy call. Child of `tokenguard.prepare`. | `tokenguard.strategy`, `tokenguard.tokens.available`, `tokenguard.tokens.before`, `tokenguard.tokens.after`, `tokenguard.messages.affected` |
 | `tokenguard.summarize` | One summarizer call, including custom `ILlmSummarizer` implementations. Child of `tokenguard.compact`. | `tokenguard.messages.count`, `tokenguard.tokens.target` |
 
+`tokenguard.tokens.before` and `tokenguard.tokens.after` on `tokenguard.prepare` are the `TokensBeforeCompaction` and
+`TokensAfterCompaction` of the returned `PrepareResult`. Both include the provider correction when one is known, as do
+the token figures of events 1010, 1011, 1012, 1014, and 1016, the `tokenguard.context.tokens` and
+`tokenguard.compaction.tokens_reclaimed` measurements, and the health signals. The same tags on `tokenguard.compact`,
+and the figures logged by the strategies, are sums of per-message estimates without the correction.
+
 Status and events:
 
 - `tokenguard.prepare` ends with status `Ok`, or `Error` when the outcome is `CompactionInsufficient` or `CannotCompact`,
@@ -162,7 +169,7 @@ per-conversation value. Durations are measured only while the instrument has a l
 | `tokenguard.compaction.messages` | Counter | `{message}` | `tokenguard.kind` (`masked`, `summarized`, `dropped`) | Every prepare call that ran the strategy: messages changed, by kind |
 | `tokenguard.summarization.failures` | Counter | `{failure}` | none | Every summarizer call that threw |
 | `tokenguard.emergency_truncation.count` | Counter | `{truncation}` | none | Every prepare call in which emergency truncation removed messages |
-| `tokenguard.estimate.error_ratio` | Histogram | `1` | none | Every `RecordModelResponse` call that supplies `providerInputTokens`: the provider value minus the last estimate, divided by the provider value |
+| `tokenguard.estimate.error_ratio` | Histogram | `1` | none | Every `RecordModelResponse` call that supplies `providerInputTokens`: the provider value minus the total reported for the last prepared payload, divided by the provider value |
 | `tokenguard.health.signals` | Counter | `{signal}` | `tokenguard.signal` | Each time a health signal starts |
 
 A prepare call that throws records no prepare measurement. A summarizer call that is cancelled by the caller records
