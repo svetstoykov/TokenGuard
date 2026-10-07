@@ -8,7 +8,7 @@ internal sealed class ConsoleAutomationProtocolChannel : IAutomationProtocolChan
     private bool _disposed;
 
     public ConsoleAutomationProtocolChannel()
-        : this(Console.In, Console.Out, disposeStreams: false)
+        : this(new StreamReader(Console.OpenStandardInput(), Console.InputEncoding, leaveOpen: true), Console.Out, disposeStreams: false)
     {
     }
 
