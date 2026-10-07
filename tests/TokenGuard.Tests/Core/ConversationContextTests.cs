@@ -42,7 +42,7 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenEstimateIsBelowThreshold_ReturnsOriginalListAndSkipsCompaction()
+    public async Task PrepareAsync_WhenEstimateIsBelowThreshold_ReturnsHistoryInNewListAndSkipsCompaction()
     {
         // Arrange
         var counter = new TrackingTokenCounter();
@@ -57,8 +57,49 @@ public sealed class ConversationContextTests
         var prepared = result.Messages;
 
         // Assert
-        prepared.Should().BeSameAs(engine.History);
+        prepared.Should().NotBeSameAs(engine.History);
+        prepared.Should().Equal(engine.History);
         strategy.CompactCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenBelowThresholdAndContextChangesAfterwards_KeepsThePreparedMessages()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        engine.AddUserMessage("question one");
+        var question = engine.History[0];
+
+        var result = await engine.PrepareAsync();
+
+        // Act
+        engine.RecordModelResponse([new TextContent("answer one")]);
+        engine.AddUserMessage("question two");
+        var countAfterRecording = result.Messages.Count;
+        engine.Dispose();
+
+        // Assert
+        countAfterRecording.Should().Be(1);
+        result.Messages.Should().ContainSingle().Which.Should().BeSameAs(question);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenCalledTwiceBelowThresholdWithoutRecording_ReturnsEqualMessagesInSeparateLists()
+    {
+        // Arrange
+        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
+
+        engine.AddUserMessage("question one");
+        engine.RecordModelResponse([new TextContent("answer one")]);
+
+        // Act
+        var first = await engine.PrepareAsync();
+        var second = await engine.PrepareAsync();
+
+        // Assert
+        second.Messages.Should().Equal(first.Messages);
+        second.Messages.Should().NotBeSameAs(first.Messages);
     }
 
     [Fact]
@@ -648,7 +689,7 @@ public sealed class ConversationContextTests
         var prepared = result.Messages;
 
         // Assert
-        prepared.Should().BeSameAs(engine.History);
+        prepared.Should().Equal(engine.History);
         strategy.CompactCalls.Should().Be(0);
     }
 
@@ -685,9 +726,9 @@ public sealed class ConversationContextTests
         var thirdPrepared = thirdResult.Messages;
 
         // Assert
-        firstPrepared.Should().BeSameAs(engine.History);
-        secondPrepared.Should().BeSameAs(engine.History);
-        thirdPrepared.Should().BeSameAs(engine.History);
+        firstPrepared.Should().Equal(engine.History.Take(2));
+        secondPrepared.Should().Equal(engine.History.Take(3));
+        thirdPrepared.Should().Equal(engine.History);
         strategy.CompactCalls.Should().Be(0);
     }
 
@@ -1169,7 +1210,7 @@ public sealed class ConversationContextTests
         result.MessagesCompacted.Should().Be(0);
         result.BudgetFailureReason.Should().BeNull();
         result.MessagesDropped.Should().Be(0);
-        result.Messages.Should().BeSameAs(engine.History);
+        result.Messages.Should().Equal(engine.History);
     }
 
     [Fact]

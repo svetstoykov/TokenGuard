@@ -336,8 +336,8 @@ public sealed class ConversationContext : IConversationContext
     /// request. Use <see cref="PrepareResult.Messages"/> for the list that should be sent to the model.
     /// </para>
     /// <para>
-    /// If the estimated token total is below the compaction trigger, the current history is
-    /// returned directly with <see cref="PrepareResult.Outcome"/> set to <see cref="Enums.PrepareOutcome.Ready"/>.
+    /// If the estimated token total is below the compaction trigger, a copy of the current history is
+    /// returned with <see cref="PrepareResult.Outcome"/> set to <see cref="Enums.PrepareOutcome.Ready"/>.
     /// If the trigger is reached, the configured <see cref="ICompactionStrategy"/>
     /// is awaited to produce a smaller list.
     /// </para>
@@ -1000,17 +1000,17 @@ public sealed class ConversationContext : IConversationContext
             this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, message.Role, message.IsPinned, message.Segments.Count);
 
     /// <summary>
-    /// Returns the history as the prepared view, with any pinned message recorded inside a tool exchange moved before it.
+    /// Returns a snapshot of the history as the prepared view, with any pinned message recorded inside a tool exchange moved before it.
     /// </summary>
     /// <param name="messages">The recorded history.</param>
     /// <returns>
-    /// <paramref name="messages"/> itself when no pinned message directly precedes a tool result; otherwise a new list
-    /// in which each such pinned message precedes the model message that carries the tool calls.
+    /// A new list that holds the messages in recorded order when no pinned message directly precedes a tool result; otherwise
+    /// a new list in which each such pinned message precedes the model message that carries the tool calls.
     /// </returns>
     private IReadOnlyList<ContextMessage> MovePinnedMessagesOutOfToolExchanges(IReadOnlyList<ContextMessage> messages)
     {
         if (!HasPinnedMessageBeforeToolResult(messages))
-            return messages;
+            return messages.ToArray();
 
         var (pinnedSlots, compactable) = SplitPinned(messages);
         var prepared = ReassemblePreparedMessages(pinnedSlots, compactable.Count, compactable);
