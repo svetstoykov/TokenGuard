@@ -312,8 +312,11 @@ public sealed class ConversationContext : IConversationContext
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="toolCallId"/>, <paramref name="toolName"/>, or
-    /// <paramref name="content"/> is null or whitespace.
+    /// Thrown when <paramref name="toolCallId"/> or <paramref name="toolName"/> is null or whitespace.
+    /// </exception>
+    /// <exception cref="ArgumentNullException">
+    /// Thrown when <paramref name="content"/> is <see langword="null"/>. An empty or whitespace
+    /// <paramref name="content"/> is recorded as given.
     /// </exception>
     public void RecordToolResult(string toolCallId, string toolName, string content)
     {
