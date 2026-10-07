@@ -18,7 +18,7 @@
     <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <PackageReleaseNotes>Requires TokenGuard.Core 1.1.0 and Anthropic 12.53.0 or later. The summarizer logs and traces through the logger factory configured on the conversation.
+    <PackageReleaseNotes>Requires exactly TokenGuard.Core 1.1.0, and Anthropic 12.53.0 or later. The summarizer logs and traces through the logger factory configured on the conversation.
 
 Known limits: the token counter, summarizer, summary formatter, and builder registration of a custom compaction strategy are closed to consumers; one ConversationContext is for one caller at a time; token estimates leave out request overhead such as tool schemas; the package targets net10.0 only.
 

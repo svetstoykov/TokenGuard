@@ -39,6 +39,25 @@ jobs:
           dotnet pack src/TokenGuard.Extensions.OpenAI/TokenGuard.Extensions.OpenAI.csproj --configuration Release --no-build --nologo --output artifacts/ci-validation-packages
           dotnet pack src/TokenGuard.Extensions.Anthropic/TokenGuard.Extensions.Anthropic.csproj --configuration Release --no-build --nologo --output artifacts/ci-validation-packages
 
+      - name: Verify extensions depend on exact Core version
+        shell: bash
+        run: |
+          packages="artifacts/ci-validation-packages"
+          core_version="$(unzip -p "$packages"/TokenGuard.Core.*.nupkg TokenGuard.Core.nuspec | sed -n 's:.*<version>\(.*\)</version>.*:\1:p')"
+          if [ -z "$core_version" ]; then
+            echo "Could not read TokenGuard.Core version from packed nuspec." >&2
+            exit 1
+          fi
+
+          for package in TokenGuard.Extensions.OpenAI TokenGuard.Extensions.Anthropic; do
+            expected="<dependency id=\"TokenGuard.Core\" version=\"[$core_version]\""
+            if ! unzip -p "$packages"/"$package".*.nupkg "$package.nuspec" | grep -Fq "$expected"; then
+              echo "$package must depend on TokenGuard.Core [$core_version]. Packed dependencies:" >&2
+              unzip -p "$packages"/"$package".*.nupkg "$package.nuspec" | grep -F "<dependency " >&2
+              exit 1
+            fi
+          done
+
       - name: Build README snippets against packed packages
         run: ./tests/TokenGuard.ReadmeSnippets/verify.sh
 

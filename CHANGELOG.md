@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `TokenGuard.Extensions.OpenAI` and `TokenGuard.Extensions.Anthropic` depend on exactly the `TokenGuard.Core` version
+  they were built against (`[x.y.z]` in the package dependency) instead of that version or any later one. Both
+  extensions use internal members of Core, so pairing an extension with a different Core version could fail at run time
+  with `MissingMethodException` or `TypeLoadException`. NuGet now reports the mismatch at restore: as a `NU1107`
+  version conflict when two extensions pin different Core versions, and as a `NU1608` warning when the project also
+  references a different Core version directly. Upgrading Core requires the extension release built against it.
+  Extension versions 1.0.1 and 1.1.0 keep the open-ended dependency.
+
 ## [1.1.0] - 2026-10-07
 
 Released packages: `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and `TokenGuard.Extensions.Anthropic`, all at
