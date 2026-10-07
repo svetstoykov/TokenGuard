@@ -29,6 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reasoning tokens: 19.` The exception is attached to event 1013 (`SummarizationFailed`) and returned as
   `PrepareResult.SummarizationError`.
 
+### Fixed
+
+- A summarizer call that threw, or returned a summary too large for the budget, is not repeated while the history and
+  the available tokens stay the same. Calling `PrepareAsync()` again without recording a message used to send a new
+  summarizer request every time; it now sends none, returns the same fallback result, and logs the new `Debug` event
+  3015. `SummarizationError` is set only on the call that made the request, and a skipped attempt adds nothing to
+  `tokenguard.summarization.failures`. A recorded message or a changed budget allows a new attempt, and a call the
+  caller cancelled is not remembered.
+- Documentation states that a summarizer call has no time limit of its own: it is bounded only by the cancellation
+  token passed to `PrepareAsync()` and by the provider client's network timeout.
+
 ## [1.1.0] - 2026-10-07
 
 Released packages: `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and `TokenGuard.Extensions.Anthropic`, all at

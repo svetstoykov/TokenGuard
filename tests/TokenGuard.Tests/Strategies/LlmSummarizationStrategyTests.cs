@@ -488,6 +488,7 @@ public sealed class LlmSummarizationStrategyTests
         // Arrange
         var old = ContextMessage.FromText(MessageRole.User, "old");
         var keep = ContextMessage.FromText(MessageRole.Model, "keep");
+        var next = ContextMessage.FromText(MessageRole.User, "next");
 
         var summarizer = new TrackingSummarizer(invocation => invocation.CallNumber == 1
             ? Task.FromException<string>(new InvalidOperationException("boom"))
@@ -505,7 +506,7 @@ public sealed class LlmSummarizationStrategyTests
         // Act
         await Assert.ThrowsAsync<InvalidOperationException>(() => strategy.CompactAsync([old, keep], 10));
         var afterFailure = ReadCheckpoint(strategy);
-        _ = await strategy.CompactAsync([old, keep], 10);
+        _ = await strategy.CompactAsync([old, keep, next], 10);
         var afterSuccess = ReadCheckpoint(strategy);
 
         // Assert
@@ -513,7 +514,7 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Equal(0L, afterFailure.Fingerprint);
         Assert.Null(afterFailure.Summary);
         Assert.Equal(2, summarizer.CallCount);
-        Assert.Equal(1, afterSuccess.CoveredCount);
+        Assert.Equal(2, afterSuccess.CoveredCount);
         Assert.NotNull(afterSuccess.Summary);
     }
 
@@ -526,6 +527,7 @@ public sealed class LlmSummarizationStrategyTests
         var c = ContextMessage.FromText(MessageRole.User, "C");
         var d = ContextMessage.FromText(MessageRole.Model, "D");
         var e = ContextMessage.FromText(MessageRole.User, "E");
+        var f = ContextMessage.FromText(MessageRole.Model, "F");
 
         var summarizer = new TrackingSummarizer(invocation => invocation.CallNumber switch
         {
@@ -540,6 +542,7 @@ public sealed class LlmSummarizationStrategyTests
         tokenCounter.Set(c, 2);
         tokenCounter.Set(d, 2);
         tokenCounter.Set(e, 2);
+        tokenCounter.Set(f, 2);
         tokenCounter.SetByText("summary-1", 1);
         tokenCounter.SetByText("summary-3", 1);
 
@@ -553,7 +556,7 @@ public sealed class LlmSummarizationStrategyTests
         var checkpointBeforePromotion = ReadCheckpoint(strategy);
         await Assert.ThrowsAsync<InvalidOperationException>(() => strategy.CompactAsync([a, b, c, d, e], 6));
         var checkpointAfterFailure = ReadCheckpoint(strategy);
-        _ = await strategy.CompactAsync([a, b, c, d, e], 6);
+        _ = await strategy.CompactAsync([a, b, c, d, e, f], 6);
         var checkpointAfterRetry = ReadCheckpoint(strategy);
 
         // Assert
@@ -561,7 +564,7 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Equal(checkpointBeforePromotion.CoveredCount, checkpointAfterFailure.CoveredCount);
         Assert.Equal(checkpointBeforePromotion.Fingerprint, checkpointAfterFailure.Fingerprint);
         Assert.Same(checkpointBeforePromotion.Summary, checkpointAfterFailure.Summary);
-        Assert.Equal(3, checkpointAfterRetry.CoveredCount);
+        Assert.Equal(4, checkpointAfterRetry.CoveredCount);
         Assert.Equal("summary-3", ReadText(checkpointAfterRetry.Summary!));
     }
 
@@ -1027,6 +1030,156 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Same(checkpointAfterFirst.Summary, checkpointAfterSecond.Summary);
         Assert.Equal("summary-1", ReadText(checkpointAfterSecond.Summary!));
     }
+
+    [Fact]
+    public async Task CompactAsync_WhenTheFirstSummaryOvershotAndTheHistoryIsUnchanged_DoesNotCallTheSummarizerAgain()
+    {
+        // Arrange
+        var messages = CreateThreeMessageHistory(out var tokenCounter);
+        tokenCounter.SetByText("big-summary-text", 100);
+        var summarizer = new TrackingSummarizer("big-summary-text");
+        var strategy = CreateSingleMessageTailStrategy(summarizer, tokenCounter);
+        _ = await strategy.CompactAsync(messages, 10);
+
+        // Act
+        _ = await strategy.CompactAsync(messages, 10);
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Same(messages, compacted.Messages);
+        Assert.Equal(0, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenTheSummarizerThrewAndTheHistoryIsUnchanged_ReturnsTheMessagesWithoutCallingTheSummarizerAgain()
+    {
+        // Arrange
+        var messages = CreateThreeMessageHistory(out var tokenCounter);
+        var summarizer = new TrackingSummarizer(_ => Task.FromException<string>(new InvalidOperationException("boom")));
+        var strategy = CreateSingleMessageTailStrategy(summarizer, tokenCounter);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => strategy.CompactAsync(messages, 10));
+
+        // Act
+        _ = await strategy.CompactAsync(messages, 10);
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Same(messages, compacted.Messages);
+        Assert.Equal(0, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenTheHistoryChangesAfterAnOvershootingSummary_CallsTheSummarizerAgain()
+    {
+        // Arrange
+        var messages = CreateThreeMessageHistory(out var tokenCounter);
+        tokenCounter.SetByText("big-summary-text", 100);
+        var summarizer = new TrackingSummarizer(call => Task.FromResult(call.CallNumber == 1 ? "big-summary-text" : "summary-2"));
+        var strategy = CreateSingleMessageTailStrategy(summarizer, tokenCounter);
+        _ = await strategy.CompactAsync(messages, 10);
+        var next = ContextMessage.FromText(MessageRole.User, "next");
+
+        // Act
+        var compacted = await strategy.CompactAsync([.. messages, next], 10);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Equal(["summary-2", "next"], compacted.Messages.Select(ReadText));
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenTheBudgetChangesAfterAnOvershootingSummary_CallsTheSummarizerAgain()
+    {
+        // Arrange
+        var messages = CreateThreeMessageHistory(out var tokenCounter);
+        tokenCounter.SetByText("big-summary-text", 100);
+        var summarizer = new TrackingSummarizer("big-summary-text");
+        var strategy = CreateSingleMessageTailStrategy(summarizer, tokenCounter);
+        _ = await strategy.CompactAsync(messages, 10);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 11);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Same(messages, compacted.Messages);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenTheCallerCancelledTheSummarizerCall_CallsTheSummarizerAgainForTheSameHistory()
+    {
+        // Arrange
+        var messages = CreateThreeMessageHistory(out var tokenCounter);
+        var summarizer = new TrackingSummarizer(async (call, cancellationToken) =>
+        {
+            if (call.CallNumber == 1)
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+
+            return "summary-2";
+        });
+        var strategy = CreateSingleMessageTailStrategy(summarizer, tokenCounter);
+
+        using var cts = new CancellationTokenSource();
+        var cancelledCompaction = strategy.CompactAsync(messages, 10, cts.Token);
+        await cts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledCompaction);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Equal(["summary-2", "keep-2"], compacted.Messages.Select(ReadText));
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenACheckpointRewriteOvershotAndTheHistoryIsUnchanged_DoesNotCallTheSummarizerAgain()
+    {
+        // Arrange
+        var messages = CreateThreeMessageHistory(out var tokenCounter);
+        tokenCounter.SetByText("summary-1", 2);
+        tokenCounter.SetByText("big-summary-2", 1000);
+        var summarizer = new TrackingSummarizer(call => Task.FromResult(call.CallNumber == 1 ? "summary-1" : "big-summary-2"));
+        var strategy = CreateSingleMessageTailStrategy(summarizer, tokenCounter);
+
+        // The first call saves a checkpoint. The second asks for a smaller rewrite, which comes back too large.
+        _ = await strategy.CompactAsync(messages, 20);
+        _ = await strategy.CompactAsync(messages, 5);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 5);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.Same(messages, compacted.Messages);
+        Assert.Equal("summary-1", ReadText(ReadCheckpoint(strategy).Summary!));
+    }
+
+    /// <summary>
+    ///     Builds three text messages of four tokens each: one old message and two newer ones.
+    /// </summary>
+    /// <param name="tokenCounter">The counter that holds the token counts of the three messages.</param>
+    /// <returns>The messages in history order.</returns>
+    private static List<ContextMessage> CreateThreeMessageHistory(out TrackingTokenCounter tokenCounter)
+    {
+        var messages = new List<ContextMessage>
+        {
+            ContextMessage.FromText(MessageRole.User, "old"),
+            ContextMessage.FromText(MessageRole.User, "keep-1"),
+            ContextMessage.FromText(MessageRole.Model, "keep-2"),
+        };
+
+        tokenCounter = new TrackingTokenCounter();
+        foreach (var message in messages)
+            tokenCounter.Set(message, 4);
+
+        return messages;
+    }
+
+    private static LlmSummarizationStrategy CreateSingleMessageTailStrategy(TrackingSummarizer summarizer, TrackingTokenCounter tokenCounter) =>
+        new(summarizer, tokenCounter, new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
 
     /// <summary>
     ///     Builds an older user and model pair, then one user message followed by tool exchanges that end with a tool result.
