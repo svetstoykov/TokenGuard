@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-07
+
+Released packages: `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and `TokenGuard.Extensions.Anthropic`, all at
+1.1.0.
+
+### Behavior changes
+
+No public signature changed. A consumer upgrading from 1.0.1 can observe these differences; each is described in full
+under Changed or Fixed below.
+
+- `PrepareResult.TokensAfterCompaction` includes the provider correction, so it is no longer the sum of `TokenCount`
+  over `Messages`, and a result that used to be `Ready` or `Compacted` can be `CompactionInsufficient` or
+  `CannotCompact`. Only conversations that pass `providerInputTokens` are affected.
+- `ForOpenAI()` throws `InvalidOperationException` for a message it cannot represent and for tool calls left unanswered
+  at the end of the list, where it used to shorten or drop content silently.
+- `ConversationConfigBuilder.Build()` rejects `NaN` thresholds and default-constructed option structs, which it used to
+  accept.
+- Prepared views contain different messages in three cases: a pinned message is placed relative to its neighbours and
+  never inside a tool exchange, a tool loop keeps the user message that opened it, and turn groups follow message
+  structure instead of the timing of `PrepareAsync()` calls.
+
+### Known limits
+
+- The token counter, the summarizer, the summary formatter, and builder registration of a custom compaction strategy
+  are closed to consumers. Summarization works with the built-in providers only.
+- One `ConversationContext` is for one caller at a time. The rule is documented and not enforced.
+- Token estimates leave out request overhead such as tool schemas. Pass `providerInputTokens` to
+  `RecordModelResponse` to correct for it.
+- The packages target `net10.0` only.
+
 ### Added
 - Optional logging. `ConversationConfigBuilder.WithLoggerFactory(ILoggerFactory)` supplies a logger factory, and contexts
   created through `AddConversationContext(...)` use the container's `ILoggerFactory` automatically. Records have stable
@@ -20,8 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `TokenGuard.Core` now depends on `Microsoft.Extensions.Logging.Abstractions`.
-- `TokenGuard.Extensions.OpenAI` now requires `OpenAI` 2.14.0 or later (was 2.10.0).
-- `TokenGuard.Extensions.Anthropic` now requires `Anthropic` 12.53.0 or later (was 12.13.0).
+- `TokenGuard.Extensions.OpenAI` now requires `OpenAI` 2.14.0 or later (was 2.10.0) and `TokenGuard.Core` 1.1.0 or
+  later.
+- `TokenGuard.Extensions.Anthropic` now requires `Anthropic` 12.53.0 or later (was 12.13.0) and `TokenGuard.Core` 1.1.0
+  or later.
 - `new SlidingWindowOptions()` returns the documented defaults, the same value as `SlidingWindowOptions.Default`. It used
   to return the zero value, which could not be used: masking a tool result threw from `string.Format`.
 - `ConversationConfigBuilder.Build()` rejects configurations it used to accept. A compaction or emergency threshold that
@@ -52,6 +84,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Conversations that never pass `providerInputTokens` are unchanged.
 
 ### Fixed
+- A pinned message is placed relative to its neighbours: after the surviving messages recorded before it and before
+  those recorded after it, following the summary when the summary replaced the earlier messages. It used to go back to
+  its absolute history index, so a pin added mid-conversation could land between a tool call and its result after
+  summarization, and `ForOpenAI()` threw. A pinned message that would fall inside a tool exchange is placed before the
+  model message that carries the tool calls. The new `Debug` event 1017 logs the prepared index of each pinned message.
+- The benchmark figures in the README and the deep dive match the twenty retained transcripts: 128,188,640 and
+  16,158,138 estimated prompt tokens over 1,325 prepare calls. Both token columns are labelled as TokenGuard estimates
+  from the same sessions, no run without TokenGuard was measured, and the task-success and failure-prevention claims
+  are removed.
 - `ForOpenAI()` sends every text segment of a message, one content part per segment, where it used to send only the first.
   It throws `InvalidOperationException` for a message it cannot represent (a `Tool` message without a tool result used
   to be dropped silently) and for tool calls left unanswered at the end of the list.
@@ -83,10 +124,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outcome is `CompactionInsufficient` or `CannotCompact` where it used to be `Compacted`. The `PreservedFloorIndex` of
   log event 1016 is the index of that user message when it is kept.
 
-## [1.0.0] - 2026-06-01
+## [1.0.1] - 2026-06-18
 
-Initial public release of `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`,
-and `TokenGuard.Extensions.Anthropic`.
+First nuget.org release of `TokenGuard.Extensions.OpenAI` and `TokenGuard.Extensions.Anthropic`, and a documentation
+update of `TokenGuard.Core`. No code changed.
+
+### Changed
+- The package READMEs of all three packages are expanded with getting-started guidance: installation, registration,
+  and the agent loop.
+
+## [1.0.0] - 2026-06-18
+
+Initial public release. `TokenGuard.Core` was published to nuget.org at this version; the two extension packages
+followed at 1.0.1.
 
 ### Added
 - Token-budget tracking for LLM agent loops via `ConversationContext` and `PrepareAsync`.
@@ -100,4 +150,7 @@ and `TokenGuard.Extensions.Anthropic`.
   network error), TokenGuard degrades to sliding-window masking instead of crashing the agent loop and
   reports the captured exception for logging.
 
-[1.0.0]: https://github.com/svetstoykov/TokenGuard/releases/tag/v1.0.0
+[Unreleased]: https://github.com/svetstoykov/TokenGuard/compare/1.1.0...HEAD
+[1.1.0]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.1.0
+[1.0.1]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.0.1
+[1.0.0]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.0.0
