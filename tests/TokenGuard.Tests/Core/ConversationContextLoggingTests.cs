@@ -129,6 +129,33 @@ public sealed class ConversationContextLoggingTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenEmergencyTruncationKeepsTheUserMessageThatOpenedTheToolLoop_LogsThatMessageAsTheFloorIndex()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.Unchanged());
+        context.AddUserMessage(Text(10));
+        context.RecordModelResponse([new TextContent(Text(10))]);
+        context.AddUserMessage(Text(20));
+        for (var call = 1; call <= 3; call++)
+        {
+            context.RecordModelResponse([new ToolUseContent($"call_{call}", "search", Text(10))]);
+            context.RecordToolResult($"call_{call}", "search", Text(30));
+        }
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        var record = logs.WithEventId(EmergencyTruncationEvaluated).Should().ContainSingle().Subject;
+        record.Property("CurrentTokens").Should().Be(160);
+        record.Property("TurnGroups").Should().Be(3);
+        record.Property("TurnGroupsDropped").Should().Be(2);
+        record.Property("PreservedFloorIndex").Should().Be(2);
+        record.Property("FloorExceedsTrigger").Should().Be(false);
+    }
+
+    [Fact]
     public async Task PrepareAsync_WhenThePreservedFloorAloneExceedsTheTrigger_LogsThatNothingCouldBeDropped()
     {
         // Arrange

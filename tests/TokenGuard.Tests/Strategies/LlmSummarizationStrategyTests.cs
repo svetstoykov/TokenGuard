@@ -101,6 +101,83 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_WhenHistoryEndsWithToolResultAndTheNewestUserMessageIsOlderThanTheTail_KeepsThatMessageAfterTheSummary()
+    {
+        // Arrange
+        var messages = CreateToolLoop(toolExchanges: 2, out var loopUser);
+        var summarizer = new TrackingSummarizer("summary-text");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer, new TrackingTokenCounter(), new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 20);
+
+        // Assert
+        Assert.Equal(CompactionState.Summarized, compacted.Messages[0].State);
+        Assert.Equal([loopUser, messages[5], messages[6]], compacted.Messages.Skip(1));
+        Assert.Equal(4, compacted.MessagesAffected);
+        Assert.Equal(4, compacted.TokensAfter);
+        Assert.Equal(17, summarizer.LastTargetTokens);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenTheNewestUserMessageDirectlyPrecedesTheToolResultTail_LeavesThatMessageOutOfTheSummarizerInput()
+    {
+        // Arrange
+        var messages = CreateToolLoop(toolExchanges: 1, out var loopUser);
+        var summarizer = new TrackingSummarizer("summary-text");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer, new TrackingTokenCounter(), new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 20);
+
+        // Assert
+        Assert.Equal([messages[0], messages[1]], summarizer.LastMessages);
+        Assert.Equal([loopUser, messages[3], messages[4]], compacted.Messages.Skip(1));
+        Assert.Equal(2, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenHistoryEndsWithModelReply_SummarizesTheUserMessageOlderThanTheTail()
+    {
+        // Arrange
+        var messages = CreateToolLoop(toolExchanges: 2, out _);
+        messages.Add(ContextMessage.FromText(MessageRole.Model, "final answer"));
+        var strategy = new LlmSummarizationStrategy(
+            new TrackingSummarizer("summary-text"), new TrackingTokenCounter(),
+            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 20);
+
+        // Assert
+        Assert.Equal([messages[5], messages[6], messages[7]], compacted.Messages.Skip(1));
+        Assert.Equal(5, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenACheckpointIsReusedInsideTheSameToolLoop_KeepsTheNewestUserMessageAfterTheSummary()
+    {
+        // Arrange
+        var messages = CreateToolLoop(toolExchanges: 2, out var loopUser);
+        var summarizer = new TrackingSummarizer("summary-text");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer, new TrackingTokenCounter(), new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        await strategy.CompactAsync(messages, 20);
+        messages.Add(new ContextMessage { Role = MessageRole.Model, Segments = [new ToolUseContent("call_3", "search", "{}")] });
+        messages.Add(new ContextMessage { Role = MessageRole.Tool, Segments = [new ToolResultContent("call_3", "search", "result")] });
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 20);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Equal([loopUser, messages[5], messages[6], messages[7], messages[8]], compacted.Messages.Skip(1));
+        Assert.Equal(4, compacted.MessagesAffected);
+    }
+
+    [Fact]
     public async Task CompactAsync_WhenRemainingBudgetBelowMinimum_SkipsSummarizationAndReturnsOriginalMessages()
     {
         // Arrange
@@ -949,6 +1026,31 @@ public sealed class LlmSummarizationStrategyTests
         Assert.Equal(checkpointAfterFirst.Fingerprint, checkpointAfterSecond.Fingerprint);
         Assert.Same(checkpointAfterFirst.Summary, checkpointAfterSecond.Summary);
         Assert.Equal("summary-1", ReadText(checkpointAfterSecond.Summary!));
+    }
+
+    /// <summary>
+    ///     Builds an older user and model pair, then one user message followed by tool exchanges that end with a tool result.
+    /// </summary>
+    /// <param name="toolExchanges">The number of model tool calls, each followed by its tool result.</param>
+    /// <param name="loopUser">The user message that opens the tool loop, at index 2.</param>
+    /// <returns>The messages in history order.</returns>
+    private static List<ContextMessage> CreateToolLoop(int toolExchanges, out ContextMessage loopUser)
+    {
+        loopUser = ContextMessage.FromText(MessageRole.User, "loop request");
+        var messages = new List<ContextMessage>
+        {
+            ContextMessage.FromText(MessageRole.User, "older request"),
+            ContextMessage.FromText(MessageRole.Model, "older answer"),
+            loopUser,
+        };
+
+        for (var call = 1; call <= toolExchanges; call++)
+        {
+            messages.Add(new ContextMessage { Role = MessageRole.Model, Segments = [new ToolUseContent($"call_{call}", "search", "{}")] });
+            messages.Add(new ContextMessage { Role = MessageRole.Tool, Segments = [new ToolResultContent($"call_{call}", "search", "result")] });
+        }
+
+        return messages;
     }
 
     private static (int CoveredCount, long Fingerprint, ContextMessage? Summary) ReadCheckpoint(LlmSummarizationStrategy strategy)

@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeps the newest groups that fit. Views of conversations recorded turn by turn can change too: an older turn is
   dropped together with its user message, tool calls, and replies, and the summarization tail starts on the message
   the window size selects, moved back only to keep a tool call with its results.
+- A tool loop keeps the user message that opened it. While the history ends with a tool result, emergency truncation
+  no longer drops that message and LLM summarization keeps it word for word directly after the summary; both used to
+  remove it and still report `Compacted`, so the model continued with no request in view. Tool-loop views under
+  pressure are larger by that message, and when it does not fit together with the newest tool call and its results the
+  outcome is `CompactionInsufficient` or `CannotCompact` where it used to be `Compacted`. The `PreservedFloorIndex` of
+  log event 1016 is the index of that user message when it is kept.
 
 ## [1.0.0] - 2026-06-01
 

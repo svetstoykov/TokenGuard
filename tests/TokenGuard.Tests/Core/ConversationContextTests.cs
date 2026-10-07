@@ -522,15 +522,15 @@ public sealed class ConversationContextTests
         var openAiMessages = prepared.ForOpenAI();
 
         // Assert
-        result.MessagesDropped.Should().Be(2);
-        prepared.Should().Equal(trailingModel, maskedToolResult, liveToolResult);
-        prepared.Should().NotContain(olderUser);
+        result.MessagesDropped.Should().Be(1);
+        prepared.Should().Equal(olderUser, trailingModel, maskedToolResult, liveToolResult);
         prepared.Should().NotContain(olderModel);
 
-        openAiMessages.Should().HaveCount(3);
-        openAiMessages[0].Should().BeOfType<AssistantChatMessage>();
-        openAiMessages[1].Should().BeOfType<ToolChatMessage>();
+        openAiMessages.Should().HaveCount(4);
+        openAiMessages[0].Should().BeOfType<UserChatMessage>();
+        openAiMessages[1].Should().BeOfType<AssistantChatMessage>();
         openAiMessages[2].Should().BeOfType<ToolChatMessage>();
+        openAiMessages[3].Should().BeOfType<ToolChatMessage>();
 
         openAiMessages
             .OfType<ToolChatMessage>()

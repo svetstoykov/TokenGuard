@@ -202,10 +202,16 @@ messages**, not the masked result. That preserves full tool-result payloads for 
 The boundary logic is stricter than "last N messages": if the tail would start on a tool result, the boundary moves
 backward to include the model message that requested that tool call.
 
+While the history ends with a tool result, the newest user message is the request the model is still working on. When
+that message is older than the tail, it stays in the result word for word, between the summary and the tail. The
+summarizer still receives it with the rest of the prefix, and its tokens are subtracted from the room left for the
+summary.
+
 The result is:
 
 - one synthetic summary message with `MessageRole.Model`
 - `CompactionState.Summarized`
+- the user message that opened the tool loop in progress, when the tail does not already hold it
 - unchanged protected tail messages after it
 
 ### Summary budgets
@@ -296,8 +302,9 @@ A pinned message never opens a group. Grouping reads only the roles of the messa
 `PrepareAsync()` was called: a restored history is grouped like the same history recorded live.
 
 A group that ends before the preserved floor is dropped whole. The floor usually starts inside the newest group, which
-is still in progress. The messages of that group before the floor are dropped oldest first in smaller units: the user
-message, then each model message together with its tool results.
+is still in progress. The messages of that group before the floor are dropped oldest first in smaller units: each model
+message together with its tool results. The user message that opened the group is dropped first only when the
+conversation does not end with a tool result.
 
 ### Preserved floor
 
@@ -308,10 +315,16 @@ That floor is:
 - the summary message and everything after it, when a summarized message exists
 - otherwise the newest unpinned message, repaired backward if needed to include the model message that produced a tool
   result tail
+- when the conversation ends with a tool result, the user message that opened that tool loop is preserved too; the
+  tool exchanges between it and the newest one can still be dropped, so the kept messages are that user message
+  followed by the newest tool exchange
 - when the conversation ends with a model reply, TokenGuard also preserves the triggering user message
 
 If that preserved floor is still above the emergency threshold, TokenGuard returns the over-budget floor unchanged. It
-prefers preserving the newest indispensable tail over forcing a structurally broken fit.
+prefers preserving the newest indispensable tail over forcing a structurally broken fit. The outcome is then
+`CompactionInsufficient`, or `CannotCompact` when nothing was masked, summarized, or dropped; it is never `Compacted`.
+A large user message can therefore turn a view that would fit without it into an over-budget outcome: TokenGuard
+reports that instead of sending a tool loop with no request in view.
 
 ---
 
