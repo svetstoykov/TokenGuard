@@ -29,9 +29,9 @@ namespace TokenGuard.Core;
 /// to produce a smaller request payload while preserving the overall conversation flow.
 /// </para>
 /// <para>
-/// Messages may be pinned so they survive compaction and emergency truncation unchanged at their original recorded
-/// position. System prompts use this behavior by default so active instructions remain durable without requiring a
-/// separate role-based preservation path.
+/// Messages may be pinned so they survive compaction and emergency truncation unchanged, between the messages they
+/// were recorded between. System prompts use this behavior by default so active instructions remain durable without
+/// requiring a separate role-based preservation path.
 /// </para>
 /// <para>
 /// Token counts are estimated through the configured <see cref="ITokenCounter"/> and cached on
@@ -167,18 +167,18 @@ public sealed class ConversationContext : IConversationContext
     /// <param name="text">The plain-text payload to record.</param>
     /// <remarks>
     /// <para>
-    /// Pinned messages remain at their recorded position and are excluded from compaction and emergency truncation.
-    /// Use this API for durable constraints or instructions that should survive regardless of where they appear.
+    /// Pinned messages are excluded from compaction and emergency truncation. Use this API for durable constraints or
+    /// instructions that should survive regardless of where they appear.
     /// </para>
     /// <para>
-    /// Pinned messages are intended for setup-time use, such as system-level instructions, static personas, or
-    /// durable policies added before the conversation begins. Adding a pinned message mid-conversation — after
-    /// unpinned turns have already been recorded — is supported but has a known limitation: when
-    /// <see cref="TokenGuard.Core.Strategies.LlmSummarizationStrategy"/> is active, the summarizer receives only
-    /// the compactable (unpinned) stream and cannot observe pinned message boundaries. A summary produced from
-    /// turns that span a mid-conversation pinned message will be placed before that pinned message in the prepared
-    /// output, even if some of the summarized content originally appeared after it. This limitation is by design
-    /// for the current implementation; a boundary-aware summarization path may be added in a future release.
+    /// In every prepared payload a pinned message stays between the messages it was recorded between: after every
+    /// surviving message recorded before it and before every surviving message recorded after it. When older messages
+    /// are replaced by a summary, a pinned message recorded after any of them follows the summary, and the summary can
+    /// describe messages recorded on both sides of it.
+    /// </para>
+    /// <para>
+    /// A pinned message recorded between a model message that carries tool calls and the tool results that answer them
+    /// is placed before that model message, so the exchange reaches the provider intact.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
@@ -203,8 +203,8 @@ public sealed class ConversationContext : IConversationContext
     /// or dropped during later preparation.
     /// </para>
     /// <para>
-    /// See the single-segment overload <see cref="AddPinnedMessage(MessageRole, string)"/> for the known limitation
-    /// regarding mid-conversation pinning and LLM summarization ordering.
+    /// See the single-segment overload <see cref="AddPinnedMessage(MessageRole, string)"/> for where a pinned message
+    /// appears in a prepared payload.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
@@ -343,8 +343,9 @@ public sealed class ConversationContext : IConversationContext
     /// </para>
     /// <para>
     /// Pinned messages are handled specially. They are excluded from the compactable set, their token cost is added to
-    /// the reserved budget passed into the compaction strategy, and they are reassembled into the final result at their
-    /// original positions after compaction finishes.
+    /// the reserved budget passed into the compaction strategy, and they are put back between the surviving messages
+    /// they were recorded between after compaction finishes. A pinned message recorded inside a tool exchange is placed
+    /// before the model message that carries the tool calls, in every prepared payload.
     /// </para>
     /// <para>
     /// Calling this method does not modify <see cref="History"/>. It only determines what subset or
@@ -401,30 +402,15 @@ public sealed class ConversationContext : IConversationContext
 
             this._lastEstimatedTotalTokens = totalBeforeCompaction;
             return new PrepareResult(
-                messages,
+                this.MovePinnedMessagesOutOfToolExchanges(messages),
                 PrepareOutcome.Ready,
                 totalBeforeCompaction,
                 totalBeforeCompaction,
                 messagesCompacted: 0);
         }
 
-        var pinnedSlots = new List<(int Index, ContextMessage Message)>();
-        List<ContextMessage>? compactableMessages = null;
-
-        for (var i = 0; i < messages.Count; i++)
-        {
-            var message = messages[i];
-            if (message.IsPinned)
-            {
-                pinnedSlots.Add((i, message));
-                continue;
-            }
-
-            compactableMessages ??= [];
-            compactableMessages.Add(message);
-        }
-
-        IReadOnlyList<ContextMessage> compactable = compactableMessages ?? [];
+        var (pinnedSlots, compactableMessages) = SplitPinned(messages);
+        IReadOnlyList<ContextMessage> compactable = compactableMessages;
 
         var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
 
@@ -432,7 +418,7 @@ public sealed class ConversationContext : IConversationContext
 
         var prepared = pinnedSlots.Count == 0
             ? compacted.Messages
-            : this.ReassemblePreparedMessages(messages.Count, pinnedSlots, compacted.Messages);
+            : ReassemblePreparedMessages(pinnedSlots, compactable.Count, compacted.Messages);
 
         var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
 
@@ -441,6 +427,8 @@ public sealed class ConversationContext : IConversationContext
         var estimatedFinalTokens = this.Sum(final);
         var emergencyMessagesDropped = emergencyApplied ? prepared.Count - final.Count : 0;
         var messagesCompacted = compacted.MessagesAffected + emergencyMessagesDropped;
+
+        this.LogPinnedPlacements(pinnedSlots, final);
 
         this._lastEstimatedTotalTokens = estimatedFinalTokens;
         this._anchorCorrection = 0;
@@ -1012,40 +1000,45 @@ public sealed class ConversationContext : IConversationContext
             this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, message.Role, message.IsPinned, message.Segments.Count);
 
     /// <summary>
-    /// Reassembles pinned messages into the compacted stream at their original positions.
+    /// Returns the history as the prepared view, with any pinned message recorded inside a tool exchange moved before it.
     /// </summary>
-    /// <param name="totalCount">The final total number of prepared messages after reassembly.</param>
-    /// <param name="pinnedSlots">The pinned messages paired with their original indices.</param>
-    /// <param name="compactedMessages">The compacted unpinned message stream.</param>
-    /// <returns>A prepared list that preserves the original placement of pinned messages.</returns>
-    private List<ContextMessage> ReassemblePreparedMessages(
-        int totalCount,
-        IReadOnlyList<(int Index, ContextMessage Message)> pinnedSlots,
-        IReadOnlyList<ContextMessage> compactedMessages)
+    /// <param name="messages">The recorded history.</param>
+    /// <returns>
+    /// <paramref name="messages"/> itself when no pinned message directly precedes a tool result; otherwise a new list
+    /// in which each such pinned message precedes the model message that carries the tool calls.
+    /// </returns>
+    private IReadOnlyList<ContextMessage> MovePinnedMessagesOutOfToolExchanges(IReadOnlyList<ContextMessage> messages)
     {
-        var prepared = new List<ContextMessage>(pinnedSlots.Count + compactedMessages.Count);
-        var pinnedIndex = 0;
-        var compactedIndex = 0;
+        if (!HasPinnedMessageBeforeToolResult(messages))
+            return messages;
 
-        for (var i = 0; i < totalCount; i++)
-        {
-            if (pinnedIndex < pinnedSlots.Count && pinnedSlots[pinnedIndex].Index == i)
-            {
-                prepared.Add(pinnedSlots[pinnedIndex].Message);
-                pinnedIndex++;
-                continue;
-            }
-
-            if (compactedIndex >= compactedMessages.Count)
-            {
-                continue;
-            }
-
-            prepared.Add(compactedMessages[compactedIndex]);
-            compactedIndex++;
-        }
+        var (pinnedSlots, compactable) = SplitPinned(messages);
+        var prepared = ReassemblePreparedMessages(pinnedSlots, compactable.Count, compactable);
+        this.LogPinnedPlacements(pinnedSlots, prepared);
 
         return prepared;
+    }
+
+    /// <summary>
+    /// Writes one debug record per pinned message with the index it holds in the prepared view.
+    /// </summary>
+    /// <param name="pinnedSlots">The pinned messages paired with their history indices.</param>
+    /// <param name="prepared">The prepared view that contains every pinned message in history order.</param>
+    private void LogPinnedPlacements(IReadOnlyList<(int Index, ContextMessage Message)> pinnedSlots, IReadOnlyList<ContextMessage> prepared)
+    {
+        if (!this._logger.IsEnabled(LogLevel.Debug))
+            return;
+
+        var pinnedIndex = 0;
+        for (var i = 0; i < prepared.Count && pinnedIndex < pinnedSlots.Count; i++)
+        {
+            if (!prepared[i].IsPinned)
+                continue;
+
+            ConversationContextLog.PinnedMessagePlaced(
+                this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn, pinnedSlots[pinnedIndex].Index, i);
+            pinnedIndex++;
+        }
     }
 
     /// <summary>
@@ -1086,5 +1079,114 @@ public sealed class ConversationContext : IConversationContext
             TokenGuardTelemetry.EstimateErrorRatio.Record(
                 (double)this._anchorCorrection / providerInputTokens.Value, this._diagnostics.ContextNameTag);
         }
+    }
+
+    /// <summary>
+    /// Separates the pinned messages of a history from the messages a strategy may compact.
+    /// </summary>
+    /// <param name="messages">The recorded history.</param>
+    /// <returns>The pinned messages paired with their history indices, and the unpinned messages in history order.</returns>
+    private static (List<(int Index, ContextMessage Message)> PinnedSlots, List<ContextMessage> Compactable) SplitPinned(
+        IReadOnlyList<ContextMessage> messages)
+    {
+        var pinnedSlots = new List<(int Index, ContextMessage Message)>();
+        var compactable = new List<ContextMessage>(messages.Count);
+
+        for (var i = 0; i < messages.Count; i++)
+        {
+            if (messages[i].IsPinned)
+                pinnedSlots.Add((i, messages[i]));
+            else
+                compactable.Add(messages[i]);
+        }
+
+        return (pinnedSlots, compactable);
+    }
+
+    /// <summary>
+    /// Checks whether a pinned message was recorded directly before a tool result.
+    /// </summary>
+    /// <param name="messages">The recorded history.</param>
+    /// <returns><see langword="true"/> when at least one pinned message is directly followed by an unpinned tool message.</returns>
+    private static bool HasPinnedMessageBeforeToolResult(IReadOnlyList<ContextMessage> messages)
+    {
+        for (var i = 1; i < messages.Count; i++)
+        {
+            if (messages[i].Role == MessageRole.Tool && !messages[i].IsPinned && messages[i - 1].IsPinned)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Puts pinned messages back between the unpinned messages they were recorded between.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A pinned message follows every surviving message recorded before it and precedes every surviving message
+    /// recorded after it. A summary stands in for the oldest messages, so a pinned message recorded after any of them
+    /// follows the summary.
+    /// </para>
+    /// <para>
+    /// The method reads <paramref name="compactedMessages"/> as the newest end of the compactable history: the last
+    /// compacted message stands for the last compactable message, the one before it for the one before, and so on,
+    /// with the first compacted message standing for everything older.
+    /// </para>
+    /// </remarks>
+    /// <param name="pinnedSlots">The pinned messages paired with their history indices, in history order.</param>
+    /// <param name="compactableCount">The number of unpinned messages in the history.</param>
+    /// <param name="compactedMessages">The unpinned messages after compaction.</param>
+    /// <returns>The prepared list with every pinned message in place.</returns>
+    private static List<ContextMessage> ReassemblePreparedMessages(
+        IReadOnlyList<(int Index, ContextMessage Message)> pinnedSlots, int compactableCount, IReadOnlyList<ContextMessage> compactedMessages)
+    {
+        var prepared = new List<ContextMessage>(pinnedSlots.Count + compactedMessages.Count);
+        var replacedCount = Math.Max(0, compactableCount - compactedMessages.Count);
+        var summaryCount = compactedMessages.Count > 0 && compactedMessages[0].State == CompactionState.Summarized ? 1 : 0;
+        var compactedIndex = 0;
+
+        for (var i = 0; i < pinnedSlots.Count; i++)
+        {
+            // Pinned slots are in history order, so this many unpinned messages were recorded before the pinned one.
+            var precedingCount = pinnedSlots[i].Index - i;
+            var insertionIndex = precedingCount == 0
+                ? 0
+                : Math.Clamp(precedingCount - replacedCount, summaryCount, compactedMessages.Count);
+            insertionIndex = MoveBeforeToolExchange(compactedMessages, insertionIndex);
+
+            while (compactedIndex < insertionIndex)
+                prepared.Add(compactedMessages[compactedIndex++]);
+
+            prepared.Add(pinnedSlots[i].Message);
+        }
+
+        while (compactedIndex < compactedMessages.Count)
+            prepared.Add(compactedMessages[compactedIndex++]);
+
+        return prepared;
+    }
+
+    /// <summary>
+    /// Moves an insertion point that falls inside a tool exchange to just before the model message that opened it.
+    /// </summary>
+    /// <remarks>
+    /// Providers reject a request in which anything separates a model message carrying tool calls from the tool
+    /// results that answer them.
+    /// </remarks>
+    /// <param name="messages">The unpinned messages after compaction.</param>
+    /// <param name="insertionIndex">The index of the message a pinned message would be inserted before.</param>
+    /// <returns>
+    /// The index of the model message that carries the tool calls when <paramref name="insertionIndex"/> points at one
+    /// of its tool results; otherwise <paramref name="insertionIndex"/>.
+    /// </returns>
+    private static int MoveBeforeToolExchange(IReadOnlyList<ContextMessage> messages, int insertionIndex)
+    {
+        var exchangeStart = insertionIndex;
+        while (exchangeStart > 0 && exchangeStart < messages.Count && messages[exchangeStart].Role == MessageRole.Tool)
+            exchangeStart--;
+
+        var opensExchange = exchangeStart < insertionIndex && messages[exchangeStart].Segments.Any(static segment => segment is ToolUseContent);
+        return opensExchange ? exchangeStart : insertionIndex;
     }
 }

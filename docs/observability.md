@@ -88,6 +88,7 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | 1014 | PrepareOverBudget | Error | The prepared payload exceeds the effective maximum (maximum tokens plus overrun tolerance). Carries the outcome, final tokens, and the effective maximum. |
 | 1015 | PinnedBudgetExceeded | Error | Pinned messages alone exceed the maximum. Written before `PinnedTokenBudgetExceededException` is thrown. |
 | 1016 | EmergencyTruncationEvaluated | Debug | The prepared payload exceeded the emergency trigger. Carries current tokens, the trigger, turn groups considered and dropped, the index of the preserved floor, and whether that floor alone still exceeds the trigger. |
+| 1017 | PinnedMessagePlaced | Debug | One pinned message was placed in a prepared payload that was reassembled around pinned messages. Carries the message's index in the recorded history and its index in the prepared payload. |
 | 2000 | SlidingWindowApplied | Debug | One sliding-window pass. Carries message count, available tokens, tokens before and after, window size, protected messages, and tool results masked. |
 | 2001 | ToolResultMasked | Trace | One tool result was replaced with a placeholder. Carries message index, tool call ID, tool name, and the message's tokens before and after. |
 | 3000 | SummarizationPathSelected | Debug | Summarization started with or without a reusable checkpoint. Carries the protected tail's first index and size, the number and token total of older messages, and the target summary size. |

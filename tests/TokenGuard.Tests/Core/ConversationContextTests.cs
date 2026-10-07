@@ -1037,11 +1037,8 @@ public sealed class ConversationContextTests
         var prepared = result.Messages;
 
         // Assert
-        prepared.Should().HaveCount(2);
-        prepared.Should().ContainInOrder(systemMessage, olderUser);
-        prepared.Should().NotContain(newestUser);
-        prepared.Should().NotContain(newestModel);
-        prepared.Sum(message => message.TokenCount ?? 0).Should().Be(400);
+        prepared.Should().Equal(systemMessage, newestUser, newestModel);
+        prepared.Sum(message => message.TokenCount ?? 0).Should().Be(1_400);
     }
 
     [Fact]
