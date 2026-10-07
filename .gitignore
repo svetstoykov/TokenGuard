@@ -532,5 +532,7 @@ appsettings.Development.json
 .tasks
 
 # Local agent rules and workflow artifacts
+/.agents/
+/.claude/
 docs/ai-rules/
 docs/superpowers/
