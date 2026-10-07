@@ -1,3 +1,4 @@
+using System.Globalization;
 using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Defaults;
 
@@ -54,8 +55,9 @@ public readonly record struct ContextBudget
         double overrunTolerance = ConversationDefaults.OverrunTolerance)
     {
         this.MaxTokens = ValidateMaxTokens(maxTokens, nameof(maxTokens));
-        this.CompactionThreshold = ValidateCompactionThreshold(compactionThreshold, emergencyThreshold, nameof(compactionThreshold));
-        this.EmergencyThreshold = ValidateEmergencyThreshold(emergencyThreshold, compactionThreshold, nameof(emergencyThreshold));
+        this.CompactionThreshold = ValidateCompactionThreshold(compactionThreshold, nameof(compactionThreshold));
+        this.EmergencyThreshold = ValidateEmergencyThreshold(emergencyThreshold, nameof(emergencyThreshold));
+        ValidateThresholdOrder(compactionThreshold, emergencyThreshold, nameof(compactionThreshold));
         this.OverrunTolerance = ValidateOverrunTolerance(overrunTolerance, nameof(overrunTolerance));
     }
 
@@ -156,37 +158,54 @@ public readonly record struct ContextBudget
         return value;
     }
 
-    private static double ValidateCompactionThreshold(double value, double? emergency, string paramName)
+    private static double ValidateCompactionThreshold(double value, string paramName)
     {
+        if (!double.IsFinite(value))
+        {
+            throw new ArgumentOutOfRangeException(paramName, "CompactionThreshold must be a finite number.");
+        }
+
         if (value is <= 0.0 or > 1.0)
         {
             throw new ArgumentOutOfRangeException(paramName, "CompactionThreshold must be in the range (0.0, 1.0].");
         }
 
-        if (emergency.HasValue && value >= emergency.Value)
-        {
-            throw new ArgumentOutOfRangeException(paramName, "CompactionThreshold must be less than EmergencyThreshold.");
-        }
-
         return value;
     }
 
-    private static double? ValidateEmergencyThreshold(double? value, double compaction, string paramName)
+    private static double? ValidateEmergencyThreshold(double? value, string paramName)
     {
         if (!value.HasValue)
             return null;
+
+        if (!double.IsFinite(value.Value))
+        {
+            throw new ArgumentOutOfRangeException(paramName, "EmergencyThreshold must be a finite number.");
+        }
 
         if (value.Value is <= 0.0 or > 1.0)
         {
             throw new ArgumentOutOfRangeException(paramName, "EmergencyThreshold must be in the range (0.0, 1.0].");
         }
 
-        if (compaction >= value.Value)
-        {
-            throw new ArgumentOutOfRangeException(paramName, "EmergencyThreshold must be greater than CompactionThreshold.");
-        }
-
         return value;
+    }
+
+    /// <summary>
+    /// Checks that the compaction threshold is below the emergency threshold when one is configured.
+    /// </summary>
+    /// <remarks>
+    /// Runs after both thresholds have passed their own range checks, so a value outside its range is reported
+    /// under its own name. The message carries both values because the emergency threshold is often a default
+    /// the caller did not supply.
+    /// </remarks>
+    private static void ValidateThresholdOrder(double compaction, double? emergency, string paramName)
+    {
+        if (emergency.HasValue && compaction >= emergency.Value)
+        {
+            throw new ArgumentOutOfRangeException(paramName, string.Create(
+                CultureInfo.InvariantCulture, $"CompactionThreshold ({compaction}) must be less than EmergencyThreshold ({emergency.Value})."));
+        }
     }
 
     private static double ValidateOverrunTolerance(double value, string paramName)
