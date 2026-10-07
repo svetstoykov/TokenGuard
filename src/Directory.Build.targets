@@ -1,0 +1,15 @@
+<Project>
+  <!--
+    TokenGuard.Core grants the extension packages access to its internal members, and those members carry no
+    compatibility promise between Core versions. Each extension therefore depends on exactly the Core version it was
+    built against: the packed dependency reads [x.y.z], so NuGet reports a mismatched pair at restore.
+    Only pack reads this item; build, test, and sample project references resolve Core as a project.
+  -->
+  <Target Name="PinTokenGuardCoreDependencyVersion" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'TokenGuard.Core'">
+        <ProjectVersion>[%(ProjectVersion)]</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+    </ItemGroup>
+  </Target>
+</Project>

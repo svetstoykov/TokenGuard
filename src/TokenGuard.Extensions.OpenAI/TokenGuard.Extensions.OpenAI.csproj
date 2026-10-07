@@ -26,7 +26,7 @@
         <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
-        <PackageReleaseNotes>Requires TokenGuard.Core 1.1.0 and OpenAI 2.14.0 or later. The summarizer logs and traces through the logger factory configured on the conversation.
+        <PackageReleaseNotes>Requires exactly TokenGuard.Core 1.1.0, and OpenAI 2.14.0 or later. The summarizer logs and traces through the logger factory configured on the conversation.
 
 Behavior changes, with no signature changes: ForOpenAI() sends every text segment of a message and throws InvalidOperationException for a message it cannot represent and for tool calls left unanswered at the end of the list, where it used to shorten or drop content silently. ResponseSegments() and ToolUseSegments() record a tool call with empty arguments as {}.
 
