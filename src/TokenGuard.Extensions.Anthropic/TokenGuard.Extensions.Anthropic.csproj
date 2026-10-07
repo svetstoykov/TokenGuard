@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>1.0.1</Version>
+    <Version>1.1.0</Version>
     <PackageId>TokenGuard.Extensions.Anthropic</PackageId>
     <Title>TokenGuard.Extensions.Anthropic</Title>
     <Authors>Svetlozar Stoykov</Authors>
@@ -18,7 +18,11 @@
     <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <PackageReleaseNotes>Refreshes the package README with clearer getting-started guidance.</PackageReleaseNotes>
+    <PackageReleaseNotes>Requires TokenGuard.Core 1.1.0 and Anthropic 12.53.0 or later. The summarizer logs and traces through the logger factory configured on the conversation.
+
+Known limits: the token counter, summarizer, summary formatter, and builder registration of a custom compaction strategy are closed to consumers; one ConversationContext is for one caller at a time; token estimates leave out request overhead such as tool schemas; the package targets net10.0 only.
+
+Full details: https://github.com/svetstoykov/TokenGuard/blob/main/CHANGELOG.md</PackageReleaseNotes>
   </PropertyGroup>
 
     <ItemGroup>
