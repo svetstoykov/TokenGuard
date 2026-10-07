@@ -76,13 +76,14 @@ public sealed class OpenAIExtensionsTests
                     new ToolUseContent("call_1", "read_file", "{}"),
                 ],
             },
+            new ContextMessage { Role = MessageRole.Tool, Segments = [new ToolResultContent("call_1", "read_file", "ok")] },
         ];
 
         // Act
         var result = messages.ForOpenAI();
 
         // Assert
-        result.Should().ContainSingle();
+        result.Should().HaveCount(2);
         var assistant = result[0].Should().BeOfType<AssistantChatMessage>().Subject;
         assistant.Content.Should().ContainSingle();
         assistant.Content[0].Text.Should().BeEmpty();
@@ -90,26 +91,179 @@ public sealed class OpenAIExtensionsTests
     }
 
     [Fact]
-    public void ForOpenAI_WhenToolMessageHasNoToolResult_SkipsMessage()
+    public void ForOpenAI_WhenToolMessageHasNoToolResult_ThrowsInvalidOperationExceptionNamingRole()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages = [ContextMessage.FromText(MessageRole.Tool, "NOTE-THREE")];
+
+        // Act
+        Action act = () => messages.ForOpenAI();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Tool*tool result*");
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenUserMessageHasSeveralTextSegments_EmitsOneContentPartPerSegmentInOrder()
     {
         // Arrange
         IReadOnlyList<ContextMessage> messages =
         [
-            new ContextMessage
-            {
-                Role = MessageRole.Tool,
-                Segments =
-                [
-                    new TextContent("not a tool result"),
-                ],
-            },
+            new ContextMessage { Role = MessageRole.User, Segments = [new TextContent("RULE-ONE"), new TextContent("RULE-TWO")] },
         ];
 
         // Act
         var result = messages.ForOpenAI();
 
         // Assert
-        result.Should().BeEmpty();
+        var user = result.Should().ContainSingle().Subject.Should().BeOfType<UserChatMessage>().Subject;
+        user.Content.Select(part => part.Text).Should().Equal("RULE-ONE", "RULE-TWO");
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenSystemMessageHasSeveralTextSegments_EmitsOneContentPartPerSegmentInOrder()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            new ContextMessage { Role = MessageRole.System, Segments = [new TextContent("A"), new TextContent("B")] },
+        ];
+
+        // Act
+        var result = messages.ForOpenAI();
+
+        // Assert
+        var system = result.Should().ContainSingle().Subject.Should().BeOfType<SystemChatMessage>().Subject;
+        system.Content.Select(part => part.Text).Should().Equal("A", "B");
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenModelMessageHasSeveralTextSegments_EmitsOneContentPartPerSegmentInOrder()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            new ContextMessage
+            {
+                Role = MessageRole.Model,
+                Segments = [new TextContent("PART-ONE"), new ToolUseContent("call_1", "t", "{}"), new TextContent("PART-TWO")],
+            },
+            new ContextMessage { Role = MessageRole.Tool, Segments = [new ToolResultContent("call_1", "t", "ok")] },
+        ];
+
+        // Act
+        var result = messages.ForOpenAI();
+
+        // Assert
+        var assistant = result[0].Should().BeOfType<AssistantChatMessage>().Subject;
+        assistant.Content.Select(part => part.Text).Should().Equal("PART-ONE", "PART-TWO");
+        assistant.ToolCalls.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenPinnedAndModelMessagesHaveSeveralTextSegments_PayloadContainsEveryText()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            new ContextMessage { Role = MessageRole.User, Segments = [new TextContent("RULE-ONE"), new TextContent("RULE-TWO")] },
+            ContextMessage.FromText(MessageRole.User, "question"),
+            new ContextMessage { Role = MessageRole.Model, Segments = [new TextContent("PART-ONE"), new TextContent("PART-TWO")] },
+            ContextMessage.FromText(MessageRole.User, "next"),
+        ];
+
+        // Act
+        var result = messages.ForOpenAI();
+
+        // Assert
+        var payload = string.Join("|", result.SelectMany(message => message.Content).Select(part => part.Text));
+        payload.Should().Contain("RULE-ONE").And.Contain("RULE-TWO").And.Contain("PART-ONE").And.Contain("PART-TWO");
+        result.Should().HaveCount(messages.Count);
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenUserMessageContainsToolUse_ThrowsInvalidOperationExceptionNamingRoleAndSegment()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            new ContextMessage { Role = MessageRole.User, Segments = [new TextContent("hi"), new ToolUseContent("call_1", "t", "{}")] },
+        ];
+
+        // Act
+        Action act = () => messages.ForOpenAI();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>().WithMessage("*User*ToolUseContent*");
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenToolMessageMixesTextWithToolResult_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            new ContextMessage { Role = MessageRole.Model, Segments = [new ToolUseContent("call_1", "t", "{}")] },
+            new ContextMessage { Role = MessageRole.Tool, Segments = [new ToolResultContent("call_1", "t", "ok"), new TextContent("x")] },
+        ];
+
+        // Act
+        Action act = () => messages.ForOpenAI();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Tool*");
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenToolMessageHoldsSeveralResults_EmitsOneToolMessagePerResult()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            new ContextMessage { Role = MessageRole.Model, Segments = [new ToolUseContent("a", "t", "{}"), new ToolUseContent("b", "t", "{}")] },
+            new ContextMessage { Role = MessageRole.Tool, Segments = [new ToolResultContent("a", "t", "ra"), new ToolResultContent("b", "t", "rb")] },
+        ];
+
+        // Act
+        var result = messages.ForOpenAI();
+
+        // Assert
+        result.Should().HaveCount(3);
+        result[1].Should().BeOfType<ToolChatMessage>().Which.ToolCallId.Should().Be("a");
+        result[2].Should().BeOfType<ToolChatMessage>().Which.ToolCallId.Should().Be("b");
+    }
+
+    [Fact]
+    public void ForOpenAI_WhenModelToolCallsAreUnansweredAtEndOfList_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        IReadOnlyList<ContextMessage> messages =
+        [
+            ContextMessage.FromText(MessageRole.User, "go"),
+            new ContextMessage { Role = MessageRole.Model, Segments = [new ToolUseContent("call_1", "search", "{}")] },
+        ];
+
+        // Act
+        Action act = () => messages.ForOpenAI();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>().WithMessage("*call_1*end of the prepared history*");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ResponseSegments_WhenToolCallArgumentsAreEmptyOrWhitespace_UsesEmptyJsonObject(string arguments)
+    {
+        // Arrange
+        var response = CreateChatCompletion(
+            toolCalls: [ChatToolCall.CreateFunctionToolCall("call_1", "list_files", BinaryData.FromString(arguments))]);
+
+        // Act
+        var result = response.ResponseSegments();
+
+        // Assert
+        result.Should().ContainSingle().Which.Should().BeEquivalentTo(new ToolUseContent("call_1", "list_files", "{}"));
     }
 
     [Fact]

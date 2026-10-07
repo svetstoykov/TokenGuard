@@ -19,15 +19,19 @@ namespace TokenGuard.Extensions.OpenAI;
 public static class OpenAIExtensions
 {
     /// <summary>
-    /// Converts TokenGuard messages into OpenAI chat messages, preserving order.
+    /// Converts TokenGuard messages into OpenAI chat messages, preserving order and content.
     /// Call this on the result of <c>ConversationContext.PrepareAsync()</c> immediately before sending to the OpenAI client.
     /// </summary>
+    /// <remarks>
+    /// Every text segment becomes its own content part, in order. The result has one message per input message, except
+    /// that a <see cref="MessageRole.Tool"/> message holding several tool results becomes one OpenAI tool message per result.
+    /// </remarks>
     /// <param name="messages">The prepared TokenGuard messages.</param>
     /// <returns>A list of OpenAI <see cref="ChatMessage"/> instances ready to pass to <c>CompleteChatAsync</c>.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is null.</exception>
     /// <exception cref="InvalidOperationException">
-    /// Thrown when the prepared history contains unresolved tool calls or orphaned tool results that would produce an
-    /// invalid OpenAI/OpenRouter request.
+    /// Thrown when a message holds content its role cannot carry in an OpenAI request, such as a tool message without a tool
+    /// result, or when the history contains tool calls without matching results or tool results without a preceding tool call.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when a message has an unrecognized role.</exception>
     public static IReadOnlyList<ChatMessage> ForOpenAI(this IReadOnlyList<ContextMessage> messages)
@@ -43,17 +47,17 @@ public static class OpenAIExtensions
             {
                 case MessageRole.System:
                     EnsureNoPendingToolCalls(message.Role, pendingToolCallIds);
-                    result.Add(new SystemChatMessage(ExtractText(message)));
+                    result.Add(new SystemChatMessage(TextParts(message, requireText: true)));
                     break;
 
                 case MessageRole.User:
                     EnsureNoPendingToolCalls(message.Role, pendingToolCallIds);
-                    result.Add(new UserChatMessage(ExtractText(message)));
+                    result.Add(new UserChatMessage(TextParts(message, requireText: true)));
                     break;
 
                 case MessageRole.Model:
                     EnsureNoPendingToolCalls(message.Role, pendingToolCallIds);
-                    AssistantChatMessage assistant = new(ExtractText(message));
+                    AssistantChatMessage assistant = new(TextParts(message, requireText: false));
 
                     foreach (var toolUse in message.Segments.OfType<ToolUseContent>())
                     {
@@ -71,9 +75,15 @@ public static class OpenAIExtensions
                     break;
 
                 case MessageRole.Tool:
-                    var toolResult = message.Segments.OfType<ToolResultContent>().FirstOrDefault();
+                    var toolResults = message.Segments.OfType<ToolResultContent>().ToList();
 
-                    if (toolResult is not null)
+                    if (toolResults.Count == 0 || toolResults.Count != message.Segments.Count)
+                    {
+                        throw new InvalidOperationException(
+                            $"A {message.Role} message cannot be sent to OpenAI because it must contain only tool results and at least one.");
+                    }
+
+                    foreach (var toolResult in toolResults)
                     {
                         if (!pendingToolCallIds.Remove(toolResult.ToolCallId))
                         {
@@ -89,6 +99,13 @@ public static class OpenAIExtensions
                 default:
                     throw new ArgumentOutOfRangeException(nameof(message.Role), message.Role, "Unsupported message role.");
             }
+        }
+
+        if (pendingToolCallIds.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Assistant tool calls {string.Join(", ", pendingToolCallIds.Order(StringComparer.Ordinal).Select(id => $"'{id}'"))} " +
+                "have no matching tool results at the end of the prepared history.");
         }
 
         return result;
@@ -140,7 +157,7 @@ public static class OpenAIExtensions
     /// <param name="response">The OpenAI chat completion response.</param>
     /// <returns>
     /// A list of <see cref="ToolUseContent"/> segments, one per tool call requested by the model.
-    /// Empty if the model made no tool calls.
+    /// A tool call with empty or whitespace arguments gets the arguments <c>{}</c>. Empty if the model made no tool calls.
     /// </returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="response"/> is null.</exception>
     public static IReadOnlyList<ToolUseContent> ToolUseSegments(this ChatCompletion response)
@@ -148,7 +165,7 @@ public static class OpenAIExtensions
         ArgumentNullException.ThrowIfNull(response);
 
         return response.ToolCalls
-            .Select(call => new ToolUseContent(call.Id, call.FunctionName, call.FunctionArguments.ToString()))
+            .Select(call => new ToolUseContent(call.Id, call.FunctionName, NormalizeArguments(call.FunctionArguments.ToString())))
             .ToList();
     }
 
@@ -166,8 +183,37 @@ public static class OpenAIExtensions
         return response.Usage?.InputTokenCount;
     }
 
-    private static string ExtractText(ContextMessage contextMessage) =>
-        contextMessage.Segments.OfType<TextContent>().FirstOrDefault()?.Content ?? string.Empty;
+    private static string NormalizeArguments(string arguments) => string.IsNullOrWhiteSpace(arguments) ? "{}" : arguments;
+
+    private static List<ChatMessageContentPart> TextParts(ContextMessage message, bool requireText)
+    {
+        List<ChatMessageContentPart> parts = [];
+
+        foreach (var segment in message.Segments)
+        {
+            if (segment is TextContent text)
+            {
+                parts.Add(ChatMessageContentPart.CreateTextPart(text.Content));
+            }
+            else if (segment is not ToolUseContent || message.Role != MessageRole.Model)
+            {
+                throw new InvalidOperationException(
+                    $"A {message.Role} message cannot be sent to OpenAI because it contains a {segment.GetType().Name} segment.");
+            }
+        }
+
+        if (parts.Count == 0)
+        {
+            if (requireText)
+            {
+                throw new InvalidOperationException($"A {message.Role} message cannot be sent to OpenAI because it contains no text.");
+            }
+
+            parts.Add(ChatMessageContentPart.CreateTextPart(string.Empty));
+        }
+
+        return parts;
+    }
 
     private static void EnsureNoPendingToolCalls(MessageRole nextRole, IReadOnlyCollection<string> pendingToolCallIds)
     {
