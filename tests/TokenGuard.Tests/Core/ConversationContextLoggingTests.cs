@@ -23,6 +23,7 @@ public sealed class ConversationContextLoggingTests
     private const int PinnedBudgetExceeded = 1015;
     private const int EmergencyTruncationEvaluated = 1016;
     private const int PinnedMessagePlaced = 1017;
+    private const int ProviderCorrectionApplied = 1018;
 
     public static TheoryData<string, MessageRole, bool, int> RecordingMethods => new()
     {
@@ -339,6 +340,71 @@ public sealed class ConversationContextLoggingTests
         record.Property("ProviderInputTokens").Should().Be(26);
         record.Property("LastEstimatedTokens").Should().Be(20);
         record.Property("Correction").Should().Be(6);
+    }
+
+    [Fact]
+    public async Task RecordModelResponse_WhenACorrectionIsAlreadyActive_LogsTheCorrectedLastEstimateAndTheNewCorrection()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.Unchanged());
+        context.AddUserMessage(Text(20));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(5))], providerInputTokens: 26);
+        await context.PrepareAsync();
+
+        // Act
+        context.RecordModelResponse([new TextContent(Text(5))], providerInputTokens: 33);
+
+        // Assert
+        // The second payload sums to 25 and was reported as 25 + 6 = 31. The new correction is 33 - 25 = 8.
+        var record = logs.WithEventId(EstimateAnchored).Last();
+        record.Property("ProviderInputTokens").Should().Be(33);
+        record.Property("LastEstimatedTokens").Should().Be(31);
+        record.Property("Correction").Should().Be(8);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenACorrectionIsActive_LogsOneDebugRecordWithTheCorrectionOnEachSide()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.KeepNewest(1));
+        context.AddUserMessage(Text(40));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(10))], providerInputTokens: 60);
+
+        // Act
+        var result = await context.PrepareAsync();
+
+        // Assert
+        // The correction is 60 - 40 = 20. The history sums to 50 and the kept message to 10, so 20 * 10 / 40 = 5 remains.
+        var record = logs.WithEventId(ProviderCorrectionApplied).Should().ContainSingle().Subject;
+        record.Level.Should().Be(LogLevel.Debug);
+        record.Property("Turn").Should().Be(2);
+        record.Property("Correction").Should().Be(20);
+        record.Property("CorrectionBaseTokens").Should().Be(40);
+        record.Property("CorrectionBefore").Should().Be(20);
+        record.Property("CorrectionAfter").Should().Be(5);
+        var completed = logs.WithEventId(CompactionCompleted).Should().ContainSingle().Subject;
+        completed.Property("TokensBefore").Should().Be(70).And.Be(result.TokensBeforeCompaction);
+        completed.Property("TokensAfter").Should().Be(15).And.Be(result.TokensAfterCompaction);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenNoProviderReportWasRecorded_LogsNoProviderCorrection()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.KeepNewest(1));
+        context.AddUserMessage(Text(40));
+        context.RecordModelResponse([new TextContent(Text(20))]);
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        logs.WithEventId(ProviderCorrectionApplied).Should().BeEmpty();
     }
 
     [Fact]

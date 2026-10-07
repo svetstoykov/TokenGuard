@@ -53,8 +53,8 @@ public sealed class TokenGuardTelemetryTests
         prepares.Should().HaveCount(4);
         prepares.Select(activity => activity.GetTagItem("tokenguard.outcome")).Should().Equal(outcomes.Select(outcome => (object)outcome.ToString()));
         prepares.Select(activity => activity.GetTagItem("tokenguard.turn")).Should().Equal(1, 2, 3, 4);
-        prepares.Select(activity => activity.GetTagItem("tokenguard.tokens.before")).Should().Equal(20, 85, 110, 240);
-        prepares.Select(activity => activity.GetTagItem("tokenguard.tokens.after")).Should().Equal(20, 78, 30, 120);
+        prepares.Select(activity => activity.GetTagItem("tokenguard.tokens.before")).Should().Equal(20, 85, 115, 245);
+        prepares.Select(activity => activity.GetTagItem("tokenguard.tokens.after")).Should().Equal(20, 83, 35, 125);
         prepares.Select(activity => activity.GetTagItem("tokenguard.messages.compacted")).Should().Equal(0, 1, 5, 7);
         prepares.Should().OnlyContain(activity => contextName.Equals(activity.GetTagItem("tokenguard.context.name")));
         prepares.Should().OnlyContain(activity => 100.Equals(activity.GetTagItem("tokenguard.tokens.max")));
@@ -165,10 +165,10 @@ public sealed class TokenGuardTelemetryTests
         capture.MeasurementsOf("tokenguard.token_counting.duration", contextName).Should().HaveCount(4).And.OnlyContain(m => m.Unit == "s");
 
         var contextTokens = capture.MeasurementsOf("tokenguard.context.tokens", contextName);
-        contextTokens.Select(m => m.Value).Should().Equal(20, 78, 30, 120);
+        contextTokens.Select(m => m.Value).Should().Equal(20, 83, 35, 125);
         contextTokens.Select(m => m.Tag("tokenguard.outcome")).Should().Equal("Ready", "Compacted", "Compacted", "CompactionInsufficient");
 
-        capture.MeasurementsOf("tokenguard.compaction.tokens_reclaimed", contextName).Select(m => m.Value).Should().Equal(7, 80, 120);
+        capture.MeasurementsOf("tokenguard.compaction.tokens_reclaimed", contextName).Select(m => m.Value).Should().Equal(2, 80, 120);
 
         var messages = capture.MeasurementsOf("tokenguard.compaction.messages", contextName);
         messages.Where(m => "masked".Equals(m.Tag("tokenguard.kind"))).Select(m => m.Value).Should().Equal(1, 1, 1);
@@ -273,6 +273,10 @@ public sealed class TokenGuardTelemetryTests
     ///     Drives one conversation through a below-trigger call, a masking call, a failed summarization with emergency
     ///     truncation, and an over-budget call.
     /// </summary>
+    /// <remarks>
+    ///     The provider reports 25 tokens for the first payload of 20, so every later total carries a correction of 5. The
+    ///     message estimates sum to 80, 110, and 240 before compaction and to 78, 30, and 120 after it.
+    /// </remarks>
     /// <param name="contextName">The context name the conversation reports with.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the outcome of each prepare call.</returns>
     internal static async Task<IReadOnlyList<PrepareOutcome>> RunScriptedConversationAsync(string contextName, ILoggerFactory? loggerFactory = null)

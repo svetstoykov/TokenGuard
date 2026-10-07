@@ -50,12 +50,19 @@ public sealed class ConversationContext : IConversationContext
     private readonly ConversationHealth _health;
     private readonly List<ContextMessage> _history = [];
 
-    // Token total of the list most recently returned by PrepareAsync — used to compute anchor corrections.
+    // Token total reported for the list most recently returned by PrepareAsync, with the provider correction included.
+    // A provider report is compared with it to measure the estimate error.
     private int _lastEstimatedTotalTokens;
 
-    // Additive correction applied to every raw estimate to account for systematic estimator drift.
-    // Updated each time RecordModelResponse is called with a providerInputTokens value.
+    // Sum of TokenCount over the same list. A provider report is compared with it to learn the provider correction.
+    private int _lastPreparedMessageTokens;
+
+    // Provider-reported input tokens minus the sum of TokenCount over the payload the provider measured.
+    // Replaced each time RecordModelResponse is called with a providerInputTokens value, and kept across prepare calls.
     private int _anchorCorrection;
+
+    // Sum of TokenCount over the payload the provider measured when it reported the active correction.
+    private int _anchorBaseTokens;
 
     private int _pinnedTokenTotal;
 
@@ -266,9 +273,10 @@ public sealed class ConversationContext : IConversationContext
     /// </para>
     /// <para>
     /// If <paramref name="providerInputTokens"/> is provided, the context compares the provider's
-    /// exact input token count with its most recent prepared estimate and stores the difference as
-    /// a correction factor. That correction is applied to later <see cref="PrepareAsync(CancellationToken)"/> calls until
-    /// the next compaction cycle resets it.
+    /// exact input token count with the summed message estimates of the most recently prepared payload and stores the
+    /// difference as the provider correction. That correction is applied to every later
+    /// <see cref="PrepareAsync(CancellationToken)"/> call, including calls that compact, until the next provider report
+    /// replaces it. <see cref="PrepareResult.TokensAfterCompaction"/> describes how it is scaled to a smaller payload.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
@@ -389,10 +397,12 @@ public sealed class ConversationContext : IConversationContext
             this._counter.StartTiming();
 
         IReadOnlyList<ContextMessage> messages = this._history;
-        var totalBeforeCompaction = this.Sum(messages) + this._anchorCorrection;
+        var historyMessageTokens = this.Sum(messages);
+        var totalBeforeCompaction = this.ApplyProviderCorrection(historyMessageTokens);
 
         if (totalBeforeCompaction < this._budget.CompactionTriggerTokens)
         {
+            this.LogProviderCorrection(historyMessageTokens, historyMessageTokens);
             ConversationContextLog.PrepareBelowTrigger(
                 this._logger, conversationId, contextName, this._currentTurn, totalBeforeCompaction, this._budget.CompactionTriggerTokens,
                 this._budget.MaxTokens);
@@ -400,6 +410,7 @@ public sealed class ConversationContext : IConversationContext
                 activity, PrepareOutcome.Ready, totalBeforeCompaction, totalBeforeCompaction, messagesCompacted: 0, startTimestamp, timeCounting);
             this._health.OnPreparedBelowTrigger(totalBeforeCompaction);
 
+            this._lastPreparedMessageTokens = historyMessageTokens;
             this._lastEstimatedTotalTokens = totalBeforeCompaction;
             return new PrepareResult(
                 this.MovePinnedMessagesOutOfToolExchanges(messages),
@@ -420,18 +431,21 @@ public sealed class ConversationContext : IConversationContext
             ? compacted.Messages
             : ReassemblePreparedMessages(pinnedSlots, compactable, compacted.Messages);
 
-        var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
+        var preparedMessageTokens = this.Sum(prepared);
+        var preparedTotal = this.ApplyProviderCorrection(preparedMessageTokens);
 
-        var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedTotal, out var truncated);
+        var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedMessageTokens, out var truncated);
         var final = emergencyApplied ? truncated! : prepared;
-        var estimatedFinalTokens = this.Sum(final);
+        var finalMessageTokens = this.Sum(final);
+        var estimatedFinalTokens = this.ApplyProviderCorrection(finalMessageTokens);
         var emergencyMessagesDropped = emergencyApplied ? prepared.Count - final.Count : 0;
         var messagesCompacted = compacted.MessagesAffected + emergencyMessagesDropped;
 
         this.LogPinnedPlacements(pinnedSlots, final);
+        this.LogProviderCorrection(historyMessageTokens, finalMessageTokens);
 
+        this._lastPreparedMessageTokens = finalMessageTokens;
         this._lastEstimatedTotalTokens = estimatedFinalTokens;
-        this._anchorCorrection = 0;
 
         var outcome = this.DetermineOutcome(estimatedFinalTokens, messagesCompacted);
         var isOverBudget = outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact;
@@ -701,8 +715,9 @@ public sealed class ConversationContext : IConversationContext
     /// </para>
     /// </remarks>
     /// <param name="prepared">The assembled message list produced after the primary strategy pass.</param>
-    /// <param name="currentTotal">
-    /// The current token total of <paramref name="prepared"/>, including any active anchor correction.
+    /// <param name="preparedMessageTokens">
+    /// The sum of <see cref="ContextMessage.TokenCount"/> over <paramref name="prepared"/>. The provider correction is applied
+    /// to it, and to the smaller sum left after each dropped unit, before the comparison with the emergency trigger.
     /// </param>
     /// <param name="truncated">
     /// When this method returns <see langword="true"/>, contains a new list with the oldest eligible
@@ -716,7 +731,7 @@ public sealed class ConversationContext : IConversationContext
     /// </returns>
     private bool TryApplyEmergencyTruncation(
         IReadOnlyList<ContextMessage> prepared,
-        int currentTotal,
+        int preparedMessageTokens,
         out IReadOnlyList<ContextMessage>? truncated)
     {
         if (!this._budget.EmergencyTriggerTokens.HasValue)
@@ -726,6 +741,7 @@ public sealed class ConversationContext : IConversationContext
         }
 
         var emergencyLimit = this._budget.EmergencyTriggerTokens.Value;
+        var currentTotal = this.ApplyProviderCorrection(preparedMessageTokens);
 
         if (currentTotal <= emergencyLimit)
         {
@@ -759,6 +775,7 @@ public sealed class ConversationContext : IConversationContext
 
         // Drop whole units oldest-first until the budget is satisfied or units are exhausted.
         var dropIndices = new HashSet<int>();
+        var remainingMessageTokens = preparedMessageTokens;
         var total = currentTotal;
         var groupsDropped = 0;
         foreach (var (groupIndices, groupTokens) in turnGroups)
@@ -769,7 +786,8 @@ public sealed class ConversationContext : IConversationContext
             foreach (var idx in groupIndices)
                 dropIndices.Add(idx);
 
-            total -= groupTokens;
+            remainingMessageTokens -= groupTokens;
+            total = this.ApplyProviderCorrection(remainingMessageTokens);
             groupsDropped++;
         }
 
@@ -1136,8 +1154,18 @@ public sealed class ConversationContext : IConversationContext
     }
 
     /// <summary>
-    /// Recomputes the active anchor correction from provider-reported input tokens.
+    /// Replaces the provider correction with one learned from provider-reported input tokens.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The correction is the provider count minus the sum of <see cref="ContextMessage.TokenCount"/> over the most recently
+    /// prepared payload. That sum is stored with it so <see cref="ApplyProviderCorrection"/> can scale the correction.
+    /// </para>
+    /// <para>
+    /// The estimate error reported to health signals and the error-ratio measurement is the provider count minus the total
+    /// that the last prepare call reported, which already includes the correction active on that call.
+    /// </para>
+    /// </remarks>
     /// <param name="providerInputTokens">
     /// The exact provider-reported input token total for the most recently prepared payload.
     /// </param>
@@ -1146,7 +1174,8 @@ public sealed class ConversationContext : IConversationContext
         if (!providerInputTokens.HasValue)
             return;
 
-        this._anchorCorrection = providerInputTokens.Value - this._lastEstimatedTotalTokens;
+        this._anchorCorrection = providerInputTokens.Value - this._lastPreparedMessageTokens;
+        this._anchorBaseTokens = this._lastPreparedMessageTokens;
         this._health.OnProviderTokensReported(providerInputTokens.Value, this._lastEstimatedTotalTokens);
 
         ConversationContextLog.EstimateAnchored(
@@ -1156,8 +1185,36 @@ public sealed class ConversationContext : IConversationContext
         if (providerInputTokens.Value > 0)
         {
             TokenGuardTelemetry.EstimateErrorRatio.Record(
-                (double)this._anchorCorrection / providerInputTokens.Value, this._diagnostics.ContextNameTag);
+                (double)(providerInputTokens.Value - this._lastEstimatedTotalTokens) / providerInputTokens.Value,
+                this._diagnostics.ContextNameTag);
         }
+    }
+
+    /// <summary>
+    /// Converts a sum of message token counts to the scale that every reported total and budget comparison uses.
+    /// </summary>
+    /// <remarks>
+    /// A message list at least as large as the payload the provider measured gets the whole correction, so messages
+    /// recorded since the report count at their estimate. A smaller list gets the correction multiplied by its share of
+    /// that payload, rounded toward zero, so a compacted payload carries a proportional part and an empty one carries none.
+    /// </remarks>
+    /// <param name="messageTokens">The sum of <see cref="ContextMessage.TokenCount"/> over a message list.</param>
+    /// <returns><paramref name="messageTokens"/> plus the provider correction scaled to it.</returns>
+    private int ApplyProviderCorrection(int messageTokens) => messageTokens + this.ScaleProviderCorrection(messageTokens);
+
+    private int ScaleProviderCorrection(int messageTokens) =>
+        messageTokens >= this._anchorBaseTokens
+            ? this._anchorCorrection
+            : (int)((long)this._anchorCorrection * messageTokens / this._anchorBaseTokens);
+
+    private void LogProviderCorrection(int historyMessageTokens, int preparedMessageTokens)
+    {
+        if (this._anchorCorrection == 0)
+            return;
+
+        ConversationContextLog.ProviderCorrectionApplied(
+            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn, this._anchorCorrection,
+            this._anchorBaseTokens, this.ScaleProviderCorrection(historyMessageTokens), this.ScaleProviderCorrection(preparedMessageTokens));
     }
 
     /// <summary>

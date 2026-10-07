@@ -26,8 +26,11 @@ public sealed record PrepareResult
     /// </summary>
     /// <param name="messages">The prepared message list to send to the provider.</param>
     /// <param name="outcome">The outcome describing what happened during preparation.</param>
-    /// <param name="tokensBeforeCompaction">The token total before any compaction ran.</param>
-    /// <param name="tokensAfterCompaction">The token total of <paramref name="messages"/> after all compaction and truncation.</param>
+    /// <param name="tokensBeforeCompaction">The estimated token total before any compaction ran, with the provider correction included.</param>
+    /// <param name="tokensAfterCompaction">
+    /// The estimated token total of <paramref name="messages"/> after all compaction and truncation, on the same scale as
+    /// <paramref name="tokensBeforeCompaction"/>.
+    /// </param>
     /// <param name="messagesCompacted">The count of messages removed or replaced during this call.</param>
     /// <param name="budgetFailureReason">A descriptive reason when the outcome still violates the configured budget; null otherwise.</param>
     /// <param name="messagesDropped">
@@ -69,16 +72,37 @@ public sealed record PrepareResult
     public PrepareOutcome Outcome { get; }
 
     /// <summary>
-    /// Gets the aggregate token total when <see cref="Abstractions.IConversationContext.PrepareAsync"/>
+    /// Gets the estimated token total of the recorded history when <see cref="Abstractions.IConversationContext.PrepareAsync"/>
     /// was called, before any strategy compaction or emergency truncation ran.
-    /// Equal to <see cref="TokensAfterCompaction"/> when <see cref="Outcome"/> is <see cref="PrepareOutcome.Ready"/>.
     /// </summary>
+    /// <remarks>
+    /// This total is on the same scale as <see cref="TokensAfterCompaction"/>: the summed message estimates plus the
+    /// provider correction, when one is known. The two are equal whenever the call changed no messages.
+    /// </remarks>
     public int TokensBeforeCompaction { get; }
 
     /// <summary>
-    /// Gets the aggregate token total of <see cref="Messages"/> after all strategy compaction and
+    /// Gets the estimated token total of <see cref="Messages"/> after all strategy compaction and
     /// emergency truncation completed.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The total is the sum of <see cref="ContextMessage.TokenCount"/> over <see cref="Messages"/> plus the provider
+    /// correction scaled to those messages. With no provider report recorded, it is that sum alone.
+    /// <see cref="Outcome"/> is decided from this total.
+    /// </para>
+    /// <para>
+    /// The provider correction is the input token count last passed to
+    /// <see cref="Abstractions.IConversationContext.RecordModelResponse"/> minus the summed message estimates of the payload
+    /// that count measured. It stays in effect until the next provider report replaces it.
+    /// </para>
+    /// <para>
+    /// Scaling rule: when the summed estimates of a message list are at least those of the measured payload, the whole
+    /// correction is added. When they are smaller, the correction is multiplied by the summed estimates of the list
+    /// divided by those of the measured payload, and rounded toward zero. A payload unchanged since the report therefore
+    /// totals exactly the provider count, and a payload compacted to half its estimate carries half the correction.
+    /// </para>
+    /// </remarks>
     public int TokensAfterCompaction { get; }
 
     /// <summary>

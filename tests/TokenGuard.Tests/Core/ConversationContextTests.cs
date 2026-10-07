@@ -1063,8 +1063,7 @@ public sealed class ConversationContextTests
         engine.AddUserMessage("u2");
         await engine.PrepareAsync();
         // CompactCalls = 1; strategy returns pass-through.
-        // finalTokens = 500.
-        // CORRECT: _lastPreparedTotal = 500,       _anchorCorrection = 0
+        // The prepared messages sum to 500, and that sum is the baseline for the next provider report.
 
         // True drift for the compacted messages is +20 (provider counts 520, raw estimate is 500).
         engine.RecordModelResponse([new TextContent("m2")], providerInputTokens: 520);
@@ -1114,8 +1113,10 @@ public sealed class ConversationContextTests
 
         var result = await engine.PrepareAsync();
 
+        // The kept messages sum to 1,050. The provider correction is 300 - 400 = -100, and it applies in full because
+        // the kept messages are larger than the 400-token payload the provider measured.
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
-        result.TokensAfterCompaction.Should().Be(1_050);
+        result.TokensAfterCompaction.Should().Be(950);
         result.BudgetFailureReason.Should().BeNull();
         result.MessagesDropped.Should().Be(1);
         result.Messages.Should().Equal(keepMiddle, keepLatest);

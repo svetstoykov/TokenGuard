@@ -214,11 +214,17 @@ to send to the provider. `ConversationContext.History` remains unchanged.
 |---|---|
 | `Messages` | Prepared message list to send to the provider |
 | `Outcome` | `Ready`, `Compacted`, `CompactionInsufficient`, or `CannotCompact` |
-| `TokensBeforeCompaction` | Estimated total before any compaction or truncation ran |
-| `TokensAfterCompaction` | Estimated total of `Messages` after preparation completed |
+| `TokensBeforeCompaction` | Estimated total of the recorded history before any compaction or truncation ran |
+| `TokensAfterCompaction` | Estimated total of `Messages` after preparation completed. `Outcome` is decided from it |
 | `MessagesCompacted` | Count of messages replaced or dropped during this call |
 | `MessagesDropped` | Count of messages removed specifically by emergency truncation |
 | `BudgetFailureReason` | Diagnostic text for over-budget outcomes |
+
+Both token figures are estimates on one scale: the summed per-message estimates plus the provider correction, when one is
+known. The correction is the input token count you last passed to `RecordModelResponse` minus TokenGuard's estimate of
+the payload that count measured. It stays in effect, across compaction, until the next provider report replaces it. A
+payload at least as large as the measured one carries the whole correction; a smaller one carries a proportional share.
+On a call that changes no messages the two figures are equal.
 
 `Ready` and `Compacted` are healthy outcomes. `CompactionInsufficient` means TokenGuard reduced the payload but it still
 exceeds the configured limit plus any allowed overrun tolerance. `CannotCompact` means the remaining preserved content is

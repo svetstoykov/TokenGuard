@@ -34,9 +34,11 @@ public sealed class ConversationHealthTests
         await context.PrepareAsync();
         context.RecordModelResponse([new TextContent(Text(5))], providerInputTokens: 60);
         await context.PrepareAsync();
-        context.RecordModelResponse([new TextContent(Text(5))], providerInputTokens: 46);
+        context.RecordModelResponse([new TextContent(Text(5))], providerInputTokens: 66);
 
         // Assert
+        // Reported totals are 20, then 25 + (40 - 20) = 45, then 30 + (60 - 25) = 65. The reports of 40 and 60 are more than
+        // 10% away from 20 and 45; the report of 66 is within 10% of 65.
         var started = logs.WithEventId(EstimatorDriftDetected).Should().ContainSingle().Subject;
         started.Level.Should().Be(LogLevel.Warning);
         started.Property("EstimatedTokens").Should().Be(20);
@@ -70,7 +72,7 @@ public sealed class ConversationHealthTests
         var started = logs.WithEventId(RepeatedCompactionDetected).Should().ContainSingle().Subject;
         started.Level.Should().Be(LogLevel.Warning);
         started.Property("ConsecutiveTurns").Should().Be(3);
-        started.Property("TokensReclaimedPerTurn").Should().Be("0, 3, 0");
+        started.Property("TokensReclaimedPerTurn").Should().Be("0, 0, 0");
         Cleared(logs, "RepeatedCompaction").Should().ContainSingle();
     }
 
@@ -239,11 +241,11 @@ public sealed class ConversationHealthTests
         summary.Property("Turns").Should().Be(4);
         summary.Property("PrepareCalls").Should().Be(4);
         summary.Property("StrategyRuns").Should().Be(3);
-        summary.Property("TokensReclaimed").Should().Be(207L);
+        summary.Property("TokensReclaimed").Should().Be(202L);
         summary.Property("SummarizerCalls").Should().Be(1);
         summary.Property("SummarizerFailures").Should().Be(1);
         summary.Property("EmergencyTruncations").Should().Be(2);
-        summary.Property("PeakPreparedTokens").Should().Be(120);
+        summary.Property("PeakPreparedTokens").Should().Be(125);
         summary.Property("LargestDriftPercent").Should().BeOfType<double>().Which.Should().BeApproximately(20.0, 1e-9);
         logs.Records.Last().Should().BeSameAs(summary);
     }
