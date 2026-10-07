@@ -262,6 +262,11 @@ of regenerating them from scratch every turn.
 still above the emergency trigger after the normal compaction stages, TokenGuard drops the oldest eligible unpinned turn
 groups from the prepared payload. It preserves pinned messages, summary messages, and the newest irreducible tail.
 
+A turn group is one unpinned user message and everything recorded after it up to the next unpinned user message: the
+model replies, tool calls, and tool results that answer it. Groups come from the messages themselves, so a history
+recorded in one go is grouped like the same history recorded turn by turn. An older group is dropped whole. The newest
+group, still in progress, loses its oldest messages first, and a tool call always goes together with its results.
+
 ---
 
 ## Compaction statuses

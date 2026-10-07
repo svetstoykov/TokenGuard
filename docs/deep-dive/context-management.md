@@ -199,11 +199,8 @@ messages**, not the masked result. That preserves full tool-result payloads for 
 
 `LlmSummarizationStrategy` keeps a protected newest-message tail verbatim and summarizes only the prefix before it.
 
-The boundary logic is stricter than "last N messages":
-
-- if turn markers exist, the tail expands to keep whole recorded turns together
-- if the tail would start on a tool result, the boundary moves backward to include the model message that requested that
-  tool call
+The boundary logic is stricter than "last N messages": if the tail would start on a tool result, the boundary moves
+backward to include the model message that requested that tool call.
 
 The result is:
 
@@ -292,6 +289,15 @@ Default behavior:
 
 When emergency truncation runs, it drops oldest eligible unpinned **turn groups** from the prepared list. It does not
 drop arbitrary individual messages, because tool-call/tool-result structure must remain valid.
+
+A turn group starts at each unpinned user message and runs up to the next one, so it holds the model replies, tool
+calls, and tool results that answer that message. Messages recorded before the first user message form the first group.
+A pinned message never opens a group. Grouping reads only the roles of the messages, so it does not depend on when
+`PrepareAsync()` was called: a restored history is grouped like the same history recorded live.
+
+A group that ends before the preserved floor is dropped whole. The floor usually starts inside the newest group, which
+is still in progress. The messages of that group before the floor are dropped oldest first in smaller units: the user
+message, then each model message together with its tool results.
 
 ### Preserved floor
 

@@ -122,8 +122,8 @@ public sealed class ConversationContextLoggingTests
         record.Level.Should().Be(LogLevel.Debug);
         record.Property("CurrentTokens").Should().Be(180);
         record.Property("EmergencyTriggerTokens").Should().Be(100);
-        record.Property("TurnGroups").Should().Be(2);
-        record.Property("TurnGroupsDropped").Should().Be(2);
+        record.Property("TurnGroups").Should().Be(1);
+        record.Property("TurnGroupsDropped").Should().Be(1);
         record.Property("PreservedFloorIndex").Should().Be(2);
         record.Property("FloorExceedsTrigger").Should().Be(false);
     }

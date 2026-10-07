@@ -54,7 +54,10 @@ Each type logs under its own full name, so one `TokenGuard` prefix covers the wh
 
 Every context gets a conversation ID when it is created. Records from `ConversationContext` carry `ConversationId` and
 `ContextName` as structured properties, and records written during `PrepareAsync()` also carry `Turn`. `ContextName` is the
-name the configuration was registered under, or `default` for the default configuration.
+name the configuration was registered under, or `default` for the default configuration. `Turn` counts the prepare calls
+that saw new history: it goes up by one on each `PrepareAsync()` call made after a message was recorded. The
+`tokenguard.turn` tag and the `Turns` figure of the `ConversationSummary` record count the same thing. It is a different
+thing from the turn groups that emergency truncation drops, which come from message roles.
 
 Records from the strategies and summarizers get the same three properties from a logging scope that the context opens
 around the compaction strategy. To see them on those records, turn on scopes in your logging provider (for example
@@ -87,7 +90,7 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | 1013 | SummarizationFailed | Warning | The strategy reported a summarization failure and returned a result without a summary. The exception is attached. |
 | 1014 | PrepareOverBudget | Error | The prepared payload exceeds the effective maximum (maximum tokens plus overrun tolerance). Carries the outcome, final tokens, and the effective maximum. |
 | 1015 | PinnedBudgetExceeded | Error | Pinned messages alone exceed the maximum. Written before `PinnedTokenBudgetExceededException` is thrown. |
-| 1016 | EmergencyTruncationEvaluated | Debug | The prepared payload exceeded the emergency trigger. Carries current tokens, the trigger, turn groups considered and dropped, the index of the preserved floor, and whether that floor alone still exceeds the trigger. |
+| 1016 | EmergencyTruncationEvaluated | Debug | The prepared payload exceeded the emergency trigger. Carries current tokens, the trigger, drop units considered and dropped (`TurnGroups` and `TurnGroupsDropped`: each whole turn group before the newest one, and each user message or model message with its tool results inside the newest one), the index of the preserved floor, and whether that floor alone still exceeds the trigger. |
 | 1017 | PinnedMessagePlaced | Debug | One pinned message was placed in a prepared payload that was reassembled around pinned messages. Carries the message's index in the recorded history and its index in the prepared payload. |
 | 2000 | SlidingWindowApplied | Debug | One sliding-window pass. Carries message count, available tokens, tokens before and after, window size, protected messages, and tool results masked. |
 | 2001 | ToolResultMasked | Trace | One tool result was replaced with a placeholder. Carries message index, tool call ID, tool name, and the message's tokens before and after. |

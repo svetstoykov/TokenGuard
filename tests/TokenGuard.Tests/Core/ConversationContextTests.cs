@@ -292,56 +292,6 @@ public sealed class ConversationContextTests
     }
 
     [Fact]
-    public async Task PrepareAsync_WhenCalledTwiceWithoutHistoryChange_DoesNotAdvanceTurnForSubsequentMessages()
-    {
-        // Arrange
-        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
-
-        engine.AddUserMessage("user");
-        var userMessage = engine.History[0];
-
-        // Act
-        _ = await engine.PrepareAsync();
-        _ = await engine.PrepareAsync();
-
-        engine.RecordModelResponse([new TextContent("model")]);
-        engine.RecordToolResult("tool-1", "weather", "sunny");
-
-        var modelMessage = engine.History[1];
-        var toolMessage = engine.History[2];
-
-        // Assert
-        userMessage.Turn.Should().Be(0);
-        modelMessage.Turn.Should().Be(1);
-        toolMessage.Turn.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task SetSystemPrompt_WhenReplacingExistingPrompt_AdvancesTurnAfterNextPrepare()
-    {
-        // Arrange
-        var engine = new ConversationContext(ContextBudget.For(1_000), new TrackingTokenCounter(), new TrackingCompactionStrategy());
-
-        engine.SetSystemPrompt("sys-old");
-
-        // Act
-        _ = await engine.PrepareAsync();
-
-        engine.SetSystemPrompt("sys-new");
-        _ = await engine.PrepareAsync();
-
-        engine.AddUserMessage("after-replace");
-
-        var systemMessage = engine.History[0];
-        var userMessage = engine.History[1];
-
-        // Assert
-        AssertText(systemMessage, "sys-new");
-        systemMessage.Turn.Should().Be(0);
-        userMessage.Turn.Should().Be(2);
-    }
-
-    [Fact]
     public async Task PrepareAsync_WhenPinnedMessagesExist_PartitionsForStrategyAndAdjustsReservedBudget()
     {
         // Arrange
@@ -442,8 +392,7 @@ public sealed class ConversationContextTests
     {
         // Arrange
         // Budget: compactionTrigger=500, emergencyTrigger=900.
-        // u1 and u2 are added in separate turns (PrepareAsync is called between them) so they form
-        // independent drop units. Dropping u1 alone (300 tokens) brings the total from 1150 to 850,
+        // u1 and u2 are user messages, so each opens its own turn group. Dropping u1 alone (300 tokens) brings the total from 1150 to 850,
         // which falls below the emergency threshold, so u2 is preserved.
         var budget = new ContextBudget(1_000, 0.5, 0.9);
         var counter = new TrackingTokenCounter();
@@ -505,10 +454,6 @@ public sealed class ConversationContextTests
         var prepared = result.Messages;
 
         // Assert
-        oldUserMessage.Turn.Should().Be(0);
-        oldModelMessage.Turn.Should().Be(0);
-        oldToolMessage.Turn.Should().Be(0);
-        latestMessage.Turn.Should().Be(1);
         prepared.Should().ContainSingle().Which.Should().BeSameAs(latestMessage);
         prepared.Should().NotContain(oldUserMessage);
         prepared.Should().NotContain(oldModelMessage);
@@ -524,15 +469,11 @@ public sealed class ConversationContextTests
         counter.SetByText("seed", 700);
 
         var olderUser = ContextMessage.FromText(MessageRole.User, "older-user");
-        olderUser.Turn = 0;
-
         var olderModel = ContextMessage.FromText(MessageRole.Model, "older-model");
-        olderModel.Turn = 1;
 
         var trailingModel = new ContextMessage
         {
             Role = MessageRole.Model,
-            Turn = 2,
             Segments =
             [
                 new ToolUseContent("call_masked", "search", "{\"query\":\"token guard\"}"),
@@ -543,7 +484,6 @@ public sealed class ConversationContextTests
         var maskedToolResult = new ContextMessage
         {
             Role = MessageRole.Tool,
-            Turn = 2,
             State = CompactionState.Masked,
             Segments =
             [
@@ -554,7 +494,6 @@ public sealed class ConversationContextTests
         var liveToolResult = new ContextMessage
         {
             Role = MessageRole.Tool,
-            Turn = 2,
             Segments =
             [
                 new ToolResultContent("call_live", "fetch", "{\"value\":42}"),
@@ -1150,10 +1089,6 @@ public sealed class ConversationContextTests
         var dropCandidate = ContextMessage.FromText(MessageRole.User, "drop");
         var keepMiddle = ContextMessage.FromText(MessageRole.User, "keep-middle");
         var keepLatest = ContextMessage.FromText(MessageRole.User, "keep-latest");
-
-        dropCandidate.Turn = 0;
-        keepMiddle.Turn = 1;
-        keepLatest.Turn = 2;
 
         counter.SetByText("seed", 400);
         counter.SetByText("reply", 0);

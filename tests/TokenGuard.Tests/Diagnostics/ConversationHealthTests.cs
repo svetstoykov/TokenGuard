@@ -239,7 +239,7 @@ public sealed class ConversationHealthTests
         summary.Property("Turns").Should().Be(4);
         summary.Property("PrepareCalls").Should().Be(4);
         summary.Property("StrategyRuns").Should().Be(3);
-        summary.Property("TokensReclaimed").Should().Be(149L);
+        summary.Property("TokensReclaimed").Should().Be(207L);
         summary.Property("SummarizerCalls").Should().Be(1);
         summary.Property("SummarizerFailures").Should().Be(1);
         summary.Property("EmergencyTruncations").Should().Be(2);

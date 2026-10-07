@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `emergencyThreshold` (it used to be reported as a compaction threshold error), and the message for a compaction
   threshold that is not below the emergency threshold includes both values, so the default emergency threshold of 1.0
   is visible.
+- Turn groups come from the messages, not from when `PrepareAsync()` was called. A group starts at each unpinned user
+  message and runs up to the next one. A history recorded without prepare calls in between, such as a restored
+  conversation, used to be one group that emergency truncation dropped whole, leaving only the newest message; it now
+  keeps the newest groups that fit. Views of conversations recorded turn by turn can change too: an older turn is
+  dropped together with its user message, tool calls, and replies, and the summarization tail starts on the message
+  the window size selects, moved back only to keep a tool call with its results.
 
 ## [1.0.0] - 2026-06-01
 

@@ -47,7 +47,7 @@ public sealed class ConversationContextPinnedPlacementTests
 
         // Assert
         prepared.Select(Describe).Should().Equal(
-            "System:system", "Summary", "Model:model-2", "User:user-3", "Model:model-3", "User:PIN", "User:user-4", "Model:call_1", "Tool:call_1");
+            "System:system", "Summary", "User:user-3", "Model:model-3", "User:PIN", "User:user-4", "Model:call_1", "Tool:call_1");
         prepared.Invoking(messages => messages.ForOpenAI()).Should().NotThrow();
     }
 
