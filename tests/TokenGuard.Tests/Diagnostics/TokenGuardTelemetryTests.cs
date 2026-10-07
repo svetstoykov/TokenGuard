@@ -54,8 +54,8 @@ public sealed class TokenGuardTelemetryTests
         prepares.Select(activity => activity.GetTagItem("tokenguard.outcome")).Should().Equal(outcomes.Select(outcome => (object)outcome.ToString()));
         prepares.Select(activity => activity.GetTagItem("tokenguard.turn")).Should().Equal(1, 2, 3, 4);
         prepares.Select(activity => activity.GetTagItem("tokenguard.tokens.before")).Should().Equal(20, 85, 110, 240);
-        prepares.Select(activity => activity.GetTagItem("tokenguard.tokens.after")).Should().Equal(20, 78, 88, 120);
-        prepares.Select(activity => activity.GetTagItem("tokenguard.messages.compacted")).Should().Equal(0, 1, 2, 7);
+        prepares.Select(activity => activity.GetTagItem("tokenguard.tokens.after")).Should().Equal(20, 78, 30, 120);
+        prepares.Select(activity => activity.GetTagItem("tokenguard.messages.compacted")).Should().Equal(0, 1, 5, 7);
         prepares.Should().OnlyContain(activity => contextName.Equals(activity.GetTagItem("tokenguard.context.name")));
         prepares.Should().OnlyContain(activity => 100.Equals(activity.GetTagItem("tokenguard.tokens.max")));
         prepares.Select(activity => activity.GetTagItem("tokenguard.conversation.id")).Distinct().Should().ContainSingle()
@@ -109,8 +109,8 @@ public sealed class TokenGuardTelemetryTests
         // Assert
         var summarize = capture.ActivitiesNamed(Summarize).Should().ContainSingle().Subject;
         summarize.Parent.Should().BeSameAs(capture.ActivitiesNamed(Compact)[1]);
-        summarize.GetTagItem("tokenguard.messages.count").Should().Be(1);
-        summarize.GetTagItem("tokenguard.tokens.target").Should().Be(10);
+        summarize.GetTagItem("tokenguard.messages.count").Should().Be(3);
+        summarize.GetTagItem("tokenguard.tokens.target").Should().Be(50);
         summarize.Status.Should().Be(ActivityStatusCode.Error);
         summarize.Events.Should().ContainSingle().Which.Name.Should().Be("exception");
         capture.ActivitiesNamed(Prepare)[2].Status.Should().Be(ActivityStatusCode.Ok);
@@ -131,7 +131,7 @@ public sealed class TokenGuardTelemetryTests
         prepares[1].Events.Should().BeEmpty();
         var truncation = prepares[2].Events.Should().ContainSingle().Subject;
         truncation.Name.Should().Be("tokenguard.emergency_truncation");
-        truncation.Tags.Should().ContainSingle().Which.Should().Be(new KeyValuePair<string, object?>("tokenguard.messages.dropped", 1));
+        truncation.Tags.Should().ContainSingle().Which.Should().Be(new KeyValuePair<string, object?>("tokenguard.messages.dropped", 4));
         prepares[3].Events.Should().ContainSingle().Which.Tags.Single().Value.Should().Be(6);
     }
 
@@ -165,14 +165,14 @@ public sealed class TokenGuardTelemetryTests
         capture.MeasurementsOf("tokenguard.token_counting.duration", contextName).Should().HaveCount(4).And.OnlyContain(m => m.Unit == "s");
 
         var contextTokens = capture.MeasurementsOf("tokenguard.context.tokens", contextName);
-        contextTokens.Select(m => m.Value).Should().Equal(20, 78, 88, 120);
+        contextTokens.Select(m => m.Value).Should().Equal(20, 78, 30, 120);
         contextTokens.Select(m => m.Tag("tokenguard.outcome")).Should().Equal("Ready", "Compacted", "Compacted", "CompactionInsufficient");
 
-        capture.MeasurementsOf("tokenguard.compaction.tokens_reclaimed", contextName).Select(m => m.Value).Should().Equal(7, 22, 120);
+        capture.MeasurementsOf("tokenguard.compaction.tokens_reclaimed", contextName).Select(m => m.Value).Should().Equal(7, 80, 120);
 
         var messages = capture.MeasurementsOf("tokenguard.compaction.messages", contextName);
         messages.Where(m => "masked".Equals(m.Tag("tokenguard.kind"))).Select(m => m.Value).Should().Equal(1, 1, 1);
-        messages.Where(m => "dropped".Equals(m.Tag("tokenguard.kind"))).Select(m => m.Value).Should().Equal(1, 6);
+        messages.Where(m => "dropped".Equals(m.Tag("tokenguard.kind"))).Select(m => m.Value).Should().Equal(4, 6);
 
         capture.MeasurementsOf("tokenguard.emergency_truncation.count", contextName).Should().HaveCount(2).And.OnlyContain(m => m.Value == 1);
 

@@ -188,8 +188,8 @@ internal static partial class ConversationContextLog
     /// <param name="turn">The turn number of the prepare call.</param>
     /// <param name="currentTokens">The estimated token total before truncation.</param>
     /// <param name="emergencyTriggerTokens">The token total above which truncation starts.</param>
-    /// <param name="turnGroups">The number of turn groups that could be dropped.</param>
-    /// <param name="turnGroupsDropped">The number of turn groups dropped.</param>
+    /// <param name="turnGroups">The number of drop units that could be dropped: whole turn groups and the parts of the newest one.</param>
+    /// <param name="turnGroupsDropped">The number of those units dropped.</param>
     /// <param name="preservedFloorIndex">The index of the first message that is always kept.</param>
     /// <param name="floorExceedsTrigger">Whether the kept messages alone still exceed the trigger.</param>
     [LoggerMessage(

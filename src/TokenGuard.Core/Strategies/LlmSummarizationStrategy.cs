@@ -422,8 +422,8 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// summarized.
     /// </para>
     /// <para>
-    /// <see cref="ConversationContext"/> marks turns, so the method can keep whole turns together. Manually created
-    /// messages often do not have useful turn values, so the method falls back to tool-call repair.
+    /// The tail holds at least <paramref name="windowSize"/> messages. It grows when it would start on a tool result, so
+    /// the model message that asked for the tool stays with it.
     /// </para>
     /// </remarks>
     /// <param name="messages">The ordered compactable message history.</param>
@@ -437,45 +437,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             return 0;
         }
 
-        if (HasRecordedTurnBoundaries(messages))
-        {
-            var turn = messages[firstProtectedTailIndex].Turn;
-
-            // WindowSize is a floor; keep whole turns when ConversationContext recorded turn markers.
-            while (firstProtectedTailIndex > 0 && messages[firstProtectedTailIndex - 1].Turn == turn)
-            {
-                firstProtectedTailIndex--;
-            }
-
-            return firstProtectedTailIndex;
-        }
-
-        // Manual messages may not have reliable Turn markers, so repair only tool-call pairing.
         return MoveBoundaryBeforeToolCallIfNeeded(messages, firstProtectedTailIndex);
-    }
-
-    /// <summary>
-    /// Checks whether messages have real turn numbers.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// When every message has the same turn, the strategy treats turn data as missing. This happens often in tests and
-    /// direct strategy calls.
-    /// </para>
-    /// </remarks>
-    /// <param name="messages">The ordered compactable message history.</param>
-    /// <returns><see langword="true"/> when at least one adjacent message crosses a recorded turn boundary.</returns>
-    private static bool HasRecordedTurnBoundaries(IReadOnlyList<ContextMessage> messages)
-    {
-        for (var i = 1; i < messages.Count; i++)
-        {
-            if (messages[i - 1].Turn != messages[i].Turn)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>

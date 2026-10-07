@@ -60,7 +60,7 @@ public sealed class ConversationContext : IConversationContext
     private int _pinnedTokenTotal;
 
     // Turn counter incremented on each PrepareAsync call where the history has changed since the last prepare.
-    // Messages stamped with the same turn number form an atomic drop unit during emergency truncation.
+    // It labels logs, activities, and health signals; turn groups for truncation come from message roles.
     private int _currentTurn;
     private int _historyVersion;
     private int _lastPreparedVersion;
@@ -738,9 +738,8 @@ public sealed class ConversationContext : IConversationContext
             return false;
         }
 
-        // Collect drop candidates as atomic turn groups (model message + its tool results) so
-        // a tool result is never left without its preceding model turn, which would produce an
-        // invalid conversation structure rejected by providers.
+        // Collect drop candidates as atomic units so a tool result is never left without the model
+        // message that requested it, which would produce an invalid conversation structure rejected by providers.
         var turnGroups = BuildTurnGroups(prepared, preservedFloorStartIndex);
 
         if (turnGroups.Count == 0)
@@ -750,7 +749,7 @@ public sealed class ConversationContext : IConversationContext
             return false;
         }
 
-        // Drop whole turn groups oldest-first until the budget is satisfied or groups are exhausted.
+        // Drop whole units oldest-first until the budget is satisfied or units are exhausted.
         var dropIndices = new HashSet<int>();
         var total = currentTotal;
         var groupsDropped = 0;
@@ -780,13 +779,25 @@ public sealed class ConversationContext : IConversationContext
     }
 
     /// <summary>
-    /// Groups eligible prepared messages into atomic turn units for emergency truncation.
+    /// Splits the messages before the preserved floor into the units that emergency truncation drops whole.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A turn group starts at each unpinned user message and runs up to the next one. Messages before the first user
+    /// message form the first group. A pinned message never opens a group and is never part of a unit.
+    /// </para>
+    /// <para>
+    /// A turn group that ends before the floor is one unit. The floor can start inside a turn group, which is then still
+    /// in progress. Its messages before the floor are split further: every message that is not a tool result starts a
+    /// unit, so a model message stays with its tool results.
+    /// </para>
+    /// </remarks>
     /// <param name="prepared">The prepared message list produced for the next provider call.</param>
     /// <param name="limit">The exclusive upper bound for indices that may be considered for dropping.</param>
-    /// <returns>Turn-ordered message groups paired with their aggregate token counts.</returns>
+    /// <returns>The units in message order, each paired with its aggregate token count.</returns>
     private static IReadOnlyList<(IReadOnlyList<int> Indices, int Tokens)> BuildTurnGroups(IReadOnlyList<ContextMessage> prepared, int limit)
     {
+        var openGroupStartIndex = FindOpenTurnGroupStartIndex(prepared, limit);
         var groups = new List<(IReadOnlyList<int> Indices, int Tokens)>();
         var i = 0;
 
@@ -799,15 +810,18 @@ public sealed class ConversationContext : IConversationContext
                 continue;
             }
 
-            var turn = msg.Turn;
             var messageIndexes = new List<int> { i };
             var messageGroupTokens = msg.TokenCount ?? 0;
             i++;
 
-            while (i < limit && !prepared[i].IsPinned && prepared[i].Turn == turn)
+            while (i < limit && !StartsDropUnit(prepared[i], isInOpenGroup: i >= openGroupStartIndex))
             {
-                messageIndexes.Add(i);
-                messageGroupTokens += prepared[i].TokenCount ?? 0;
+                if (!prepared[i].IsPinned)
+                {
+                    messageIndexes.Add(i);
+                    messageGroupTokens += prepared[i].TokenCount ?? 0;
+                }
+
                 i++;
             }
 
@@ -816,6 +830,34 @@ public sealed class ConversationContext : IConversationContext
 
         return groups;
     }
+
+    /// <summary>
+    /// Finds where the turn group that the preserved floor starts inside begins.
+    /// </summary>
+    /// <param name="prepared">The prepared message list produced for the next provider call.</param>
+    /// <param name="limit">The index at which the preserved floor starts.</param>
+    /// <returns>
+    /// The index of the first message of that turn group, or <paramref name="limit"/> when the floor starts on the user
+    /// message that opens a turn group.
+    /// </returns>
+    private static int FindOpenTurnGroupStartIndex(IReadOnlyList<ContextMessage> prepared, int limit)
+    {
+        if (limit < prepared.Count && OpensTurnGroup(prepared[limit]))
+            return limit;
+
+        for (var i = limit - 1; i >= 0; i--)
+        {
+            if (OpensTurnGroup(prepared[i]))
+                return i;
+        }
+
+        return 0;
+    }
+
+    private static bool OpensTurnGroup(ContextMessage message) => message is { Role: MessageRole.User, IsPinned: false };
+
+    private static bool StartsDropUnit(ContextMessage message, bool isInOpenGroup) =>
+        OpensTurnGroup(message) || (isInOpenGroup && !message.IsPinned && message.Role != MessageRole.Tool);
 
     /// <summary>
     /// Finds the first index of the newest tail that emergency truncation must preserve.
@@ -888,10 +930,8 @@ public sealed class ConversationContext : IConversationContext
         if (prepared[newestUnpinnedIndex].Role != MessageRole.Tool)
             return newestUnpinnedIndex;
 
-        var newestMessage = prepared[newestUnpinnedIndex];
-        var turn = newestMessage.Turn;
         var requiredToolCallIds = new HashSet<string>(
-            newestMessage.Segments
+            prepared[newestUnpinnedIndex].Segments
                 .OfType<ToolResultContent>()
                 .Select(static segment => segment.ToolCallId),
             StringComparer.Ordinal);
@@ -901,7 +941,7 @@ public sealed class ConversationContext : IConversationContext
         for (var i = newestUnpinnedIndex - 1; i >= 0; i--)
         {
             var message = prepared[i];
-            if (message.IsPinned || message.Turn != turn)
+            if (message.IsPinned || message.Role is not (MessageRole.Model or MessageRole.Tool))
                 break;
 
             floorStartIndex = i;
@@ -933,7 +973,7 @@ public sealed class ConversationContext : IConversationContext
     private int Sum(IReadOnlyList<ContextMessage> messages) => messages.Sum(this.EnsureCounted);
 
     /// <summary>
-    /// Inserts a message into history, assigns its turn, and updates pinned token bookkeeping.
+    /// Inserts a message into history and updates pinned token bookkeeping.
     /// </summary>
     /// <param name="message">The message to record.</param>
     /// <param name="index">
@@ -941,8 +981,6 @@ public sealed class ConversationContext : IConversationContext
     /// </param>
     private void AddMessage(ContextMessage message, int? index = null)
     {
-        message.Turn = this._currentTurn;
-
         if (index.HasValue)
         {
             this._history.Insert(index.Value, message);
