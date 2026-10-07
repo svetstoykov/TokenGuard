@@ -24,6 +24,7 @@ internal sealed class TokenGuardTelemetryListener : IHostedService, IDisposable
     private const string LogCategory = "TokenGuard.Telemetry";
 
     private readonly ILogger _logger;
+    private readonly ISessionMeasurementCollector _collector;
     private readonly ActivityListener _activityListener;
     private readonly MeterListener _meterListener;
 
@@ -31,11 +32,13 @@ internal sealed class TokenGuardTelemetryListener : IHostedService, IDisposable
     /// Initializes a new instance of the <see cref="TokenGuardTelemetryListener"/> class.
     /// </summary>
     /// <param name="loggerFactory">The factory that creates the logger the telemetry is written to.</param>
-    public TokenGuardTelemetryListener(ILoggerFactory loggerFactory)
+    /// <param name="collector">The singleton automation measurement collector.</param>
+    public TokenGuardTelemetryListener(ILoggerFactory loggerFactory, ISessionMeasurementCollector collector)
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         this._logger = loggerFactory.CreateLogger(LogCategory);
+        this._collector = collector;
         this._activityListener = new ActivityListener
         {
             ShouldListenTo = static source => source.Name == TokenGuardDiagnostics.ActivitySourceName,
@@ -80,6 +83,7 @@ internal sealed class TokenGuardTelemetryListener : IHostedService, IDisposable
 
     private void LogActivity(Activity activity)
     {
+        this._collector.ObserveActivity(activity);
         if (!this._logger.IsEnabled(LogLevel.Debug))
         {
             return;
@@ -95,6 +99,7 @@ internal sealed class TokenGuardTelemetryListener : IHostedService, IDisposable
 
     private void LogMeasurement(Instrument instrument, double value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
     {
+        this._collector.ObserveMeasurement(instrument.Name, value, tags);
         if (!this._logger.IsEnabled(LogLevel.Debug))
         {
             return;

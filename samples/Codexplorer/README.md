@@ -59,7 +59,7 @@ var prepareResult = await this._conversationContext.PrepareAsync(ct).ConfigureAw
 var completion = (await this._chatClient.CompleteChatAsync(
         prepareResult.Messages.ForOpenAI(),
         ExplorerAgent.CreateChatCompletionOptions(this._chatTools, this._modelOptions.MaxOutputTokens),
-        CancellationToken.None)
+        ct)
     .ConfigureAwait(false))
     .Value;
 ```
@@ -96,25 +96,24 @@ dotnet run --project ./src/Codexplorer.csproj -- --automation
 
 Automation mode reads exactly one JSON request per stdin line and writes exactly one JSON response per stdout line. Human logs and warnings stay on stderr so parent process can parse stdout directly.
 
-Minimal smoke example:
+Minimal request sequence (replace the session ID with the value returned by `open_session`):
 
 ```text
 {"requestId":"1","command":"ping"}
-{"requestId":"1","success":true,"result":{"status":"ok","protocolVersion":1},"error":null}
-{"requestId":"2","command":"open_session","payload":{"repositoryUrl":"https://github.com/cli/cli"}}
-{"requestId":"2","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","workspace":{"name":"cli","ownerRepo":"cli/cli","localPath":"/absolute/path/to/workspace/cli-cli","clonedAt":"2026-04-26T09:00:00.0000000Z","sizeBytes":123456789},"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-cli-cli-interactive-repo-chat.md"},"error":null}
-{"requestId":"3","command":"submit","payload":{"sessionId":"session_0123456789abcdef0123456789abcdef","message":"Give me the main entry points for this repo."}}
-{"requestId":"3","success":true,"result":{"sessionId":"session_0123456789abcdef0123456789abcdef","outcome":"reply_received","assistantText":"The main entry points are ...","assistantTextIsPartial":false,"modelTurnsCompleted":2,"reportedTokensConsumed":1874,"sessionOpen":true,"asksRunner":false,"runnerQuestion":null,"logFilePath":"/absolute/path/to/logs/sessions/20260426-090000000-dotnet-runtime-interactive-repo-chat.md","degradationReason":null,"failure":null},"error":null}
+{"requestId":"2","command":"open_session","payload":{"repositoryUrl":"https://github.com/cli/cli","modelCallBudget":24}}
+{"requestId":"3","command":"submit","payload":{"sessionId":"session_id_from_open","message":"Give me the main entry points for this repo."}}
+{"requestId":"4","command":"close_session","payload":{"sessionId":"session_id_from_open"}}
 ```
 
-`open_session` accepts exactly one target:
+Responses include `requestId`, `success`, and either `result` or `error`. Ping returns protocol version 1 and an allowlisted
+`settings` snapshot. Submit and close return cumulative `measurements`; the final snapshot includes the disposal summary cross-check.
 
-- `workspacePath` for an already tracked local workspace
-- `repositoryUrl` for clone-on-open from a public GitHub HTTPS or SSH URL
+`open_session` accepts `repositoryUrl` for clone-on-open from a public GitHub HTTPS or SSH URL. Automation sessions are sequential; opening a second session fails before another conversation is created. The optional `modelCallBudget` sets the total provider-call allowance for the session.
+An optional `wrapUpWindow` reserves calls for the runner wrap-up prompt; it must be positive and smaller than the total allowance.
 
 If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
 
-`submit` returns one stable `outcome` value per exchange: `reply_received`, `budget_exceeded`, `max_turns_reached`, `cancelled`, or `failed`. Every response includes the active `sessionId`, `modelTurnsCompleted`, `logFilePath`, whether the session is still open, and any assistant text or partial text that was available for that exchange.
+`submit` returns one stable `outcome` value per exchange: `reply_received`, `budget_exceeded`, `max_turns_reached`, `turn_budget_reached`, `cancelled`, or `failed`. Every response includes the active `sessionId`, `modelTurnsCompleted`, `logFilePath`, whether the session is still open, and any assistant text or partial text that was available for that exchange.
 
 ### Automation runner
 
@@ -187,6 +186,100 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
   ]
 }
 ```
+
+### Run reports and comparison
+
+Every manifest run writes UTF-8 schema-version-1 JSON to `<OutputDirectory>/run-report.json` using an atomic replacement.
+Set `CodexplorerAutomation:OutputDirectory` to choose the directory; relative output paths resolve from the runner executable.
+Run these commands from the TokenGuard repository root after building both sample projects:
+
+```bash
+dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- \
+  --CodexplorerAutomation:ManifestPath="$PWD/samples/Codexplorer.Automation/src/tasks/report-baseline.json" \
+  --CodexplorerAutomation:OutputDirectory="$PWD/.artifacts/reports/treatment" \
+  --CodexplorerAutomation:Arm=treatment
+```
+
+Configure the absolute child executable path and provider credentials as described above. The checked-in `report-baseline.json`
+contains one documentation survey task for a short manual baseline; `initial-corpus.json` contains the full twenty-task corpus.
+To identify a checkout when automatic Git discovery cannot find TokenGuard, set `CodexplorerAutomation:RepositoryPath`.
+Run metadata records the commit and dirty flag at run start, UTC timestamps, effective model and budget settings, generation caps,
+TokenGuard log level, arm, and the SHA-256 hash of the immutable manifest bytes executed. Inline tasks use deterministic JSON
+serialization with explicit inline provenance. Reports exclude prompts, answers, tool content, raw configuration, secrets, and exception messages.
+
+Task turn budgets are hard limits on started agent provider calls, including failed and cancelled attempts. The agent checks the
+allowance before preparing another context. Per-exchange caps can pause an exchange but cannot extend the task allowance.
+The sample yields a long exchange at the start of the reserved window so the runner can send its wrap-up prompt. An in-budget wrap-up reply counts as protocol completion;
+`turn_budget_reached` does not. Deliverable completion is `notEvaluated`: the report does not judge answer quality or artifacts.
+
+A failed or cancelled run writes a partial report containing completed and active tasks and `unrunTaskIds`. Cancellation reaches
+provider and tool work, while transcript and report finalization remain independent of the cancelled work token. If the child
+cannot return its final measurements within the cleanup interval, the report retains its last snapshot and marks collection incomplete.
+Reporting, invalid control measurements, and task failures return a nonzero exit code.
+
+Prepare records include attempted operations that never reached a provider. Token totals count completed prepares. Provider records
+retain individual prepare/transcript pairs and call status; the task offset is present only when those pairs agree. Summarizer and helper
+usage comes from provider responses, including responses subsequently rejected as empty. Missing usage has explicit nullable totals
+and missing-usage-call counts; totals containing missing usage are null. A null value is unavailable, not a measured zero.
+
+Collection runs at every log level. The structured end-of-conversation summary is checked after disposal. `matched`, `mismatched`,
+and `unavailable` distinguish a successful cross-check, an invalid collection, and a suppressed or absent summary.
+Set `Logging:LogLevel:TokenGuard` to `Information` or lower to retain the summary; Debug output is not required for report collection.
+
+`estimatedPromptTokenReduction = (sumBefore - sumAfter) / sumBefore` describes estimated compaction savings.
+Estimator error uses completed prepare/provider pairs with positive reported input usage:
+`(providerInput - tokensAfter) / providerInput`. This is a signed fraction (unit `1`): positive values mean the estimate was low,
+and negative values mean it was high. Signed and absolute mean/P95 use the same paired-turn population. P95 is nearest-rank.
+Zero denominators and empty populations produce null statistics.
+
+For a control run, use a context window large enough to prevent every strategy and summarizer call:
+
+```bash
+dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- \
+  --CodexplorerAutomation:ManifestPath="$PWD/samples/Codexplorer.Automation/src/tasks/report-baseline.json" \
+  --CodexplorerAutomation:OutputDirectory="$PWD/.artifacts/reports/control" \
+  --CodexplorerAutomation:Arm=control \
+  --CodexplorerAutomation:ControlContextWindowTokens=1000000
+```
+
+Before each treatment or control run, manually remove task-owned notes under the cloned repository's `.codexplorer/artifacts/`
+(and any `artifacts/` directory created by older runs). Preserve repository source files. Shared workspace notes can change the
+agent's behavior and contaminate the comparison; TG-008 will provide isolated workspaces. Git corpus commits are not pinned here.
+A control is invalid if any prepare is incomplete or has an outcome other than `Ready`, or if any strategy or summarizer ran,
+even when that strategy changed zero messages.
+
+Comparison runs before host construction and requires neither API credentials nor a configured Codexplorer executable:
+
+```bash
+dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare \
+  .artifacts/reports/control/run-report.json .artifacts/reports/treatment/run-report.json
+
+dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare \
+  .artifacts/reports/treatment/run-report.json .artifacts/reports/candidate/run-report.json \
+  --limit providerInputTokens=1000 --limit estimatorAbsoluteMean=0.05
+
+dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare --help
+```
+
+The command validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
+including distributions and unavailable values. It lists tasks present in only one report and categorical completion changes.
+By default, models, effective budget/summarization/generation settings, task budgets, and manifest hash must match.
+A treatment/control pair may differ only in context-window tokens. `--allow-incompatible` prints mismatches and permits an
+informational comparison; an invalid or incomplete control never permits a measured-reduction claim.
+
+For a compatible treatment and valid control with complete provider input usage, comparison prints
+`measuredProviderInputReduction = (controlInput - treatmentInput) / controlInput`. This covers every task in both reports and
+shows each arm's input tokens, outcomes, and calls, flagging differing outcomes. It is a difference in provider-reported usage;
+it does not establish that the arms did equivalent work.
+
+Regression limits use `--limit metric=value` and absolute deltas in the metric's units, not relative percentages.
+An increase regresses token/count metrics and absolute estimator error; a decrease regresses protocol completion rate and
+estimated reduction. Signed estimator error statistics are informational and cannot have limits. Unknown names, unavailable
+metrics, invalid or negative limits, incompatible reports, and exceeded limits return nonzero. Numeric output uses invariant formatting.
+
+Manual baseline reports live under `samples/Codexplorer.Automation/baselines/`. Their recorded commit must include both TG-013
+and this implementation. Baselines come from real provider calls after committing the implementation; credentials stay in local
+configuration or the environment. Deterministic sample tests live in `tests/Codexplorer.Automation.Tests`; live runs remain manual.
 
 ## Configuration
 

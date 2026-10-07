@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Codexplorer.CLI;
+using Codexplorer.Diagnostics;
 using Codexplorer.Configuration;
 using Codexplorer.Sessions;
 using Codexplorer.Tools;
@@ -20,7 +21,7 @@ namespace Codexplorer.Agent;
 /// TokenGuard conversation context, transcript logger, renderer task, and OpenRouter chat client while still sharing
 /// the application's stable tool registry and validated configuration.
 /// </remarks>
-internal sealed class ExplorerAgent : IExplorerAgent
+internal sealed class ExplorerAgent : IExplorerAgent, IAutomationExplorerAgent
 {
     private readonly IConversationContextFactory _conversationContextFactory;
     private readonly ISessionLoggerFactory _sessionLoggerFactory;
@@ -28,6 +29,7 @@ internal sealed class ExplorerAgent : IExplorerAgent
     private readonly CodexplorerOptions _options;
     private readonly IReadOnlyList<ChatTool> _chatTools;
     private readonly SessionRenderer _sessionRenderer;
+    private readonly ISessionMeasurementCollector _collector;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ExplorerAgent"/> class.
@@ -37,12 +39,14 @@ internal sealed class ExplorerAgent : IExplorerAgent
     /// <param name="sessionLoggerFactory">Factory for per-query session transcripts.</param>
     /// <param name="sessionRenderer">Session renderer for generating human-readable output.</param>
     /// <param name="options">The validated Codexplorer options snapshot.</param>
+    /// <param name="collector">The singleton automation measurement collector.</param>
     public ExplorerAgent(
         IConversationContextFactory conversationContextFactory,
         IToolRegistry toolRegistry,
         ISessionLoggerFactory sessionLoggerFactory,
         SessionRenderer sessionRenderer,
-        IOptions<CodexplorerOptions> options)
+        IOptions<CodexplorerOptions> options,
+        ISessionMeasurementCollector collector)
     {
         ArgumentNullException.ThrowIfNull(conversationContextFactory);
         ArgumentNullException.ThrowIfNull(toolRegistry);
@@ -55,13 +59,21 @@ internal sealed class ExplorerAgent : IExplorerAgent
         this._sessionLoggerFactory = sessionLoggerFactory;
         this._sessionRenderer = sessionRenderer;
         this._options = options.Value;
+        this._collector = collector;
         this._chatTools = this._toolRegistry.GetSchemas()
             .Select(CreateChatTool)
             .ToArray();
     }
 
     /// <inheritdoc />
-    public IExplorerSession StartSession(WorkspaceModel workspace)
+    public IExplorerSession StartSession(WorkspaceModel workspace) => this.CreateSession(workspace, null, null, null);
+
+    /// <inheritdoc />
+    public IExplorerSession StartAutomationSession(WorkspaceModel workspace, int? modelCallBudget, int? wrapUpWindow = null) =>
+        this.CreateSession(workspace, modelCallBudget, this._collector, wrapUpWindow);
+
+    private IExplorerSession CreateSession(
+        WorkspaceModel workspace, int? modelCallBudget, ISessionMeasurementCollector? collector, int? wrapUpWindow)
     {
         ArgumentNullException.ThrowIfNull(workspace);
 
@@ -85,7 +97,10 @@ internal sealed class ExplorerAgent : IExplorerAgent
             chatClient,
             this._chatTools,
             agentOptions,
-            modelOptions);
+            modelOptions,
+            modelCallBudget,
+            collector,
+            wrapUpWindow);
     }
 
     internal static ChatCompletionOptions CreateChatCompletionOptions(IReadOnlyList<ChatTool> chatTools, int maxOutputTokens)

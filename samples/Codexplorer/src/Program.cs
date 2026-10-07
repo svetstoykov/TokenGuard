@@ -32,6 +32,8 @@ internal sealed class Program
             });
             builder.Configuration.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false);
 
+            builder.Configuration.AddEnvironmentVariables();
+            builder.Configuration.AddCommandLine(startupOptions.RemainingArgs);
             builder.Services.ConfigureServices(builder.Configuration);
 
             if (startupOptions.AutomationMode)
@@ -42,9 +44,10 @@ internal sealed class Program
             var tokenGuardLogLevel = ToSerilogLevel(builder.Configuration.GetValue(TokenGuardLogLevelKey, LogLevel.Information));
             builder.Services.AddHostedService<TokenGuardTelemetryListener>();
 
-            builder.Services.AddSerilog((_, loggerConfiguration) => loggerConfiguration
+            builder.Services.AddSerilog((services, loggerConfiguration) => loggerConfiguration
                 .MinimumLevel.Information()
                 .MinimumLevel.Override(TokenGuardLogCategory, tokenGuardLogLevel)
+                .WriteTo.Sink(new ConversationSummarySink(services.GetRequiredService<ISessionMeasurementCollector>()))
                 .WriteTo.Console(
                     theme: AnsiConsoleTheme.Code,
                     standardErrorFromLevel: startupOptions.AutomationMode ? LogEventLevel.Verbose : LogEventLevel.Fatal)

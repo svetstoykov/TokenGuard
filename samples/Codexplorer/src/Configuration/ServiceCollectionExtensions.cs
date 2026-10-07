@@ -1,6 +1,8 @@
 using Codexplorer.Agent;
 using Codexplorer.Automation;
 using Codexplorer.CLI;
+using Codexplorer.Diagnostics;
+using Codexplorer.Measurements;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -60,6 +62,12 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
+        if (!string.IsNullOrWhiteSpace(configuration["OPENROUTER_API_KEY"]))
+            configuration[$"{CodexplorerOptions.SectionName}:OpenRouter:ApiKey"] = configuration["OPENROUTER_API_KEY"];
+
+        var measurementCollector = new SessionMeasurementCollector();
+        services.TryAddSingleton<ISessionMeasurementCollector>(measurementCollector);
+
         var braveSearchSettings = new BraveSearchSettings(
             configuration["BRAVE_SEARCH_API_KEY"]
             ?? configuration[$"{CodexplorerOptions.SectionName}:BraveSearch:ApiKey"]);
@@ -78,6 +86,23 @@ public static class ServiceCollectionExtensions
         var budgetOptions = codexplorerOptions.Budget ?? new BudgetOptions();
         var llmSummarizationSettings = codexplorerOptions.LlmSummarization ?? new LlmSummarizationSettings();
 
+        services.TryAddSingleton(new EffectiveSettings
+        {
+            AgentModel = codexplorerOptions.Model?.Name ?? "",
+            SummarizerModel = codexplorerOptions.Model?.Name ?? "",
+            MaxOutputTokens = codexplorerOptions.Model?.MaxOutputTokens ?? 0,
+            ContextWindowTokens = budgetOptions.ContextWindowTokens,
+            SoftThresholdRatio = budgetOptions.SoftThresholdRatio,
+            HardThresholdRatio = budgetOptions.HardThresholdRatio,
+            WindowSize = budgetOptions.WindowSize,
+            SummarizationEnabled = llmSummarizationSettings.Enabled,
+            SummaryWindowSize = llmSummarizationSettings.WindowSize,
+            MinSummaryTokens = llmSummarizationSettings.MinSummaryTokens,
+            MaxSummaryTokens = llmSummarizationSettings.MaxSummaryTokens,
+            ExchangeMaxTurns = codexplorerOptions.Agent?.MaxTurns ?? 0,
+            TokenGuardLogLevel = configuration["Logging:LogLevel:TokenGuard"] ?? "Information",
+        });
+
         services.AddConversationContext(builder =>
         {
             builder
@@ -92,7 +117,7 @@ public static class ServiceCollectionExtensions
             }
 
             builder.UseLlmSummarization(
-                OpenRouterChatClientFactory.Create(codexplorerOptions),
+                new MeasuredSummarizerChatClient(OpenRouterChatClientFactory.Create(codexplorerOptions), measurementCollector),
                 new LlmSummarizationOptions(
                     windowSize: llmSummarizationSettings.WindowSize,
                     minSummaryTokens: llmSummarizationSettings.MinSummaryTokens,

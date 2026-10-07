@@ -1,7 +1,10 @@
 using Microsoft.Extensions.Logging;
+using System.Threading.Channels;
 
 namespace Codexplorer.Automation;
 
+/// <summary>Processes commands sequentially while observing runner disconnection concurrently.</summary>
+/// <remarks>Final responses and session disposal use tokens independent of cancelled model work.</remarks>
 internal sealed class AutomationHost : IAsyncDisposable
 {
     private readonly IAutomationProtocolChannel _channel;
@@ -10,6 +13,11 @@ internal sealed class AutomationHost : IAsyncDisposable
     private readonly ILogger<AutomationHost> _logger;
     private bool _disposed;
 
+    /// <summary>Initializes a new instance of the <see cref="AutomationHost" /> class.</summary>
+    /// <param name="channel">The protocol input and output boundary.</param>
+    /// <param name="dispatcher">The sequential command processor.</param>
+    /// <param name="sessionRegistry">The active automation session registry.</param>
+    /// <param name="logger">The diagnostic logger.</param>
     public AutomationHost(
         IAutomationProtocolChannel channel,
         IAutomationCommandDispatcher dispatcher,
@@ -27,45 +35,64 @@ internal sealed class AutomationHost : IAsyncDisposable
         this._logger = logger;
     }
 
+    /// <summary>Asynchronously processes commands until runner EOF or host cancellation.</summary>
+    /// <param name="ct">The host cancellation token.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the process exit code.</returns>
     public async Task<int> RunAsync(CancellationToken ct)
     {
+        using var disconnected = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var readerLifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var input = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+        var reader = this.ReadInputAsync(input.Writer, disconnected, readerLifetime.Token);
         try
         {
-            while (!ct.IsCancellationRequested)
+            await foreach (var line in input.Reader.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
             {
-                string? line;
-
-                try
-                {
-                    line = await this._channel.ReadLineAsync(ct).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
+                var response = await this.ProcessLineAsync(line, disconnected.Token).ConfigureAwait(false);
+                await this._channel.WriteResponseAsync(response, CancellationToken.None).ConfigureAwait(false);
+                if (disconnected.IsCancellationRequested)
                     break;
-                }
-
-                if (line is null)
-                {
-                    break;
-                }
-
-                var response = await this.ProcessLineAsync(line, ct).ConfigureAwait(false);
-
-                try
-                {
-                    await this._channel.WriteResponseAsync(response, ct).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    break;
-                }
             }
 
             return 0;
         }
         finally
         {
-            await this.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                await readerLifetime.CancelAsync().ConfigureAwait(false);
+                await reader.ConfigureAwait(false);
+            }
+            finally
+            {
+                await this.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>Reads ahead so runner disconnection cancels the active command.</summary>
+    /// <param name="writer">The queue used by the sequential command processor.</param>
+    /// <param name="disconnected">The cancellation source shared with active work.</param>
+    /// <param name="ct">The input reader lifetime token.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    private async Task ReadInputAsync(ChannelWriter<string> writer, CancellationTokenSource disconnected, CancellationToken ct)
+    {
+        try
+        {
+            while (await this._channel.ReadLineAsync(ct).ConfigureAwait(false) is { } line)
+                await writer.WriteAsync(line, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+        }
+        catch (IOException exception)
+        {
+            this._logger.LogWarning(exception, "Automation input disconnected.");
+        }
+        finally
+        {
+            await disconnected.CancelAsync().ConfigureAwait(false);
+            writer.TryComplete();
         }
     }
 
@@ -84,7 +111,7 @@ internal sealed class AutomationHost : IAsyncDisposable
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            throw;
+            return AutomationResponseEnvelope.ErrorResponse(request?.RequestId, "cancelled", "Command cancelled.");
         }
         catch (Exception ex)
         {
@@ -96,6 +123,7 @@ internal sealed class AutomationHost : IAsyncDisposable
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (this._disposed)

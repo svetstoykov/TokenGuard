@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -37,5 +37,10 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
     </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../../Codexplorer.Automation/contracts/**/*.cs" Link="Measurements/%(Filename)%(Extension)" />
+    <InternalsVisibleTo Include="Codexplorer.Automation.Tests" />
+  </ItemGroup>
 
 </Project>
