@@ -346,8 +346,9 @@ var (messages, systemPrompt) = prepared.Messages.ForAnthropic();
 // Attach both to your Anthropic request.
 ```
 
-`ForOpenAI()` validates tool-call/tool-result structure and throws if the prepared history would produce orphaned tool
-calls. `ForAnthropic()` returns a tuple because Anthropic carries system content separately from the normal message list.
+`ForOpenAI()` sends every text segment of a message as its own content part and throws `InvalidOperationException` for a
+message it cannot represent, for an orphaned tool result, and for tool calls left without results, including at the end
+of the list. `ForAnthropic()` returns a tuple because Anthropic carries system content separately from the normal message list.
 After the Anthropic call completes, record the response with `RecordModelResponse(response.ResponseSegments())` unless your
 response includes usage data. When usage is present, you can pass `response.InputTokens()` as the optional second
 argument to anchor later estimates.

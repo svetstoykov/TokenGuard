@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SlidingWindowOptions` rejects a `NaN` `protectedWindowFraction` at construction.
 
 ### Fixed
+- `ForOpenAI()` sends every text segment of a message, one content part per segment, where it used to send only the first.
+  It throws `InvalidOperationException` for a message it cannot represent (a `Tool` message without a tool result used
+  to be dropped silently) and for tool calls left unanswered at the end of the list.
+- `ResponseSegments()` and `ToolUseSegments()` record a tool call with empty or whitespace arguments as `{}` instead of
+  throwing.
 - The OpenAI examples in the root, `TokenGuard.Core`, and `TokenGuard.Extensions.OpenAI` READMEs declare the completion
   as `ChatCompletion`, so they compile as written. The `TokenGuard.Core` README lists both packages its quick start needs.
 - `PrepareResult.Messages` is a separate list on every path. Below the compaction trigger it used to be the context's own

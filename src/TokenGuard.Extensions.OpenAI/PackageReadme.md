@@ -63,7 +63,7 @@ conversation.RecordModelResponse(
     response.InputTokens());
 ```
 
-`ForOpenAI()` validates tool-call and tool-result structure. If the prepared history would create an orphaned tool result or a mismatched assistant/tool sequence, it throws before the request goes out.
+`ForOpenAI()` sends every text segment of a message as its own content part and validates tool-call and tool-result structure. It throws before the request goes out if a message holds content OpenAI cannot carry for its role, if a tool result has no preceding tool call, or if tool calls have no results, including at the end of the list. A tool call whose arguments are empty is recorded with `{}`.
 
 ## Observability
 
