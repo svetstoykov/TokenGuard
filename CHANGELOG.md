@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - The OpenAI examples in the root, `TokenGuard.Core`, and `TokenGuard.Extensions.OpenAI` READMEs declare the completion
   as `ChatCompletion`, so they compile as written. The `TokenGuard.Core` README lists both packages its quick start needs.
+- `PrepareResult.Messages` is a separate list on every path. Below the compaction trigger it used to be the context's own
+  history list, so it grew when more messages were recorded and emptied when the context was disposed.
 
 ## [1.0.0] - 2026-06-01
 
