@@ -481,6 +481,20 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal("[Tool result cleared — {0}, {1}]", options.PlaceholderFormat);
     }
 
+    [Fact]
+    public void SlidingWindowOptions_ParameterlessConstructor_ReturnsDocumentedDefaults()
+    {
+        // Arrange
+
+        // Act
+        var options = new SlidingWindowOptions();
+
+        // Assert
+        Assert.Equal(10, options.WindowSize);
+        Assert.Equal(0.80, options.ProtectedWindowFraction);
+        Assert.Equal("[Tool result cleared — {0}, {1}]", options.PlaceholderFormat);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
@@ -500,6 +514,9 @@ public sealed class SlidingWindowStrategyTests
     [InlineData(-0.01)]
     [InlineData(1.0)]
     [InlineData(1.01)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
     public void SlidingWindowOptions_ThrowsForInvalidProtectedWindowFraction(double protectedWindowFraction)
     {
         // Arrange

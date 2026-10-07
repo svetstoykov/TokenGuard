@@ -336,6 +336,97 @@ public sealed class ConversationConfigBuilderTests
         configuration.Budget.EmergencyThreshold.Should().Be(0.95);
     }
 
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Build_WhenEmergencyThresholdIsNotFinite_ThrowsNamingEmergencyThreshold(double emergencyThreshold)
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(1_000).WithEmergencyThreshold(emergencyThreshold);
+
+        // Act
+        Action act = () => builder.Build();
+
+        // Assert
+        act.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("emergencyThreshold").WithMessage("*EmergencyThreshold*");
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Build_WhenCompactionThresholdIsNotFinite_ThrowsNamingCompactionThreshold(double compactionThreshold)
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(1_000).WithCompactionThreshold(compactionThreshold);
+
+        // Act
+        Action act = () => builder.Build();
+
+        // Assert
+        act.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("compactionThreshold").WithMessage("*CompactionThreshold*");
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    public void Build_WhenEmergencyThresholdIsOutOfRange_ThrowsNamingEmergencyThreshold(double emergencyThreshold)
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(1_000).WithEmergencyThreshold(emergencyThreshold);
+
+        // Act
+        Action act = () => builder.Build();
+
+        // Assert
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("emergencyThreshold")
+            .WithMessage("EmergencyThreshold must be in the range*");
+    }
+
+    [Fact]
+    public void Build_WhenCompactionThresholdReachesDefaultEmergencyThreshold_ThrowsNamingCompactionThresholdWithBothValues()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(1_000).WithCompactionThreshold(1);
+
+        // Act
+        Action act = () => builder.Build();
+
+        // Assert
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("compactionThreshold")
+            .WithMessage("CompactionThreshold (1) must be less than EmergencyThreshold (1)*");
+    }
+
+    [Fact]
+    public void Build_WhenSlidingWindowOptionsAreUninitialized_ThrowsNamingTheOptionType()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(1_000).WithSlidingWindowOptions(default);
+
+        // Act
+        Action act = () => builder.Build();
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentException>().WithParameterName("options").WithMessage("*SlidingWindowOptions*not initialized*");
+    }
+
+    [Fact]
+    public void Build_WhenLlmSummarizationOptionsAreUninitialized_ThrowsNamingTheOptionType()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(1_000);
+        builder.SetLlmSummarizer(() => new TrackingSummarizer("summary-text"), "OpenAI", default(LlmSummarizationOptions));
+
+        // Act
+        Action act = () => builder.Build();
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentException>().WithParameterName("options").WithMessage("*LlmSummarizationOptions*not initialized*");
+    }
+
     private static ContextMessage CreateToolResultMessage(string callId, string toolName, string payload)
     {
         return new ContextMessage

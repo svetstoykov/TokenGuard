@@ -93,6 +93,15 @@ public readonly record struct LlmSummarizationOptions
     /// </remarks>
     public int MaxSummaryTokens { get; }
 
+    /// <summary>
+    /// Gets a value indicating whether this value was created by a constructor.
+    /// </summary>
+    /// <value>
+    /// <see langword="true"/> if a constructor produced this value; <see langword="false"/> for
+    /// <c>default(LlmSummarizationOptions)</c>, whose <see cref="WindowSize"/> is zero.
+    /// </value>
+    internal bool IsInitialized => this.WindowSize > 0;
+
     private static int ValidateWindowSize(int value, string paramName)
     {
         if (value <= 0)

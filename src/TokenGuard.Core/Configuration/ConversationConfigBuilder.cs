@@ -214,11 +214,32 @@ public sealed class ConversationConfigBuilder
     /// <exception cref="InvalidOperationException">
     ///     Thrown when <see cref="WithMaxTokens(int)"/> has not been called.
     /// </exception>
+    /// <exception cref="ArgumentException">
+    ///     The configured <see cref="SlidingWindowOptions"/> or <see cref="LlmSummarizationOptions"/> is the
+    ///     uninitialized <see langword="default"/> value of its type.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///     The maximum token count is not positive.
+    ///     -or-
+    ///     A threshold or the overrun tolerance is not a finite number or is outside its range.
+    ///     -or-
+    ///     The compaction threshold is not less than the emergency threshold.
+    /// </exception>
     public ConversationContextConfiguration Build()
     {
         if (!this._maxTokens.HasValue)
         {
             throw new InvalidOperationException("ConversationContextConfigurationBuilder requires WithMaxTokens(...) to be called before Build().");
+        }
+
+        if (this._slidingWindowOptions is { IsInitialized: false })
+        {
+            throw new ArgumentException(BuildUninitializedOptionsMessage(nameof(SlidingWindowOptions)), "options");
+        }
+
+        if (this._llmSummarizationOptions is { IsInitialized: false })
+        {
+            throw new ArgumentException(BuildUninitializedOptionsMessage(nameof(LlmSummarizationOptions)), "options");
         }
 
         var defaults = ContextBudget.For(this._maxTokens.Value);
@@ -334,6 +355,10 @@ public sealed class ConversationConfigBuilder
 
     private static ConversationDiagnostics CreateSilentDiagnostics() =>
         new(NullLoggerFactory.Instance, ConversationDiagnostics.DefaultContextName);
+
+    private static string BuildUninitializedOptionsMessage(string optionsTypeName) =>
+        $"{optionsTypeName} was not initialized. "
+        + $"Create it with a constructor or use {optionsTypeName}.Default instead of default({optionsTypeName}).";
 
     private static string BuildProviderConflictMessage(string existingProviderName, string conflictingProviderName)
     {

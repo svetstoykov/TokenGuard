@@ -15,6 +15,21 @@ namespace TokenGuard.Core.Options;
 public readonly record struct SlidingWindowOptions
 {
     /// <summary>
+    /// Initializes a default <see cref="SlidingWindowOptions"/> value using library-defined defaults.
+    /// </summary>
+    /// <remarks>
+    /// This parameterless constructor exists because value types are always default-initializable. Routing through
+    /// the validating constructor preserves consistent default behavior for both explicit and implicit construction.
+    /// </remarks>
+    public SlidingWindowOptions()
+        : this(
+            windowSize: SlidingWindowDefaults.WindowSize,
+            protectedWindowFraction: SlidingWindowDefaults.ProtectedWindowFraction,
+            placeholderFormat: SlidingWindowDefaults.PlaceholderFormat)
+    {
+    }
+
+    /// <summary>
     /// Initializes a <see cref="SlidingWindowOptions"/> value with validated masking behavior.
     /// </summary>
     /// <remarks>
@@ -55,6 +70,15 @@ public readonly record struct SlidingWindowOptions
     /// </summary>
     public string PlaceholderFormat { get; }
 
+    /// <summary>
+    /// Gets a value indicating whether this value was created by a constructor.
+    /// </summary>
+    /// <value>
+    /// <see langword="true"/> if a constructor produced this value; <see langword="false"/> for
+    /// <c>default(SlidingWindowOptions)</c>, whose <see cref="PlaceholderFormat"/> is <see langword="null"/>.
+    /// </value>
+    internal bool IsInitialized => this.PlaceholderFormat is not null;
+
     private static int ValidateWindowSize(int value, string paramName)
     {
         if (value <= 0)
@@ -77,6 +101,11 @@ public readonly record struct SlidingWindowOptions
 
     private static double ValidateProtectedWindowFraction(double value, string paramName)
     {
+        if (!double.IsFinite(value))
+        {
+            throw new ArgumentOutOfRangeException(paramName, "ProtectedWindowFraction must be a finite number.");
+        }
+
         if (value <= 0.0 || value >= 1.0)
         {
             throw new ArgumentOutOfRangeException(paramName, "ProtectedWindowFraction must be in the range (0.0, 1.0).");

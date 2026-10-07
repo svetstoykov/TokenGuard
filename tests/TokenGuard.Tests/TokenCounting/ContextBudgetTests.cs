@@ -150,6 +150,69 @@ public sealed class ContextBudgetTests
         Assert.Throws<ArgumentOutOfRangeException>(actOnInvertedThresholds);
     }
 
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Constructor_WhenCompactionThresholdIsNotFinite_ThrowsNamingCompactionThreshold(double compactionThreshold)
+    {
+        // Arrange
+
+        // Act
+        Action act = () => _ = new ContextBudget(maxTokens: 100, compactionThreshold: compactionThreshold);
+
+        // Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(act);
+        Assert.Equal("compactionThreshold", exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void Constructor_WhenEmergencyThresholdIsNotFinite_ThrowsNamingEmergencyThreshold(double emergencyThreshold)
+    {
+        // Arrange
+
+        // Act
+        Action act = () => _ = new ContextBudget(maxTokens: 100, emergencyThreshold: emergencyThreshold);
+
+        // Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(act);
+        Assert.Equal("emergencyThreshold", exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    [InlineData(1.01)]
+    public void Constructor_WhenEmergencyThresholdIsOutOfRange_ThrowsNamingEmergencyThreshold(double emergencyThreshold)
+    {
+        // Arrange
+
+        // Act
+        Action act = () => _ = new ContextBudget(maxTokens: 100, emergencyThreshold: emergencyThreshold);
+
+        // Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(act);
+        Assert.Equal("emergencyThreshold", exception.ParamName);
+        Assert.Contains("EmergencyThreshold must be in the range", exception.Message);
+    }
+
+    [Fact]
+    public void Constructor_WhenCompactionThresholdReachesEmergencyThreshold_ThrowsNamingCompactionThresholdWithBothValues()
+    {
+        // Arrange
+
+        // Act
+        Action act = () => _ = new ContextBudget(maxTokens: 100, compactionThreshold: 0.9, emergencyThreshold: 0.5);
+
+        // Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(act);
+        Assert.Equal("compactionThreshold", exception.ParamName);
+        Assert.Contains("CompactionThreshold (0.9) must be less than EmergencyThreshold (0.5)", exception.Message);
+    }
+
     [Fact]
     public void OverrunTolerance_DefaultsToFivePercent()
     {
