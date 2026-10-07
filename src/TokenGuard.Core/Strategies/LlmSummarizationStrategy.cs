@@ -21,6 +21,11 @@ namespace TokenGuard.Core.Strategies;
 /// <see cref="ILlmSummarizer"/>, and the returned summary is inserted at the front of the compacted result.
 /// </para>
 /// <para>
+/// While the history ends with a tool result, the newest user message is the request the model is still working on.
+/// When that message is older than the protected tail, the compacted result keeps it word for word between the
+/// summary and the tail.
+/// </para>
+/// <para>
 /// After one successful summarization pass the strategy stores a lightweight checkpoint for the summarized raw prefix.
 /// Later calls validate that checkpoint against the incoming raw prefix, reconstruct a synthetic summary plus raw tail,
 /// and reuse or promote that checkpoint without requiring any state from <see cref="TieredCompactionStrategy"/> or
@@ -219,11 +224,13 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// Everything before <see cref="ProtectedTail.FirstIndex"/> can be summarized.
     /// </para>
     /// <para>
-    /// This method also counts the tail because later code needs to know how much room is left for a summary.
+    /// This method also counts the tail because later code needs to know how much room is left for a summary. The count
+    /// includes the user message that opened the tool loop in progress when that message sits before the tail, because
+    /// it stays in the result next to the summary.
     /// </para>
     /// </remarks>
     /// <param name="messages">The ordered compactable message history.</param>
-    /// <returns>The first message in the tail and the number of tokens used by the tail.</returns>
+    /// <returns>The first message in the tail and the number of tokens used by the messages that stay unchanged.</returns>
     private ProtectedTail GetProtectedTail(IReadOnlyList<ContextMessage> messages)
     {
         var firstProtectedTailIndex = FindFirstProtectedTailIndex(messages, this._options.WindowSize);
@@ -233,6 +240,10 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         {
             tokenCount += messages[i].TokenCount ?? this._tokenCounter.Count(messages[i]);
         }
+
+        var loopOpeningUserIndex = FindLoopOpeningUserIndex(messages, firstProtectedTailIndex);
+        if (loopOpeningUserIndex >= 0)
+            tokenCount += messages[loopOpeningUserIndex].TokenCount ?? this._tokenCounter.Count(messages[loopOpeningUserIndex]);
 
         return new ProtectedTail(firstProtectedTailIndex, tokenCount);
     }
@@ -282,7 +293,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
                 cachedResult,
                 tokensBefore,
                 cachedTokensAfter,
-                checkpoint.SummarizedMessageCount,
+                messages.Count - cachedResult.Length + 1,
                 nameof(LlmSummarizationStrategy));
         }
 
@@ -423,7 +434,8 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// </para>
     /// <para>
     /// The tail holds at least <paramref name="windowSize"/> messages. It grows when it would start on a tool result, so
-    /// the model message that asked for the tool stays with it.
+    /// the model message that asked for the tool stays with it. It also grows by one message when the message directly
+    /// before it is the user message that opened the tool loop in progress.
     /// </para>
     /// </remarks>
     /// <param name="messages">The ordered compactable message history.</param>
@@ -437,7 +449,44 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             return 0;
         }
 
-        return MoveBoundaryBeforeToolCallIfNeeded(messages, firstProtectedTailIndex);
+        firstProtectedTailIndex = MoveBoundaryBeforeToolCallIfNeeded(messages, firstProtectedTailIndex);
+
+        return firstProtectedTailIndex > 0 && FindLoopOpeningUserIndex(messages, firstProtectedTailIndex) == firstProtectedTailIndex - 1
+            ? firstProtectedTailIndex - 1
+            : firstProtectedTailIndex;
+    }
+
+    /// <summary>
+    /// Finds the user message that opened the tool loop in progress, when a summary would replace it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The model is in a tool loop when the history ends with a tool result. The newest user message is then the request
+    /// the model is still working on, so it stays in the result word for word, directly after the summary.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="summarizedMessageCount">The number of messages from the start that the summary replaces.</param>
+    /// <returns>
+    /// The index of the newest user message when the history ends with a tool result and that message is among the
+    /// first <paramref name="summarizedMessageCount"/> messages; otherwise <c>-1</c>.
+    /// </returns>
+    private static int FindLoopOpeningUserIndex(IReadOnlyList<ContextMessage> messages, int summarizedMessageCount)
+    {
+        if (messages.Count == 0 || messages[^1].Role != MessageRole.Tool)
+        {
+            return -1;
+        }
+
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i].Role == MessageRole.User)
+            {
+                return i < summarizedMessageCount ? i : -1;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>
@@ -642,7 +691,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             compactedMessages,
             tokensBefore,
             tokensAfter,
-            summarizedMessageCount,
+            messages.Count - compactedMessages.Length + 1,
             nameof(LlmSummarizationStrategy));
     }
 
@@ -653,9 +702,13 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// <para>
     /// The first item is the summary. Every message after the summarized prefix is copied after it in the same order.
     /// </para>
+    /// <para>
+    /// When the history ends with a tool result and the summarized prefix holds the user message that opened that tool
+    /// loop, that message is copied between the summary and the tail.
+    /// </para>
     /// </remarks>
     /// <param name="messages">The ordered compactable message history.</param>
-    /// <param name="summarizedMessageCount">The number of messages replaced by the summary.</param>
+    /// <param name="summarizedMessageCount">The number of messages from the start that the summary covers.</param>
     /// <param name="summaryMessage">The summary message placed at the front.</param>
     /// <returns>The compacted message list.</returns>
     private static ContextMessage[] CreateSummaryPlusTail(
@@ -663,12 +716,16 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         int summarizedMessageCount,
         ContextMessage summaryMessage)
     {
-        var result = new ContextMessage[messages.Count - summarizedMessageCount + 1];
+        var loopOpeningUserIndex = FindLoopOpeningUserIndex(messages, summarizedMessageCount);
+        var tailOffset = loopOpeningUserIndex >= 0 ? 2 : 1;
+        var result = new ContextMessage[messages.Count - summarizedMessageCount + tailOffset];
         result[0] = summaryMessage;
+        if (loopOpeningUserIndex >= 0)
+            result[1] = messages[loopOpeningUserIndex];
 
         for (var i = summarizedMessageCount; i < messages.Count; i++)
         {
-            result[(i - summarizedMessageCount) + 1] = messages[i];
+            result[(i - summarizedMessageCount) + tailOffset] = messages[i];
         }
 
         return result;

@@ -127,6 +127,28 @@ public sealed class ConversationContextPinnedPlacementTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenSummaryIsFollowedByTheUserMessageThatOpenedTheToolLoop_PlacesALaterPinAfterThatMessage()
+    {
+        // Arrange
+        var strategy = new StubCompactionStrategy((messages, _) => new CompactionResult(
+            [ContextMessage.FromText(MessageRole.Model, Summary) with { State = CompactionState.Summarized }, messages[0], .. messages.Skip(3)],
+            messages.Sum(message => message.TokenCount ?? 0), 0, 2, StubCompactionStrategy.Name));
+        using var context = CreateContext(strategy);
+        context.AddUserMessage(Text("user-1"));
+        context.AddPinnedMessage(MessageRole.User, Pin);
+        context.RecordModelResponse([new ToolUseContent("call_1", "search", "{}")]);
+        context.RecordToolResult("call_1", "search", Text("result-1"));
+        context.RecordModelResponse([new ToolUseContent("call_2", "search", "{}")]);
+        context.RecordToolResult("call_2", "search", Text("result-2"));
+
+        // Act
+        var prepared = (await context.PrepareAsync()).Messages;
+
+        // Assert
+        prepared.Select(Describe).Should().Equal("Summary", "User:user-1", "User:PIN", "Model:call_2", "Tool:call_2");
+    }
+
+    [Fact]
     public async Task PrepareAsync_WhenBelowTriggerAndPinWasRecordedBetweenToolCallAndResult_PlacesPinBeforeTheModelMessage()
     {
         // Arrange

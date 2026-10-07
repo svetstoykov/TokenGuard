@@ -255,17 +255,22 @@ Three ordered tiers:
 
 **2. LLM summarization** *(opt-in — register with `UseLlmSummarization(...)`)*. If masking still leaves the compactable
 history over budget, TokenGuard asks your LLM to collapse the older prefix into one summary message. The recent tail
-stays verbatim. Internally, the summarization stage caches checkpoints so it can reuse or promote prior summaries instead
-of regenerating them from scratch every turn.
+stays verbatim. While the history ends with a tool result, the user message that opened that tool loop also stays
+verbatim, directly after the summary. Internally, the summarization stage caches checkpoints so it can reuse or promote
+prior summaries instead of regenerating them from scratch every turn.
 
 **3. Emergency truncation** *(on by default, opt-out with `WithoutEmergencyThreshold()`)*. If the prepared request is
 still above the emergency trigger after the normal compaction stages, TokenGuard drops the oldest eligible unpinned turn
-groups from the prepared payload. It preserves pinned messages, summary messages, and the newest irreducible tail.
+groups from the prepared payload. It preserves pinned messages, a summary message and everything after it, and the
+newest message. When the newest message is a tool result, it also preserves the model message that made the tool call
+and the user message that opened that tool loop, so the model still sees the request it is working on.
 
 A turn group is one unpinned user message and everything recorded after it up to the next unpinned user message: the
 model replies, tool calls, and tool results that answer it. Groups come from the messages themselves, so a history
 recorded in one go is grouped like the same history recorded turn by turn. An older group is dropped whole. The newest
-group, still in progress, loses its oldest messages first, and a tool call always goes together with its results.
+group, still in progress, keeps its user message and loses its oldest tool exchanges first, and a tool call always goes
+together with its results. If the preserved messages alone exceed the budget, the outcome is `CompactionInsufficient` or
+`CannotCompact`, never `Compacted`.
 
 ---
 

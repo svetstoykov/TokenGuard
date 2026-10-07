@@ -418,7 +418,7 @@ public sealed class ConversationContext : IConversationContext
 
         var prepared = pinnedSlots.Count == 0
             ? compacted.Messages
-            : ReassemblePreparedMessages(pinnedSlots, compactable.Count, compacted.Messages);
+            : ReassemblePreparedMessages(pinnedSlots, compactable, compacted.Messages);
 
         var preparedTotal = this.Sum(prepared) + this._anchorCorrection;
 
@@ -687,6 +687,11 @@ public sealed class ConversationContext : IConversationContext
     /// empty, and the latest active turn remains visible to the model.
     /// </para>
     /// <para>
+    /// When the prepared list ends with a tool result, the user message that opened that tool loop is kept as well, so
+    /// the model still sees the request it is working on. The tool exchanges between that message and the floor are
+    /// dropped oldest first like any other candidate.
+    /// </para>
+    /// <para>
     /// Candidates are removed oldest first. The loop stops as soon as the running token total
     /// reaches or falls below <see cref="ContextBudget.EmergencyTriggerTokens"/>, or when the
     /// remaining list has reached its safety floor and no further eligible candidates remain. If
@@ -738,13 +743,16 @@ public sealed class ConversationContext : IConversationContext
             return false;
         }
 
+        var loopOpeningUserIndex = FindLoopOpeningUserIndex(prepared, preservedFloorStartIndex);
+        var firstKeptIndex = loopOpeningUserIndex ?? preservedFloorStartIndex;
+
         // Collect drop candidates as atomic units so a tool result is never left without the model
         // message that requested it, which would produce an invalid conversation structure rejected by providers.
-        var turnGroups = BuildTurnGroups(prepared, preservedFloorStartIndex);
+        var turnGroups = BuildTurnGroups(prepared, preservedFloorStartIndex, loopOpeningUserIndex);
 
         if (turnGroups.Count == 0)
         {
-            this.LogEmergencyEvaluation(currentTotal, emergencyLimit, 0, 0, preservedFloorStartIndex, floorExceedsTrigger: true);
+            this.LogEmergencyEvaluation(currentTotal, emergencyLimit, 0, 0, firstKeptIndex, floorExceedsTrigger: true);
             truncated = null;
             return false;
         }
@@ -766,7 +774,7 @@ public sealed class ConversationContext : IConversationContext
         }
 
         this.LogEmergencyEvaluation(
-            currentTotal, emergencyLimit, turnGroups.Count, groupsDropped, preservedFloorStartIndex, floorExceedsTrigger: total > emergencyLimit);
+            currentTotal, emergencyLimit, turnGroups.Count, groupsDropped, firstKeptIndex, floorExceedsTrigger: total > emergencyLimit);
 
         if (dropIndices.Count == 0)
         {
@@ -794,8 +802,13 @@ public sealed class ConversationContext : IConversationContext
     /// </remarks>
     /// <param name="prepared">The prepared message list produced for the next provider call.</param>
     /// <param name="limit">The exclusive upper bound for indices that may be considered for dropping.</param>
+    /// <param name="keptIndex">
+    /// The index of a message before <paramref name="limit"/> that is part of no unit, or <see langword="null"/> when every
+    /// unpinned message before <paramref name="limit"/> may be dropped.
+    /// </param>
     /// <returns>The units in message order, each paired with its aggregate token count.</returns>
-    private static IReadOnlyList<(IReadOnlyList<int> Indices, int Tokens)> BuildTurnGroups(IReadOnlyList<ContextMessage> prepared, int limit)
+    private static IReadOnlyList<(IReadOnlyList<int> Indices, int Tokens)> BuildTurnGroups(
+        IReadOnlyList<ContextMessage> prepared, int limit, int? keptIndex)
     {
         var openGroupStartIndex = FindOpenTurnGroupStartIndex(prepared, limit);
         var groups = new List<(IReadOnlyList<int> Indices, int Tokens)>();
@@ -804,7 +817,7 @@ public sealed class ConversationContext : IConversationContext
         while (i < limit)
         {
             var msg = prepared[i];
-            if (msg.IsPinned)
+            if (msg.IsPinned || i == keptIndex)
             {
                 i++;
                 continue;
@@ -854,6 +867,34 @@ public sealed class ConversationContext : IConversationContext
         return 0;
     }
 
+    /// <summary>
+    /// Finds the user message that opened the tool loop the prepared list ends in, when it sits before the preserved floor.
+    /// </summary>
+    /// <remarks>
+    /// The model is in a tool loop when the newest unpinned message is a tool result. Emergency truncation keeps the
+    /// user message that opened the loop, because without it the model continues with no request in view. A floor that
+    /// starts at a summary message already holds every message after the summary.
+    /// </remarks>
+    /// <param name="prepared">The prepared message list produced for the next provider call.</param>
+    /// <param name="floorStartIndex">The index at which the preserved floor starts.</param>
+    /// <returns>
+    /// The index of the unpinned user message that opens the turn group the floor starts inside, or
+    /// <see langword="null"/> when the list does not end with a tool result, the floor starts at a summary message, or
+    /// no user message precedes the floor.
+    /// </returns>
+    private static int? FindLoopOpeningUserIndex(IReadOnlyList<ContextMessage> prepared, int floorStartIndex)
+    {
+        if (floorStartIndex >= prepared.Count || prepared[floorStartIndex].State == CompactionState.Summarized)
+            return null;
+
+        var newestUnpinned = prepared.LastOrDefault(static message => !message.IsPinned);
+        if (newestUnpinned?.Role != MessageRole.Tool)
+            return null;
+
+        var openGroupStartIndex = FindOpenTurnGroupStartIndex(prepared, floorStartIndex);
+        return openGroupStartIndex < floorStartIndex && OpensTurnGroup(prepared[openGroupStartIndex]) ? openGroupStartIndex : null;
+    }
+
     private static bool OpensTurnGroup(ContextMessage message) => message is { Role: MessageRole.User, IsPinned: false };
 
     private static bool StartsDropUnit(ContextMessage message, bool isInOpenGroup) =>
@@ -892,8 +933,8 @@ public sealed class ConversationContext : IConversationContext
 
         var floorStartIndex = this.RepairPreservedFloorStartIndex(prepared, newestUnpinnedIndex);
 
-        // Tool-result tails must preserve their originating model turn, but they do not also force
-        // the preceding user message to remain in the irreducible floor.
+        // A tool-result tail starts at the model message that produced it. The user message that opened the
+        // tool loop is kept separately, so the exchanges between the two stay droppable.
         if (floorStartIndex != newestUnpinnedIndex)
             return floorStartIndex;
 
@@ -1051,7 +1092,7 @@ public sealed class ConversationContext : IConversationContext
             return messages.ToArray();
 
         var (pinnedSlots, compactable) = SplitPinned(messages);
-        var prepared = ReassemblePreparedMessages(pinnedSlots, compactable.Count, compactable);
+        var prepared = ReassemblePreparedMessages(pinnedSlots, compactable, compactable);
         this.LogPinnedPlacements(pinnedSlots, prepared);
 
         return prepared;
@@ -1171,17 +1212,24 @@ public sealed class ConversationContext : IConversationContext
     /// compacted message stands for the last compactable message, the one before it for the one before, and so on,
     /// with the first compacted message standing for everything older.
     /// </para>
+    /// <para>
+    /// A strategy can keep one older message directly after its summary: the user message that opened the tool loop in
+    /// progress. A pinned message recorded after that message follows it.
+    /// </para>
     /// </remarks>
     /// <param name="pinnedSlots">The pinned messages paired with their history indices, in history order.</param>
-    /// <param name="compactableCount">The number of unpinned messages in the history.</param>
+    /// <param name="compactable">The unpinned messages in the history.</param>
     /// <param name="compactedMessages">The unpinned messages after compaction.</param>
     /// <returns>The prepared list with every pinned message in place.</returns>
     private static List<ContextMessage> ReassemblePreparedMessages(
-        IReadOnlyList<(int Index, ContextMessage Message)> pinnedSlots, int compactableCount, IReadOnlyList<ContextMessage> compactedMessages)
+        IReadOnlyList<(int Index, ContextMessage Message)> pinnedSlots,
+        IReadOnlyList<ContextMessage> compactable,
+        IReadOnlyList<ContextMessage> compactedMessages)
     {
         var prepared = new List<ContextMessage>(pinnedSlots.Count + compactedMessages.Count);
-        var replacedCount = Math.Max(0, compactableCount - compactedMessages.Count);
+        var replacedCount = Math.Max(0, compactable.Count - compactedMessages.Count);
         var summaryCount = compactedMessages.Count > 0 && compactedMessages[0].State == CompactionState.Summarized ? 1 : 0;
+        var keptAfterSummaryIndex = summaryCount == 1 ? FindKeptAfterSummaryIndex(compactable, replacedCount, compactedMessages) : -1;
         var compactedIndex = 0;
 
         for (var i = 0; i < pinnedSlots.Count; i++)
@@ -1191,6 +1239,9 @@ public sealed class ConversationContext : IConversationContext
             var insertionIndex = precedingCount == 0
                 ? 0
                 : Math.Clamp(precedingCount - replacedCount, summaryCount, compactedMessages.Count);
+            if (keptAfterSummaryIndex >= 0 && insertionIndex == summaryCount && precedingCount > keptAfterSummaryIndex)
+                insertionIndex++;
+
             insertionIndex = MoveBeforeToolExchange(compactedMessages, insertionIndex);
 
             while (compactedIndex < insertionIndex)
@@ -1203,6 +1254,31 @@ public sealed class ConversationContext : IConversationContext
             prepared.Add(compactedMessages[compactedIndex++]);
 
         return prepared;
+    }
+
+    /// <summary>
+    /// Finds the history position of a user message that a strategy kept directly after its summary.
+    /// </summary>
+    /// <param name="compactable">The unpinned messages in the history.</param>
+    /// <param name="replacedCount">The number of unpinned messages the compacted list is shorter by.</param>
+    /// <param name="compactedMessages">The unpinned messages after compaction, starting with a summary message.</param>
+    /// <returns>
+    /// The index in <paramref name="compactable"/> of the message that follows the summary, when that message is a user
+    /// message recorded among the messages the summary replaced; otherwise <c>-1</c>.
+    /// </returns>
+    private static int FindKeptAfterSummaryIndex(
+        IReadOnlyList<ContextMessage> compactable, int replacedCount, IReadOnlyList<ContextMessage> compactedMessages)
+    {
+        if (compactedMessages.Count < 2 || compactedMessages[1].Role != MessageRole.User)
+            return -1;
+
+        for (var i = Math.Min(replacedCount, compactable.Count - 1); i >= 0; i--)
+        {
+            if (ReferenceEquals(compactable[i], compactedMessages[1]))
+                return i;
+        }
+
+        return -1;
     }
 
     /// <summary>
