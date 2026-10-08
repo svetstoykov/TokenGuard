@@ -30,8 +30,13 @@ public sealed class SessionDirectoryFactory : ISessionDirectoryFactory
     {
         ArgumentNullException.ThrowIfNull(workspace);
 
-        var directory = new SessionDirectory(
-            string.IsNullOrWhiteSpace(requestedPath) ? this.CreateUniquePath(workspace) : Path.GetFullPath(requestedPath));
+        var path = string.IsNullOrWhiteSpace(requestedPath) ? this.CreateUniquePath(workspace) : Path.GetFullPath(requestedPath);
+        if (IsInside(workspace.LocalPath, path))
+        {
+            throw new InvalidOperationException($"Session directory '{path}' is inside the cloned repository '{workspace.LocalPath}'.");
+        }
+
+        var directory = new SessionDirectory(path);
         Directory.CreateDirectory(directory.ArtifactsPath);
         return directory;
     }
@@ -51,5 +56,11 @@ public sealed class SessionDirectoryFactory : ISessionDirectoryFactory
                 return candidatePath;
             }
         }
+    }
+
+    private static bool IsInside(string root, string path)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) && !Path.IsPathRooted(relative);
     }
 }

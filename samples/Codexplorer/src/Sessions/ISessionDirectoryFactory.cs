@@ -19,5 +19,6 @@ public interface ISessionDirectoryFactory
     ///     the start time and repository under the configured sessions root.
     /// </param>
     /// <returns>The created session directory.</returns>
+    /// <exception cref="InvalidOperationException">The session directory is the cloned repository or lies inside it.</exception>
     SessionDirectory Create(WorkspaceModel workspace, string? requestedPath);
 }
