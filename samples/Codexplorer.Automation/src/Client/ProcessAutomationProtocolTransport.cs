@@ -7,9 +7,11 @@ using Microsoft.Extensions.Options;
 
 namespace Codexplorer.Automation.Client;
 
+/// <summary>Exchanges JSON-lines commands with a child process and bounds cancellation cleanup.</summary>
 internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTransport
 {
     private const int StandardErrorHistoryLimit = 200;
+    private static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(5);
 
     private readonly CodexplorerAutomationOptions _options;
     private readonly ILogger<ProcessAutomationProtocolTransport> _logger;
@@ -23,6 +25,9 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
     private Task? _standardErrorPump;
     private bool _disposed;
 
+    /// <summary>Initializes a new instance of the <see cref="ProcessAutomationProtocolTransport" /> class.</summary>
+    /// <param name="options">The child process configuration.</param>
+    /// <param name="logger">The transport logger.</param>
     public ProcessAutomationProtocolTransport(
         IOptions<CodexplorerAutomationOptions> options,
         ILogger<ProcessAutomationProtocolTransport> logger)
@@ -34,11 +39,14 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
         this._logger = logger;
     }
 
+    /// <inheritdoc />
     public int? ProcessId => this._process?.Id;
 
+    /// <inheritdoc />
     public Task StartAsync(CancellationToken ct)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
+        ct.ThrowIfCancellationRequested();
 
         lock (this._sync)
         {
@@ -61,6 +69,7 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
             var startInfo = new ProcessStartInfo
             {
                 FileName = executablePath,
+                WorkingDirectory = Path.GetDirectoryName(executablePath) ?? AppContext.BaseDirectory,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -69,6 +78,11 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
             };
 
             startInfo.ArgumentList.Add("--automation");
+            if (this._options.Arm == "control")
+            {
+                startInfo.Environment["Codexplorer__Budget__ContextWindowTokens"] =
+                    this._options.ControlContextWindowTokens.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
 
             var process = new Process
             {
@@ -98,6 +112,7 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public async Task<AutomationResponseEnvelope> SendAsync(AutomationRequestEnvelope request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -125,10 +140,29 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
                 request.RequestId,
                 request.Command,
                 process.Id);
-            await standardInput.WriteLineAsync(requestLine.AsMemory(), ct).ConfigureAwait(false);
-            await standardInput.FlushAsync().ConfigureAwait(false);
-
-            var responseLine = await standardOutput.ReadLineAsync(ct).ConfigureAwait(false);
+            Task<string?>? readTask = null;
+            string? responseLine;
+            try
+            {
+                await standardInput.WriteLineAsync(requestLine.AsMemory(), ct).ConfigureAwait(false);
+                await standardInput.FlushAsync(ct).ConfigureAwait(false);
+                readTask = standardOutput.ReadLineAsync(CancellationToken.None).AsTask();
+                responseLine = await readTask.WaitAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                standardInput.Close();
+                readTask ??= standardOutput.ReadLineAsync(CancellationToken.None).AsTask();
+                try
+                {
+                    responseLine = await readTask.WaitAsync(CleanupTimeout).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is TimeoutException or IOException or ObjectDisposedException)
+                {
+                    TerminateProcess(process);
+                    throw new OperationCanceledException("Codexplorer did not return a terminal snapshot before cleanup expired.", ex, ct);
+                }
+            }
             if (responseLine is null)
             {
                 throw this.CreateExitedException("Codexplorer closed stdout before returning a protocol response.");
@@ -153,12 +187,22 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
                 response.Success);
             return response;
         }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+        {
+            if (ct.IsCancellationRequested)
+            {
+                throw new OperationCanceledException("Codexplorer protocol work was cancelled.", exception, ct);
+            }
+
+            throw new CodexplorerAutomationTransportException("Codexplorer protocol stream failed.", exception);
+        }
         finally
         {
             this._requestGate.Release();
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (this._disposed)
@@ -188,7 +232,7 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
         {
             standardInput?.Dispose();
         }
-        catch (ObjectDisposedException)
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException)
         {
         }
 
@@ -201,7 +245,15 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
                     this._logger.LogInformation(
                         "Waiting for Codexplorer automation process {ProcessId} to exit during transport disposal.",
                         process.Id);
-                    await process.WaitForExitAsync().ConfigureAwait(false);
+                    try
+                    {
+                        await process.WaitForExitAsync().WaitAsync(CleanupTimeout).ConfigureAwait(false);
+                    }
+                    catch (TimeoutException)
+                    {
+                        TerminateProcess(process);
+                        await process.WaitForExitAsync().WaitAsync(CleanupTimeout).ConfigureAwait(false);
+                    }
                 }
             }
             finally
@@ -216,7 +268,14 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
 
         if (standardErrorPump is not null)
         {
-            await standardErrorPump.ConfigureAwait(false);
+            try
+            {
+                await standardErrorPump.WaitAsync(CleanupTimeout).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is TimeoutException or ObjectDisposedException or IOException)
+            {
+                this._logger.LogWarning("Codexplorer stderr cleanup did not complete normally.");
+            }
         }
 
         this._requestGate.Dispose();
@@ -239,6 +298,20 @@ internal sealed class ProcessAutomationProtocolTransport : IAutomationProtocolTr
             }
 
             this._logger.LogInformation("Codexplorer stderr: {StandardErrorLine}", line);
+        }
+    }
+
+    private static void TerminateProcess(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (InvalidOperationException)
+        {
         }
     }
 

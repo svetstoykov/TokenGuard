@@ -1,0 +1,11 @@
+{
+  "tasks": [
+    {
+      "taskId": "baseline-bat-docs",
+      "title": "Documentation evidence baseline",
+      "repositoryUrl": "https://github.com/sharkdp/bat",
+      "taskSize": "Small",
+      "initialPrompt": "Survey this repository documentation and developer workflow with repository tools. Start with file_tree, then inspect README, build configuration, and focused source ranges. Keep exploring concrete evidence until the runner asks you to wrap up. Write concise evidence-backed notes under .codexplorer/artifacts/baseline.md using create_file or write_text. Do not modify repository source files, tests, or configuration. Keep task-owned notes inside .codexplorer/artifacts/. Avoid web tools for this task."
+    }
+  ]
+}

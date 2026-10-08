@@ -1,0 +1,51 @@
+using Codexplorer.Automation.Configuration;
+using Codexplorer.Automation.Reporting;
+using Codexplorer.Measurements;
+
+namespace Codexplorer.Automation.Tests.Reporting;
+
+/// <summary>
+///     Provides deterministic report fixtures.
+/// </summary>
+/// <remarks>Tests exercise public behavior through deterministic measurement fixtures.</remarks>
+internal static class ReportFixture
+{
+    /// <summary>
+    ///     Creates a deterministic report fixture with complete provider usage.
+    /// </summary>
+    /// <param name="arm">The treatment or control arm.</param>
+    /// <param name="inputTokens">The provider input usage for the fixture.</param>
+    /// <param name="after">The prepared token estimate for the fixture.</param>
+    /// <param name="taskId">The manifest task identifier.</param>
+    /// <returns>A deterministic valid report.</returns>
+    public static RunReport Create(string arm = "treatment", long inputTokens = 100, long after = 80, string taskId = "task")
+    {
+        var aggregator = new ReportAggregator();
+        var task = aggregator.CreateTask(taskId, "small", "reply_received", true, 24, new SessionMeasurements
+        {
+            Complete = true, SummaryCrossCheck = "matched",
+            PrepareRecords = [new PrepareMeasurement
+            {
+                Index = 1, Turn = 2, Status = "completed", Outcome = "Ready", TokensBefore = 100, TokensAfter = after
+            }],
+            ProviderCalls = [new ProviderCallMeasurement
+            {
+                PrepareIndex = 1, TranscriptIndex = 1, Status = "completed", InputTokens = inputTokens, OutputTokens = 5
+            }]
+        }, [], 0, null);
+        return aggregator.CreateReport(new RunMetadata
+        {
+            CommitSha = new string('a', 40), RepositoryDirty = false,
+            StartedAtUtc = DateTimeOffset.Parse("2026-10-07T10:00:00Z"), EndedAtUtc = DateTimeOffset.Parse("2026-10-07T10:01:00Z"),
+            EffectiveSettings = new EffectiveSettings
+            {
+                AgentModel = "agent", SummarizerModel = "summary", ContextWindowTokens = 1000, MaxOutputTokens = 100,
+                ExchangeMaxTurns = 10, SoftThresholdRatio = 0.7, HardThresholdRatio = 0.9,
+                WindowSize = 3, SummaryWindowSize = 3, MinSummaryTokens = 10, MaxSummaryTokens = 100
+            },
+            HelperModel = "helper", HelperMaxOutputTokens = 100, HelperTemperature = 0,
+            TurnBudgets = new AutomationTurnBudgetOptions(), Arm = arm, ManifestPath = "tasks/test.json",
+            ManifestSha256 = new string('b', 64), ManifestProvenance = "file"
+        }, [task], [], false);
+    }
+}

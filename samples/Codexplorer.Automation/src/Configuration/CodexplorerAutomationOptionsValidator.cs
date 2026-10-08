@@ -1,19 +1,22 @@
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Configuration;
-using System.Text.Json;
 
 namespace Codexplorer.Automation.Configuration;
 
+/// <summary>Validates runner options and the separately loaded immutable task definitions.</summary>
 internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<CodexplorerAutomationOptions>
 {
     private readonly IConfiguration _configuration;
 
+    /// <summary>Initializes a new instance of the <see cref="CodexplorerAutomationOptionsValidator" /> class.</summary>
+    /// <param name="configuration">The configuration used to resolve effective credentials.</param>
     public CodexplorerAutomationOptionsValidator(IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         this._configuration = configuration;
     }
 
+    /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, CodexplorerAutomationOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -38,12 +41,72 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
             }
         }
 
-        var configuredTasks = this.TryLoadConfiguredTasks(options, failures);
+        if (options.Arm is not ("treatment" or "control"))
+        {
+            failures.Add("Arm must be treatment or control.");
+        }
 
+        if (string.IsNullOrWhiteSpace(options.OutputDirectory))
+        {
+            failures.Add("OutputDirectory is required.");
+        }
+
+        if (options.ControlContextWindowTokens <= 0)
+        {
+            failures.Add("ControlContextWindowTokens must be positive.");
+        }
+
+        ValidateBudgetProfile(options.TurnBudgets.Small, $"{CodexplorerAutomationOptions.SectionName}:TurnBudgets:Small", failures);
+        ValidateBudgetProfile(options.TurnBudgets.Medium, $"{CodexplorerAutomationOptions.SectionName}:TurnBudgets:Medium", failures);
+        ValidateBudgetProfile(options.TurnBudgets.Large, $"{CodexplorerAutomationOptions.SectionName}:TurnBudgets:Large", failures);
+
+        var helperAiOptions = options.HelperAi ?? new AutomationHelperAiOptions();
+        if (string.IsNullOrWhiteSpace(helperAiOptions.Endpoint)
+            || !Uri.TryCreate(helperAiOptions.Endpoint, UriKind.Absolute, out _))
+        {
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:Endpoint' must be a valid absolute URI.");
+        }
+
+        if (string.IsNullOrWhiteSpace(helperAiOptions.ModelName))
+        {
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:ModelName' is required.");
+        }
+
+        if (helperAiOptions.MaxOutputTokens <= 0)
+        {
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:MaxOutputTokens' must be greater than zero.");
+        }
+
+        if (helperAiOptions.Temperature < 0.0 || helperAiOptions.Temperature > 2.0)
+        {
+            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:Temperature' must be between 0.0 and 2.0.");
+        }
+
+        var effectiveApiKey = HelperAiCredentials.Resolve(this._configuration, helperAiOptions);
+        if (string.IsNullOrWhiteSpace(effectiveApiKey))
+        {
+            failures.Add(
+                $"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:ApiKey' "
+                + "or environment variable 'OPENROUTER_API_KEY' is required.");
+        }
+
+        return failures.Count == 0
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail(failures);
+    }
+
+    /// <summary>Validates tasks from a single immutable manifest load.</summary>
+    /// <param name="configuredTasks">The loaded task definitions.</param>
+    /// <param name="manifestPath">The configured path, or null for inline tasks.</param>
+    /// <param name="failures">The destination for validation failures.</param>
+    internal static void ValidateTasks(
+        IReadOnlyList<AutomationTaskDefinition> configuredTasks, string? manifestPath, List<string> failures)
+    {
         if (configuredTasks.Count == 0)
         {
             failures.Add(
-                $"Configuration must provide at least one task definition through '{CodexplorerAutomationOptions.SectionName}:ManifestPath' or '{CodexplorerAutomationOptions.SectionName}:Tasks'.");
+                $"Configuration must provide at least one task through '{CodexplorerAutomationOptions.SectionName}:ManifestPath' "
+                + $"or '{CodexplorerAutomationOptions.SectionName}:Tasks'.");
         }
         else
         {
@@ -52,7 +115,7 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
             for (var index = 0; index < configuredTasks.Count; index++)
             {
                 var task = configuredTasks[index];
-                var taskPrefix = !string.IsNullOrWhiteSpace(options.ManifestPath)
+                var taskPrefix = !string.IsNullOrWhiteSpace(manifestPath)
                     ? $"{CodexplorerAutomationOptions.SectionName}:ManifestPath:Tasks:{index}"
                     : $"{CodexplorerAutomationOptions.SectionName}:Tasks:{index}";
 
@@ -87,77 +150,6 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
                     ValidateTaskPrompt(task, taskPrefix, failures);
                 }
             }
-        }
-
-        ValidateBudgetProfile(options.TurnBudgets.Small, $"{CodexplorerAutomationOptions.SectionName}:TurnBudgets:Small", failures);
-        ValidateBudgetProfile(options.TurnBudgets.Medium, $"{CodexplorerAutomationOptions.SectionName}:TurnBudgets:Medium", failures);
-        ValidateBudgetProfile(options.TurnBudgets.Large, $"{CodexplorerAutomationOptions.SectionName}:TurnBudgets:Large", failures);
-
-        var helperAiOptions = options.HelperAi ?? new AutomationHelperAiOptions();
-        if (string.IsNullOrWhiteSpace(helperAiOptions.Endpoint)
-            || !Uri.TryCreate(helperAiOptions.Endpoint, UriKind.Absolute, out _))
-        {
-            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:Endpoint' must be a valid absolute URI.");
-        }
-
-        if (string.IsNullOrWhiteSpace(helperAiOptions.ModelName))
-        {
-            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:ModelName' is required.");
-        }
-
-        if (helperAiOptions.MaxOutputTokens <= 0)
-        {
-            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:MaxOutputTokens' must be greater than zero.");
-        }
-
-        if (helperAiOptions.Temperature < 0.0 || helperAiOptions.Temperature > 2.0)
-        {
-            failures.Add($"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:Temperature' must be between 0.0 and 2.0.");
-        }
-
-        var effectiveApiKey = this._configuration["OPENROUTER_API_KEY"]
-            ?? this._configuration[$"{CodexplorerAutomationOptions.SectionName}:HelperAi:ApiKey"];
-        if (string.IsNullOrWhiteSpace(effectiveApiKey))
-        {
-            failures.Add(
-                $"Configuration field '{CodexplorerAutomationOptions.SectionName}:HelperAi:ApiKey' or environment variable 'OPENROUTER_API_KEY' is required.");
-        }
-
-        return failures.Count == 0
-            ? ValidateOptionsResult.Success
-            : ValidateOptionsResult.Fail(failures);
-    }
-
-    private IReadOnlyList<AutomationTaskDefinition> TryLoadConfiguredTasks(
-        CodexplorerAutomationOptions options,
-        List<string> failures)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(failures);
-
-        if (string.IsNullOrWhiteSpace(options.ManifestPath))
-        {
-            return options.Tasks;
-        }
-
-        var resolvedManifestPath = Path.GetFullPath(options.ManifestPath, AppContext.BaseDirectory);
-
-        if (!File.Exists(resolvedManifestPath))
-        {
-            failures.Add($"Configured manifest path '{resolvedManifestPath}' does not exist.");
-            return [];
-        }
-
-        try
-        {
-            using var stream = File.OpenRead(resolvedManifestPath);
-            var manifest = JsonSerializer.Deserialize<AutomationTaskManifest>(stream, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-            return manifest?.Tasks ?? [];
-        }
-        catch (JsonException ex)
-        {
-            failures.Add($"Configured manifest path '{resolvedManifestPath}' contains invalid JSON. {ex.Message}");
-            return [];
         }
     }
 

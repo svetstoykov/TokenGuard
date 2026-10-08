@@ -1,4 +1,5 @@
 using Codexplorer.Automation.Configuration;
+using Codexplorer.Measurements;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -7,12 +8,17 @@ using OpenAI.Chat;
 
 namespace Codexplorer.Automation.Runner;
 
+/// <summary>Receives typed helper responses from OpenRouter.</summary>
 internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
 {
     private readonly ChatClient _chatClient;
     private readonly AutomationHelperAiOptions _options;
     private readonly ILogger<OpenRouterRunnerHelperAi> _logger;
 
+    /// <summary>Initializes a new instance of the <see cref="OpenRouterRunnerHelperAi" /> class.</summary>
+    /// <param name="options">The runner configuration.</param>
+    /// <param name="configuration">The effective configuration containing environment credentials.</param>
+    /// <param name="logger">The helper request logger.</param>
     public OpenRouterRunnerHelperAi(
         IOptions<CodexplorerAutomationOptions> options,
         IConfiguration configuration,
@@ -23,19 +29,23 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
         ArgumentNullException.ThrowIfNull(logger);
 
         this._options = options.Value.HelperAi;
-        
-        var apiKey = this._options.ApiKey ?? throw new InvalidOperationException("Runner helper AI API key is not configured.");
+
+        var apiKey = HelperAiCredentials.Resolve(configuration, this._options);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("Runner helper AI API key is not configured.");
+        }
         var modelName = this._options.ModelName ?? throw new InvalidOperationException("Runner helper AI model name is not configured.");
-        
-        this._chatClient = new OpenAIClient(
-                new System.ClientModel.ApiKeyCredential(apiKey),
-                new OpenAIClientOptions { Endpoint = new Uri(this._options.Endpoint ?? throw new InvalidOperationException("Runner helper AI endpoint is not configured.")) })
-            .GetChatClient(modelName);
-        
+
+        var endpoint = this._options.Endpoint ?? throw new InvalidOperationException("Runner helper AI endpoint is not configured.");
+        this._chatClient = new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey),
+            new OpenAIClientOptions { Endpoint = new Uri(endpoint) }).GetChatClient(modelName);
+
         this._logger = logger;
     }
 
-    public async Task<string> AnswerAsync(RunnerHelperAiRequest request, CancellationToken ct)
+    /// <inheritdoc />
+    public async Task<RunnerHelperAiResult> AnswerAsync(RunnerHelperAiRequest request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -65,17 +75,16 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
                     .Where(static text => !string.IsNullOrWhiteSpace(text)))
             .Trim();
 
-        if (string.IsNullOrWhiteSpace(answer))
-        {
-            throw new InvalidOperationException("Runner helper AI returned an empty answer.");
-        }
-
         this._logger.LogInformation(
             "Generated helper answer for task {TaskId} after runner question. AnswerLength={AnswerLength}.",
             request.TaskId,
             answer.Length);
 
-        return answer;
+        return new RunnerHelperAiResult(string.IsNullOrWhiteSpace(answer) ? null : answer, new UsageMeasurement
+        {
+            InputTokens = completion.Usage?.InputTokenCount,
+            OutputTokens = completion.Usage?.OutputTokenCount
+        });
     }
 
     private static string CreateUserPrompt(RunnerHelperAiRequest request)
@@ -98,7 +107,7 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
             Planned task turn budget: {request.MaxTurns}
             Planned wrap-up window: {request.WrapUpWindow}
             Wrap-up already sent: {request.WrapUpSent}
-            Treat planning budget numbers as soft guidance, not a hard stop.
+            The model-call budget is a hard limit.
 
             Return one direct answer message that runner can submit back into same Codexplorer session.
             """;

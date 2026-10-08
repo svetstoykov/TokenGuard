@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -28,6 +28,11 @@
     <None Update="tasks/**/*.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../contracts/**/*.cs" Link="Measurements/%(Filename)%(Extension)" />
+    <InternalsVisibleTo Include="Codexplorer.Automation.Tests" />
   </ItemGroup>
 
 </Project>

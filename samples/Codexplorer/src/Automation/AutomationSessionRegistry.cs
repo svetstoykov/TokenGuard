@@ -1,22 +1,30 @@
 using System.Collections.Concurrent;
 using Codexplorer.Agent;
+using Codexplorer.Diagnostics;
 using Microsoft.Extensions.Logging;
 using WorkspaceModel = Codexplorer.Workspace.Workspace;
 
 namespace Codexplorer.Automation;
 
+/// <summary>Owns active automation sessions through their disposal and measurement finalization.</summary>
 internal sealed class AutomationSessionRegistry : IAutomationSessionRegistry
 {
     private readonly ConcurrentDictionary<string, AutomationSessionRegistration> _sessions = new(StringComparer.Ordinal);
     private readonly ILogger<AutomationSessionRegistry> _logger;
+    private readonly ISessionMeasurementCollector? _collector;
     private int _disposed;
 
-    public AutomationSessionRegistry(ILogger<AutomationSessionRegistry> logger)
+    /// <summary>Initializes a new instance of the <see cref="AutomationSessionRegistry" /> class.</summary>
+    /// <param name="logger">The registry diagnostic logger.</param>
+    /// <param name="collector">The automation collector, or absent for standalone registry use.</param>
+    public AutomationSessionRegistry(ILogger<AutomationSessionRegistry> logger, ISessionMeasurementCollector? collector = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         this._logger = logger;
+        this._collector = collector;
     }
 
+    /// <inheritdoc />
     public AutomationSessionRegistration Add(WorkspaceModel workspace, IExplorerSession session)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -35,6 +43,7 @@ internal sealed class AutomationSessionRegistry : IAutomationSessionRegistry
         }
     }
 
+    /// <inheritdoc />
     public bool TryGet(string sessionId, out AutomationSessionRegistration? session)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
@@ -49,6 +58,7 @@ internal sealed class AutomationSessionRegistry : IAutomationSessionRegistry
         return false;
     }
 
+    /// <inheritdoc />
     public bool TryRemove(string sessionId, out AutomationSessionRegistration? session)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
@@ -63,6 +73,7 @@ internal sealed class AutomationSessionRegistry : IAutomationSessionRegistry
         return false;
     }
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref this._disposed, 1) != 0)
@@ -70,6 +81,7 @@ internal sealed class AutomationSessionRegistry : IAutomationSessionRegistry
             return;
         }
 
+        var disposalCompleted = true;
         foreach (var entry in this._sessions.ToArray())
         {
             if (!this._sessions.TryRemove(entry.Key, out var registration))
@@ -83,8 +95,12 @@ internal sealed class AutomationSessionRegistry : IAutomationSessionRegistry
             }
             catch (Exception ex)
             {
+                disposalCompleted = false;
                 this._logger.LogError(ex, "Failed to dispose automation session {SessionId}", registration.SessionId);
             }
         }
+
+        if (disposalCompleted && this._collector?.IsActive == true)
+            this._collector.End();
     }
 }

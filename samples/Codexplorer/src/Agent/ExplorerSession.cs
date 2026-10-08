@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Codexplorer.Configuration;
+using Codexplorer.Diagnostics;
 using Codexplorer.Sessions;
 using Codexplorer.Tools;
 using OpenAI.Chat;
@@ -30,6 +31,11 @@ internal sealed class ExplorerSession : IExplorerSession
     private readonly IReadOnlyList<ChatTool> _chatTools;
     private readonly AgentOptions _agentOptions;
     private readonly ModelOptions _modelOptions;
+    private readonly int? _modelCallBudget;
+    private readonly int? _wrapUpTrigger;
+    private readonly ISessionMeasurementCollector? _collector;
+    private int _modelCalls;
+    private bool _disposed;
 
     private bool _sessionClosed;
     private int _exchangeIndex;
@@ -49,6 +55,9 @@ internal sealed class ExplorerSession : IExplorerSession
     /// <param name="chatTools">The published tool definitions for model calls.</param>
     /// <param name="agentOptions">The configured agent options.</param>
     /// <param name="modelOptions">The configured model options.</param>
+    /// <param name="modelCallBudget">The optional total automation provider-call allowance.</param>
+    /// <param name="collector">The automation collector, or absent for interactive sessions.</param>
+    /// <param name="wrapUpWindow">The optional reserved model-call window before the total allowance is exhausted.</param>
     public ExplorerSession(
         WorkspaceModel workspace,
         IConversationContext conversationContext,
@@ -58,7 +67,10 @@ internal sealed class ExplorerSession : IExplorerSession
         Lazy<ChatClient> chatClient,
         IReadOnlyList<ChatTool> chatTools,
         AgentOptions agentOptions,
-        ModelOptions modelOptions)
+        ModelOptions modelOptions,
+        int? modelCallBudget = null,
+        ISessionMeasurementCollector? collector = null,
+        int? wrapUpWindow = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(conversationContext);
@@ -79,6 +91,9 @@ internal sealed class ExplorerSession : IExplorerSession
         this._chatTools = chatTools;
         this._agentOptions = agentOptions;
         this._modelOptions = modelOptions;
+        this._modelCallBudget = modelCallBudget;
+        this._collector = collector;
+        this._wrapUpTrigger = modelCallBudget.HasValue && wrapUpWindow.HasValue ? modelCallBudget.Value - wrapUpWindow.Value : null;
     }
 
     /// <inheritdoc />
@@ -100,6 +115,7 @@ internal sealed class ExplorerSession : IExplorerSession
             .ConfigureAwait(false);
 
         var turnsAtExchangeStart = this._totalTurns;
+        var callsAtExchangeStart = this._modelCalls;
         var tokensAtExchangeStart = this._totalTokens;
         string? lastAssistantTextThisExchange = null;
 
@@ -112,8 +128,24 @@ internal sealed class ExplorerSession : IExplorerSession
                     return await this.CancelSessionAsync(turnsAtExchangeStart).ConfigureAwait(false);
                 }
 
-                var globalTurnIndex = this._totalTurns;
+                if (this._modelCallBudget is { } budget && this._modelCalls >= budget)
+                {
+                    await this.EndSessionAsync("TurnBudgetReached", CancellationToken.None).ConfigureAwait(false);
+                    return new AgentExchangeTurnBudgetReached(
+                        lastAssistantTextThisExchange ?? this._lastAssistantText, this._totalTurns - turnsAtExchangeStart);
+                }
+
+                if (this._wrapUpTrigger is { } trigger && callsAtExchangeStart < trigger && this._modelCalls >= trigger)
+                {
+                    await this._sessionLogger.AppendAsync(new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex,
+                        "MaxTurnsReached", "The task reached its reserved wrap-up window."), CancellationToken.None).ConfigureAwait(false);
+                    return new AgentExchangeMaxTurnsReached(
+                        lastAssistantTextThisExchange ?? this._lastAssistantText, this._totalTurns - turnsAtExchangeStart);
+                }
+
+                var globalTurnIndex = this._modelCalls;
                 var prepareResult = await this._conversationContext.PrepareAsync(ct).ConfigureAwait(false);
+                this._collector?.ObservePrepareResult(prepareResult.SummarizationError is not null);
 
                 await this._sessionLogger.AppendAsync(
                         new PreparedContextEvent(DateTime.UtcNow, globalTurnIndex, prepareResult),
@@ -154,12 +186,22 @@ internal sealed class ExplorerSession : IExplorerSession
                         CancellationToken.None)
                     .ConfigureAwait(false);
 
-                var completion = (await this._chatClient.Value.CompleteChatAsync(
-                            prepareResult.Messages.ForOpenAI(),
-                            ExplorerAgent.CreateChatCompletionOptions(this._chatTools, this._modelOptions.MaxOutputTokens),
-                            CancellationToken.None)
-                        .ConfigureAwait(false))
-                    .Value;
+                ChatCompletion completion;
+                var chatClient = this._chatClient.Value;
+                var messages = prepareResult.Messages.ForOpenAI();
+                var completionOptions = ExplorerAgent.CreateChatCompletionOptions(this._chatTools, this._modelOptions.MaxOutputTokens);
+                this._modelCalls++;
+                this._collector?.ProviderStarted(globalTurnIndex);
+                try
+                {
+                    completion = (await chatClient.CompleteChatAsync(messages, completionOptions, ct).ConfigureAwait(false)).Value;
+                    this._collector?.ProviderFinished("completed", completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount);
+                }
+                catch (Exception exception)
+                {
+                    this._collector?.ProviderFinished(exception is OperationCanceledException && ct.IsCancellationRequested ? "cancelled" : "failed");
+                    throw;
+                }
 
                 var assistantText = string.Join(
                     Environment.NewLine,
@@ -223,7 +265,7 @@ internal sealed class ExplorerSession : IExplorerSession
                             toolCall.ToolName,
                             ExplorerAgent.ParseArguments(toolCall.ArgumentsJson),
                             this._workspace,
-                            CancellationToken.None)
+                            ct)
                         .ConfigureAwait(false);
                     stopwatch.Stop();
 
@@ -234,6 +276,13 @@ internal sealed class ExplorerSession : IExplorerSession
                             CancellationToken.None)
                         .ConfigureAwait(false);
                 }
+            }
+
+            if (this._modelCallBudget is { } taskBudget && this._modelCalls >= taskBudget)
+            {
+                await this.EndSessionAsync("TurnBudgetReached", CancellationToken.None).ConfigureAwait(false);
+                return new AgentExchangeTurnBudgetReached(
+                    lastAssistantTextThisExchange ?? this._lastAssistantText, this._totalTurns - turnsAtExchangeStart);
             }
 
             var capMessage = $"The assistant hit the configured per-message turn cap of {this._agentOptions.MaxTurns} before producing a reply.";
@@ -260,6 +309,10 @@ internal sealed class ExplorerSession : IExplorerSession
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        if (this._disposed)
+            return;
+
+        this._disposed = true;
         if (!this._sessionClosed)
         {
             await this.EndSessionAsync("EndedByUser", CancellationToken.None).ConfigureAwait(false);

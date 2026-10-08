@@ -1,5 +1,6 @@
 using Codexplorer.Automation.Client;
 using Codexplorer.Automation.Runner;
+using Codexplorer.Automation.Reporting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -41,6 +42,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ICodexplorerAutomationClient, CodexplorerAutomationClient>();
         services.TryAddSingleton<IAutomationTaskManifestLoader, AutomationTaskManifestLoader>();
         services.TryAddSingleton<IRunnerHelperAi, OpenRouterRunnerHelperAi>();
+        services.TryAddSingleton<IRepositoryIdentityReader, GitRepositoryIdentityReader>();
+        services.TryAddSingleton<IReportAggregator, ReportAggregator>();
+        services.TryAddSingleton<IRunReportWriter, JsonRunReportWriter>();
         services.TryAddSingleton<AutomationRunner>();
 
         return services;

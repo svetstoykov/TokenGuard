@@ -1,29 +1,48 @@
 using System.Text.Json;
 using Codexplorer.Agent;
+using Codexplorer.Diagnostics;
+using Codexplorer.Measurements;
 using Codexplorer.Workspace;
 
 namespace Codexplorer.Automation;
 
+/// <summary>Dispatches sample commands and finalizes terminal session measurements.</summary>
+/// <remarks>The host serializes commands, and the collector rejects overlapping sessions before context creation.</remarks>
 internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 {
     private readonly IExplorerAgent _explorerAgent;
     private readonly IWorkspaceManager _workspaceManager;
     private readonly IAutomationSessionRegistry _sessionRegistry;
+    private readonly ISessionMeasurementCollector _collector;
+    private readonly EffectiveSettings _settings;
 
+    /// <summary>Initializes a new instance of the <see cref="AutomationCommandDispatcher" /> class.</summary>
+    /// <param name="explorerAgent">The repository exploration service.</param>
+    /// <param name="workspaceManager">The repository workspace service.</param>
+    /// <param name="sessionRegistry">The active session registry.</param>
+    /// <param name="collector">The singleton session measurement collector.</param>
+    /// <param name="settings">The allowlisted effective sample settings.</param>
     public AutomationCommandDispatcher(
         IExplorerAgent explorerAgent,
         IWorkspaceManager workspaceManager,
-        IAutomationSessionRegistry sessionRegistry)
+        IAutomationSessionRegistry sessionRegistry,
+        ISessionMeasurementCollector collector,
+        EffectiveSettings settings)
     {
         ArgumentNullException.ThrowIfNull(explorerAgent);
         ArgumentNullException.ThrowIfNull(workspaceManager);
         ArgumentNullException.ThrowIfNull(sessionRegistry);
+        ArgumentNullException.ThrowIfNull(collector);
+        ArgumentNullException.ThrowIfNull(settings);
 
         this._explorerAgent = explorerAgent;
         this._workspaceManager = workspaceManager;
         this._sessionRegistry = sessionRegistry;
+        this._collector = collector;
+        this._settings = settings;
     }
 
+    /// <inheritdoc />
     public Task<AutomationResponseEnvelope> DispatchAsync(AutomationRequestEnvelope request, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -34,7 +53,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
             return Task.FromResult(
                 AutomationResponseEnvelope.SuccessResponse(
                     request.RequestId!,
-                    new AutomationPingResult(Status: "ok", ProtocolVersion: 1)));
+                    new AutomationPingResult(Status: "ok", ProtocolVersion: 1, this._settings)));
         }
 
         if (string.Equals(request.Command, "open_session", StringComparison.OrdinalIgnoreCase))
@@ -107,6 +126,26 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 message: "Payload must provide 'repositoryUrl'.");
         }
 
+        if (openSessionPayload.ModelCallBudget is < 0)
+            return AutomationResponseEnvelope.ErrorResponse(request.RequestId, "invalid_request", "Model-call budget must be nonnegative.");
+
+        if (openSessionPayload.WrapUpWindow is { } window
+            && (openSessionPayload.ModelCallBudget is null || window <= 0 || window >= openSessionPayload.ModelCallBudget))
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId, "invalid_request", "Wrap-up window must be positive and smaller than the model-call budget.");
+
+        if (this._collector.IsActive)
+            return AutomationResponseEnvelope.ErrorResponse(request.RequestId, "session_already_open", "Only one automation session may be open.");
+
+        try
+        {
+            this._collector.Begin(openSessionPayload.ModelCallBudget);
+        }
+        catch (InvalidOperationException)
+        {
+            return AutomationResponseEnvelope.ErrorResponse(request.RequestId, "session_already_open", "Only one automation session may be open.");
+        }
+
         Codexplorer.Workspace.Workspace? workspace;
 
         try
@@ -115,6 +154,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         }
         catch (ArgumentException ex)
         {
+            this._collector.End();
             return AutomationResponseEnvelope.ErrorResponse(
                 request.RequestId,
                 code: "invalid_request",
@@ -122,6 +162,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         }
         catch (InvalidOperationException ex)
         {
+            this._collector.End();
             return AutomationResponseEnvelope.ErrorResponse(
                 request.RequestId,
                 code: "clone_failed",
@@ -129,13 +170,30 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         }
         catch (RepositoryTooLargeException ex)
         {
+            this._collector.End();
             return AutomationResponseEnvelope.ErrorResponse(
                 request.RequestId,
                 code: "clone_failed",
                 message: ex.Message);
         }
+        catch
+        {
+            this._collector.End();
+            throw;
+        }
 
-        var explorerSession = this._explorerAgent.StartSession(workspace!);
+        IExplorerSession explorerSession;
+        try
+        {
+            explorerSession = this._explorerAgent is IAutomationExplorerAgent automationAgent
+                ? automationAgent.StartAutomationSession(workspace!, openSessionPayload.ModelCallBudget, openSessionPayload.WrapUpWindow)
+                : this._explorerAgent.StartSession(workspace!);
+        }
+        catch
+        {
+            this._collector.End();
+            throw;
+        }
 
         try
         {
@@ -154,7 +212,14 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         }
         catch
         {
-            return await DisposeFailedOpenSessionAsync(explorerSession).ConfigureAwait(false);
+            try
+            {
+                return await DisposeFailedOpenSessionAsync(explorerSession).ConfigureAwait(false);
+            }
+            finally
+            {
+                this._collector.End();
+            }
         }
     }
 
@@ -174,10 +239,11 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         }
 
         await registration!.Session.DisposeAsync().ConfigureAwait(false);
+        this._collector.End();
 
-        return AutomationResponseEnvelope.SuccessResponse(
-            request.RequestId!,
-            new CloseSessionResult(registration.SessionId, Status: "closed"));
+        var snapshot = this._collector.Snapshot();
+        var status = snapshot.SummaryCrossCheck == "mismatched" ? "failed" : "closed";
+        return AutomationResponseEnvelope.SuccessResponse(request.RequestId!, new CloseSessionResult(registration.SessionId, status, snapshot));
     }
 
     private async Task<AutomationResponseEnvelope> SubmitAsync(AutomationRequestEnvelope request, CancellationToken ct)
@@ -201,12 +267,19 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         }
 
         var exchangeResult = await registration!.Session.SubmitAsync(message!, ct).ConfigureAwait(false);
-        var submitResponse = CreateSubmitResult(registration, exchangeResult);
 
         if (IsTerminalOutcome(exchangeResult))
         {
             await this.RemoveAndDisposeSessionAsync(registration.SessionId).ConfigureAwait(false);
         }
+
+        var snapshot = this._collector.Snapshot();
+        var submitResponse = CreateSubmitResult(registration, exchangeResult, snapshot);
+        if (snapshot.SummaryCrossCheck == "mismatched")
+            submitResponse = submitResponse with
+            {
+                Outcome = "failed", SessionOpen = false, Failure = new SubmitFailure("MeasurementMismatch", "Conversation measurements disagree."),
+            };
 
         return AutomationResponseEnvelope.SuccessResponse(request.RequestId!, submitResponse);
     }
@@ -303,9 +376,11 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         }
 
         await registration!.Session.DisposeAsync().ConfigureAwait(false);
+        this._collector.End();
     }
 
-    private static SubmitResult CreateSubmitResult(AutomationSessionRegistration registration, AgentExchangeResult exchangeResult)
+    private static SubmitResult CreateSubmitResult(
+        AutomationSessionRegistration registration, AgentExchangeResult exchangeResult, SessionMeasurements measurements)
     {
         ArgumentNullException.ThrowIfNull(registration);
         ArgumentNullException.ThrowIfNull(exchangeResult);
@@ -314,6 +389,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         {
             AgentReplyReceived replyReceived => CreateSubmitResult(
                 registration,
+                measurements,
                 outcome: "reply_received",
                 assistantText: replyReceived.ReplyText,
                 assistantTextIsPartial: false,
@@ -325,6 +401,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 
             AgentExchangeBudgetExceeded budgetExceeded => CreateSubmitResult(
                 registration,
+                measurements,
                 outcome: "budget_exceeded",
                 assistantText: budgetExceeded.PartialText,
                 assistantTextIsPartial: !string.IsNullOrWhiteSpace(budgetExceeded.PartialText),
@@ -336,6 +413,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 
             AgentExchangeMaxTurnsReached maxTurnsReached => CreateSubmitResult(
                 registration,
+                measurements,
                 outcome: "max_turns_reached",
                 assistantText: maxTurnsReached.PartialText,
                 assistantTextIsPartial: !string.IsNullOrWhiteSpace(maxTurnsReached.PartialText),
@@ -347,6 +425,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 
             AgentExchangeCancelled cancelled => CreateSubmitResult(
                 registration,
+                measurements,
                 outcome: "cancelled",
                 assistantText: cancelled.PartialText,
                 assistantTextIsPartial: !string.IsNullOrWhiteSpace(cancelled.PartialText),
@@ -356,8 +435,13 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 budgetFailureReason: null,
                 failure: null),
 
+            AgentExchangeTurnBudgetReached budgetReached => CreateSubmitResult(
+                registration, measurements, "turn_budget_reached", budgetReached.PartialText,
+                !string.IsNullOrWhiteSpace(budgetReached.PartialText), budgetReached.ModelTurnsCompleted, null, false, null, null),
+
             AgentExchangeFailed failed => CreateSubmitResult(
                 registration,
+                measurements,
                 outcome: "failed",
                 assistantText: null,
                 assistantTextIsPartial: false,
@@ -375,6 +459,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 
     private static SubmitResult CreateSubmitResult(
         AutomationSessionRegistration registration,
+        SessionMeasurements measurements,
         string outcome,
         string? assistantText,
         bool assistantTextIsPartial,
@@ -398,22 +483,26 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
             runnerQuestion,
             registration.LogFilePath,
             budgetFailureReason,
-            failure);
+            failure,
+            measurements,
+            measurements.ProviderCalls.Count,
+            measurements.ModelCallBudget,
+            Math.Max(0, measurements.ProviderCalls.Count - (measurements.ModelCallBudget ?? measurements.ProviderCalls.Count)));
     }
 
     private static bool IsTerminalOutcome(AgentExchangeResult exchangeResult)
     {
-        return exchangeResult is AgentExchangeBudgetExceeded or AgentExchangeCancelled or AgentExchangeFailed;
+        return exchangeResult is AgentExchangeBudgetExceeded or AgentExchangeCancelled or AgentExchangeFailed or AgentExchangeTurnBudgetReached;
     }
 
-    private sealed record AutomationPingResult(string Status, int ProtocolVersion);
+    private sealed record AutomationPingResult(string Status, int ProtocolVersion, EffectiveSettings Settings);
 
     private sealed record OpenSessionResult(
         string SessionId,
         AutomationWorkspaceResult Workspace,
         string LogFilePath);
 
-    private sealed record OpenSessionPayload(string? WorkspacePath, string? RepositoryUrl);
+    private sealed record OpenSessionPayload(string? WorkspacePath, string? RepositoryUrl, int? ModelCallBudget, int? WrapUpWindow);
 
     private sealed record AutomationWorkspaceResult(
         string Name,
@@ -422,7 +511,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         DateTime ClonedAt,
         long SizeBytes);
 
-    private sealed record CloseSessionResult(string SessionId, string Status);
+    private sealed record CloseSessionResult(string SessionId, string Status, SessionMeasurements Measurements);
 
     private sealed record SubmitResult(
         string SessionId,
@@ -436,7 +525,11 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         string? RunnerQuestion,
         string LogFilePath,
         string? BudgetFailureReason,
-        SubmitFailure? Failure);
+        SubmitFailure? Failure,
+        SessionMeasurements Measurements,
+        int ModelCallsMade,
+        int? ModelCallBudget,
+        int ModelCallBudgetOvershoot);
 
     private sealed record SubmitFailure(string ExceptionType, string Message);
 }

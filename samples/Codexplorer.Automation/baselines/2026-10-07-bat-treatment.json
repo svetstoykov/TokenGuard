@@ -1,0 +1,697 @@
+{
+  "schemaVersion": 1,
+  "run": {
+    "commitSha": "e9b1457715a5ceda3bf3cf7e6ea70045d60818e0",
+    "repositoryDirty": false,
+    "startedAtUtc": "2026-10-07T14:30:56.773726+00:00",
+    "endedAtUtc": "2026-10-07T14:33:57.280423+00:00",
+    "effectiveSettings": {
+      "agentModel": "deepseek/deepseek-v4.1-flash",
+      "summarizerModel": "deepseek/deepseek-v4.1-flash",
+      "maxOutputTokens": 8192,
+      "contextWindowTokens": 20000,
+      "softThresholdRatio": 0.8,
+      "hardThresholdRatio": 1,
+      "windowSize": 10,
+      "summarizationEnabled": true,
+      "summaryWindowSize": 5,
+      "minSummaryTokens": 2048,
+      "maxSummaryTokens": 4096,
+      "exchangeMaxTurns": 50,
+      "tokenGuardLogLevel": "Information"
+    },
+    "helperModel": "deepseek/deepseek-v4.1-flash",
+    "helperMaxOutputTokens": 512,
+    "helperTemperature": 0,
+    "turnBudgets": {
+      "small": {
+        "maxTurns": 30,
+        "wrapUpWindow": 4,
+        "wrapUpTriggerTurns": 26
+      },
+      "medium": {
+        "maxTurns": 50,
+        "wrapUpWindow": 8,
+        "wrapUpTriggerTurns": 42
+      },
+      "large": {
+        "maxTurns": 100,
+        "wrapUpWindow": 12,
+        "wrapUpTriggerTurns": 88
+      }
+    },
+    "arm": "treatment",
+    "manifestPath": "/Users/svetlozarstoikov/Software/repositories/TokenGuard/samples/Codexplorer.Automation/src/tasks/report-baseline.json",
+    "manifestSha256": "c0747b91b8c830077f8066531b8aa5cc1903d3e0f644b31069294aada587d042",
+    "manifestProvenance": "file"
+  },
+  "tasks": [
+    {
+      "taskId": "baseline-bat-docs",
+      "size": "small",
+      "outcome": "reply_received",
+      "protocolCompletion": true,
+      "deliverableCompletion": "notEvaluated",
+      "modelCallBudget": 30,
+      "measurementsComplete": true,
+      "summaryCrossCheck": "matched",
+      "sessionLogPath": "/Users/svetlozarstoikov/Software/repositories/TokenGuard/samples/Codexplorer/src/bin/Release/net10.0/logs/sessions/20261007-143059685-sharkdp_bat-Interactive_repo_chat.md",
+      "tokenGuardTranscriptOffset": 1,
+      "prepareRecords": [
+        {
+          "index": 1,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 1,
+          "status": "completed",
+          "outcome": "Ready",
+          "tokensBefore": 2275,
+          "tokensAfter": 2275,
+          "messagesCompacted": 0,
+          "strategyRuns": 0
+        },
+        {
+          "index": 2,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 2,
+          "status": "completed",
+          "outcome": "Ready",
+          "tokensBefore": 4575,
+          "tokensAfter": 4575,
+          "messagesCompacted": 0,
+          "strategyRuns": 0
+        },
+        {
+          "index": 3,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 3,
+          "status": "completed",
+          "outcome": "Ready",
+          "tokensBefore": 7543,
+          "tokensAfter": 7543,
+          "messagesCompacted": 0,
+          "strategyRuns": 0
+        },
+        {
+          "index": 4,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 4,
+          "status": "completed",
+          "outcome": "Ready",
+          "tokensBefore": 14639,
+          "tokensAfter": 14639,
+          "messagesCompacted": 0,
+          "strategyRuns": 0
+        },
+        {
+          "index": 5,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 5,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 17380,
+          "tokensAfter": 16803,
+          "messagesCompacted": 1,
+          "strategyRuns": 1
+        },
+        {
+          "index": 6,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 6,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 20264,
+          "tokensAfter": 16878,
+          "messagesCompacted": 4,
+          "strategyRuns": 1
+        },
+        {
+          "index": 7,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 7,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 23889,
+          "tokensAfter": 13634,
+          "messagesCompacted": 7,
+          "strategyRuns": 1
+        },
+        {
+          "index": 8,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 8,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 27958,
+          "tokensAfter": 17680,
+          "messagesCompacted": 9,
+          "strategyRuns": 1
+        },
+        {
+          "index": 9,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 9,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 30276,
+          "tokensAfter": 17564,
+          "messagesCompacted": 11,
+          "strategyRuns": 1
+        },
+        {
+          "index": 10,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 10,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 35776,
+          "tokensAfter": 17199,
+          "messagesCompacted": 20,
+          "strategyRuns": 1
+        },
+        {
+          "index": 11,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 11,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 40208,
+          "tokensAfter": 17236,
+          "messagesCompacted": 25,
+          "strategyRuns": 1
+        },
+        {
+          "index": 12,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 12,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 43583,
+          "tokensAfter": 18515,
+          "messagesCompacted": 29,
+          "strategyRuns": 1
+        },
+        {
+          "index": 13,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 13,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 46385,
+          "tokensAfter": 16460,
+          "messagesCompacted": 32,
+          "strategyRuns": 1
+        },
+        {
+          "index": 14,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 14,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 48883,
+          "tokensAfter": 18970,
+          "messagesCompacted": 32,
+          "strategyRuns": 1
+        },
+        {
+          "index": 15,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 15,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 54116,
+          "tokensAfter": 9646,
+          "messagesCompacted": 59,
+          "strategyRuns": 1
+        },
+        {
+          "index": 16,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 16,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 64785,
+          "tokensAfter": 20190,
+          "messagesCompacted": 59,
+          "strategyRuns": 1
+        },
+        {
+          "index": 17,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 17,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 66143,
+          "tokensAfter": 19101,
+          "messagesCompacted": 48,
+          "strategyRuns": 1
+        },
+        {
+          "index": 18,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 18,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 68814,
+          "tokensAfter": 15634,
+          "messagesCompacted": 53,
+          "strategyRuns": 1
+        },
+        {
+          "index": 19,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 19,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 75401,
+          "tokensAfter": 13733,
+          "messagesCompacted": 78,
+          "strategyRuns": 1
+        },
+        {
+          "index": 20,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 20,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 80123,
+          "tokensAfter": 18373,
+          "messagesCompacted": 78,
+          "strategyRuns": 1
+        },
+        {
+          "index": 21,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 21,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 83713,
+          "tokensAfter": 11880,
+          "messagesCompacted": 86,
+          "strategyRuns": 1
+        },
+        {
+          "index": 22,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 22,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 90295,
+          "tokensAfter": 18454,
+          "messagesCompacted": 86,
+          "strategyRuns": 1
+        },
+        {
+          "index": 23,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 23,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 91583,
+          "tokensAfter": 19742,
+          "messagesCompacted": 86,
+          "strategyRuns": 1
+        },
+        {
+          "index": 24,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 24,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 92887,
+          "tokensAfter": 5839,
+          "messagesCompacted": 102,
+          "strategyRuns": 1
+        },
+        {
+          "index": 25,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 25,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 97670,
+          "tokensAfter": 10604,
+          "messagesCompacted": 102,
+          "strategyRuns": 1
+        },
+        {
+          "index": 26,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 26,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 104522,
+          "tokensAfter": 17456,
+          "messagesCompacted": 102,
+          "strategyRuns": 1
+        },
+        {
+          "index": 27,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 27,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 113584,
+          "tokensAfter": 13990,
+          "messagesCompacted": 120,
+          "strategyRuns": 1
+        },
+        {
+          "index": 28,
+          "conversationId": "a92e94b08f5b45ed9345ee6d8787b400",
+          "turn": 28,
+          "status": "completed",
+          "outcome": "Compacted",
+          "tokensBefore": 117483,
+          "tokensAfter": 17877,
+          "messagesCompacted": 120,
+          "strategyRuns": 1
+        }
+      ],
+      "providerCalls": [
+        {
+          "transcriptIndex": 0,
+          "prepareIndex": 1,
+          "status": "completed",
+          "inputTokens": 3651,
+          "outputTokens": 83
+        },
+        {
+          "transcriptIndex": 1,
+          "prepareIndex": 2,
+          "status": "completed",
+          "inputTokens": 4515,
+          "outputTokens": 220
+        },
+        {
+          "transcriptIndex": 2,
+          "prepareIndex": 3,
+          "status": "completed",
+          "inputTokens": 7093,
+          "outputTokens": 198
+        },
+        {
+          "transcriptIndex": 3,
+          "prepareIndex": 4,
+          "status": "completed",
+          "inputTokens": 14250,
+          "outputTokens": 405
+        },
+        {
+          "transcriptIndex": 4,
+          "prepareIndex": 5,
+          "status": "completed",
+          "inputTokens": 16661,
+          "outputTokens": 221
+        },
+        {
+          "transcriptIndex": 5,
+          "prepareIndex": 6,
+          "status": "completed",
+          "inputTokens": 17099,
+          "outputTokens": 169
+        },
+        {
+          "transcriptIndex": 6,
+          "prepareIndex": 7,
+          "status": "completed",
+          "inputTokens": 13518,
+          "outputTokens": 446
+        },
+        {
+          "transcriptIndex": 7,
+          "prepareIndex": 8,
+          "status": "completed",
+          "inputTokens": 17508,
+          "outputTokens": 321
+        },
+        {
+          "transcriptIndex": 8,
+          "prepareIndex": 9,
+          "status": "completed",
+          "inputTokens": 17209,
+          "outputTokens": 232
+        },
+        {
+          "transcriptIndex": 9,
+          "prepareIndex": 10,
+          "status": "completed",
+          "inputTokens": 17604,
+          "outputTokens": 357
+        },
+        {
+          "transcriptIndex": 10,
+          "prepareIndex": 11,
+          "status": "completed",
+          "inputTokens": 17016,
+          "outputTokens": 220
+        },
+        {
+          "transcriptIndex": 11,
+          "prepareIndex": 12,
+          "status": "completed",
+          "inputTokens": 18633,
+          "outputTokens": 243
+        },
+        {
+          "transcriptIndex": 12,
+          "prepareIndex": 13,
+          "status": "completed",
+          "inputTokens": 16355,
+          "outputTokens": 189
+        },
+        {
+          "transcriptIndex": 13,
+          "prepareIndex": 14,
+          "status": "completed",
+          "inputTokens": 18732,
+          "outputTokens": 311
+        },
+        {
+          "transcriptIndex": 14,
+          "prepareIndex": 15,
+          "status": "completed",
+          "inputTokens": 10973,
+          "outputTokens": 200
+        },
+        {
+          "transcriptIndex": 15,
+          "prepareIndex": 16,
+          "status": "completed",
+          "inputTokens": 19095,
+          "outputTokens": 300
+        },
+        {
+          "transcriptIndex": 16,
+          "prepareIndex": 17,
+          "status": "completed",
+          "inputTokens": 18190,
+          "outputTokens": 224
+        },
+        {
+          "transcriptIndex": 17,
+          "prepareIndex": 18,
+          "status": "completed",
+          "inputTokens": 15675,
+          "outputTokens": 184
+        },
+        {
+          "transcriptIndex": 18,
+          "prepareIndex": 19,
+          "status": "completed",
+          "inputTokens": 14815,
+          "outputTokens": 209
+        },
+        {
+          "transcriptIndex": 19,
+          "prepareIndex": 20,
+          "status": "completed",
+          "inputTokens": 17843,
+          "outputTokens": 283
+        },
+        {
+          "transcriptIndex": 20,
+          "prepareIndex": 21,
+          "status": "completed",
+          "inputTokens": 12376,
+          "outputTokens": 222
+        },
+        {
+          "transcriptIndex": 21,
+          "prepareIndex": 22,
+          "status": "completed",
+          "inputTokens": 18077,
+          "outputTokens": 235
+        },
+        {
+          "transcriptIndex": 22,
+          "prepareIndex": 23,
+          "status": "completed",
+          "inputTokens": 19611,
+          "outputTokens": 461
+        },
+        {
+          "transcriptIndex": 23,
+          "prepareIndex": 24,
+          "status": "completed",
+          "inputTokens": 7041,
+          "outputTokens": 301
+        },
+        {
+          "transcriptIndex": 24,
+          "prepareIndex": 25,
+          "status": "completed",
+          "inputTokens": 9953,
+          "outputTokens": 132
+        },
+        {
+          "transcriptIndex": 25,
+          "prepareIndex": 26,
+          "status": "completed",
+          "inputTokens": 16845,
+          "outputTokens": 277
+        },
+        {
+          "transcriptIndex": 26,
+          "prepareIndex": 27,
+          "status": "completed",
+          "inputTokens": 13229,
+          "outputTokens": 4921
+        },
+        {
+          "transcriptIndex": 27,
+          "prepareIndex": 28,
+          "status": "completed",
+          "inputTokens": 17637,
+          "outputTokens": 1203
+        }
+      ],
+      "summarizerResponses": [
+        {
+          "inputTokens": 9320,
+          "outputTokens": 3149
+        },
+        {
+          "inputTokens": 11841,
+          "outputTokens": 2840
+        },
+        {
+          "inputTokens": 13041,
+          "outputTokens": 2645
+        },
+        {
+          "inputTokens": 15890,
+          "outputTokens": 3128
+        },
+        {
+          "inputTokens": 18710,
+          "outputTokens": 4096
+        }
+      ],
+      "helperResponses": [],
+      "metrics": {
+        "completedModelTurns": 28,
+        "modelCallsMade": 28,
+        "budgetOvershoot": 0,
+        "prepareCalls": 28,
+        "completedPrepareCalls": 28,
+        "strategyRuns": 24,
+        "tokensBefore": 1564753,
+        "tokensAfter": 412490,
+        "tokensReclaimed": 1152263,
+        "peakPreparedTokens": 20190,
+        "providerInputTokens": 411204,
+        "providerOutputTokens": 12767,
+        "providerMissingInputUsageCalls": 0,
+        "providerMissingOutputUsageCalls": 0,
+        "messagesCompacted": 1349,
+        "messagesDropped": 0,
+        "summarizationErrors": 0,
+        "summarizerCalls": 5,
+        "summarizerFailures": 0,
+        "summarizerInputTokens": 68802,
+        "summarizerOutputTokens": 15858,
+        "summarizerMissingInputUsageCalls": 0,
+        "summarizerMissingOutputUsageCalls": 0,
+        "helperCalls": 0,
+        "helperInputTokens": 0,
+        "helperOutputTokens": 0,
+        "helperMissingInputUsageCalls": 0,
+        "helperMissingOutputUsageCalls": 0,
+        "emergencyTruncations": 0,
+        "estimatedPromptTokenReduction": 0.7363865095641293,
+        "estimatorPairedTurnCount": 28,
+        "estimatorSignedMean": 0.01090720950430502,
+        "estimatorSignedP95": 0.17071438716091464,
+        "estimatorAbsoluteMean": 0.0481300502707072,
+        "estimatorAbsoluteP95": 0.17071438716091464,
+        "prepareOutcomeCounts": {
+          "Compacted": 24,
+          "Ready": 4
+        },
+        "healthSignalCounts": {
+          "EstimatorDrift": 3,
+          "LowCompactionYield": 1,
+          "RepeatedCompaction": 1
+        }
+      }
+    }
+  ],
+  "totals": {
+    "taskCount": 1,
+    "protocolCompletedTaskCount": 1,
+    "protocolCompletionRate": 1,
+    "metrics": {
+      "completedModelTurns": 28,
+      "modelCallsMade": 28,
+      "budgetOvershoot": 0,
+      "prepareCalls": 28,
+      "completedPrepareCalls": 28,
+      "strategyRuns": 24,
+      "tokensBefore": 1564753,
+      "tokensAfter": 412490,
+      "tokensReclaimed": 1152263,
+      "peakPreparedTokens": 20190,
+      "providerInputTokens": 411204,
+      "providerOutputTokens": 12767,
+      "providerMissingInputUsageCalls": 0,
+      "providerMissingOutputUsageCalls": 0,
+      "messagesCompacted": 1349,
+      "messagesDropped": 0,
+      "summarizationErrors": 0,
+      "summarizerCalls": 5,
+      "summarizerFailures": 0,
+      "summarizerInputTokens": 68802,
+      "summarizerOutputTokens": 15858,
+      "summarizerMissingInputUsageCalls": 0,
+      "summarizerMissingOutputUsageCalls": 0,
+      "helperCalls": 0,
+      "helperInputTokens": 0,
+      "helperOutputTokens": 0,
+      "helperMissingInputUsageCalls": 0,
+      "helperMissingOutputUsageCalls": 0,
+      "emergencyTruncations": 0,
+      "estimatedPromptTokenReduction": 0.7363865095641293,
+      "estimatorPairedTurnCount": 28,
+      "estimatorSignedMean": 0.01090720950430502,
+      "estimatorSignedP95": 0.17071438716091464,
+      "estimatorAbsoluteMean": 0.0481300502707072,
+      "estimatorAbsoluteP95": 0.17071438716091464,
+      "prepareOutcomeCounts": {
+        "Compacted": 24,
+        "Ready": 4
+      },
+      "healthSignalCounts": {
+        "EstimatorDrift": 3,
+        "LowCompactionYield": 1,
+        "RepeatedCompaction": 1
+      }
+    }
+  },
+  "partial": false,
+  "unrunTaskIds": [],
+  "validation": {
+    "isValid": true,
+    "errors": []
+  },
+  "estimatorErrorUnit": "ratio: (providerInput - tokensAfter) / providerInput; positive means underestimation"
+}

@@ -1,4 +1,5 @@
 using Codexplorer.Automation.Configuration;
+using Codexplorer.Automation.Comparison;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -14,6 +15,11 @@ internal sealed class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        if (args.Length > 0 && string.Equals(args[0], "compare", StringComparison.OrdinalIgnoreCase))
+        {
+            return await ComparisonCommand.RunAsync(args[1..], Console.Out).ConfigureAwait(false);
+        }
+
         var logFilePath = Path.Combine(AppContext.BaseDirectory, "logs", "codexplorer-automation-.log");
         Log.Logger = CreateLogger(logFilePath);
 
@@ -27,6 +33,8 @@ internal sealed class Program
                 ContentRootPath = AppContext.BaseDirectory
             });
             builder.Configuration.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false);
+            builder.Configuration.AddEnvironmentVariables();
+            builder.Configuration.AddCommandLine(args);
             builder.Services.AddSerilog();
             builder.Services.AddCodexplorerAutomation(builder.Configuration);
 
