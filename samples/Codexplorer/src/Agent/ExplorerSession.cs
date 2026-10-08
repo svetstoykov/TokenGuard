@@ -22,12 +22,12 @@ namespace Codexplorer.Agent;
 /// </remarks>
 internal sealed class ExplorerSession : IExplorerSession
 {
-    private readonly WorkspaceModel _workspace;
     private readonly IConversationContext _conversationContext;
     private readonly ISessionLogger _sessionLogger;
     private readonly SessionDirectory _sessionDirectory;
     private readonly Task _rendererTask;
     private readonly IToolRegistry _toolRegistry;
+    private readonly ToolContext _toolContext;
     private readonly Lazy<ChatClient> _chatClient;
     private readonly IReadOnlyList<ChatTool> _chatTools;
     private readonly AgentOptions _agentOptions;
@@ -86,12 +86,12 @@ internal sealed class ExplorerSession : IExplorerSession
         ArgumentNullException.ThrowIfNull(agentOptions);
         ArgumentNullException.ThrowIfNull(modelOptions);
 
-        this._workspace = workspace;
         this._conversationContext = conversationContext;
         this._sessionLogger = sessionLogger;
         this._sessionDirectory = sessionDirectory;
         this._rendererTask = rendererTask;
         this._toolRegistry = toolRegistry;
+        this._toolContext = new ToolContext(workspace, sessionDirectory.ArtifactsPath);
         this._chatClient = chatClient;
         this._chatTools = chatTools;
         this._agentOptions = agentOptions;
@@ -272,7 +272,7 @@ internal sealed class ExplorerSession : IExplorerSession
                     var toolResult = await this._toolRegistry.ExecuteAsync(
                             toolCall.ToolName,
                             ExplorerAgent.ParseArguments(toolCall.ArgumentsJson),
-                            this._workspace,
+                            this._toolContext,
                             ct)
                         .ConfigureAwait(false);
                     stopwatch.Stop();

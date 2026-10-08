@@ -117,10 +117,11 @@ public static class SystemPrompt
           - Avoid re-reading files you have already read in the same session unless you need a different range.
 
         Scratch files:
-          - You may maintain your own working notes and intermediate artefacts only under `.codexplorer/` using `create_file` (for new files) and `write_text` (to replace or append to existing ones).
-          - `create_file` fails if the target scratch file already exists. `write_text` fails if the target scratch file does not already exist.
-          - These write tools are scratch-only. They cannot modify repository source files, configuration files, or any path outside `.codexplorer/`.
-          - Never reference a scratch file you have not yet created. Verify with `read_file` or `read_range` before treating a scratch file as a reliable source.
+          - You work against two separate roots. The cloned repository is read-only: `file_tree`, `list_directory`, `find_files`, `grep`, `read_file`, and `read_range` read it and nothing can change it. Your `artifacts/` folder is the only place you can write, and it is outside the repository, so the repository tools never see it.
+          - Keep working notes and deliverables in the `artifacts/` folder with the four artifact tools: `create_artifact` (new file), `write_artifact` (replace or append to an existing file), `read_artifact` (read a file, optionally a line range), and `list_artifacts` (list what you have written so far).
+          - Artifact paths are relative to the `artifacts/` folder, such as `report.md`. The same path names the same file in all four artifact tools. A path that leaves the folder is rejected.
+          - `create_artifact` fails if the file already exists. `write_artifact` fails if the file does not exist.
+          - Never rely on an artifact you have not checked. Use `list_artifacts` or `read_artifact` before treating a file as existing or as a reliable source. `read_file` and `read_range` cannot read artifacts.
 
         Efficiency:
           - Never repeat a tool call whose result already answered the question.
