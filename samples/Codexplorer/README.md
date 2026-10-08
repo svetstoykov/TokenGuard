@@ -171,7 +171,9 @@ Shipped batch workflow:
 
 One run is one self-contained folder, `<OutputDirectory>/<runId>/`. `<runId>` is the UTC start time plus the arm, for example
 `20261008-141502-treatment`. The runner fails before running any task when that folder already exists, and logs the run folder
-path when it finishes. Session directories are named by `taskId`, so a task has the same folder name in a treatment and a control run:
+path when it finishes. Session directories are named by `taskId`, so a task has the same folder name in a treatment and a control run.
+A `taskId` therefore has to be one directory name: it starts with a letter or digit, contains only letters, digits, `.`, `-`, and `_`,
+and is not `run-report.json`. Manifest validation rejects any other value before the run folder is created:
 
 ```text
 .artifacts/reports/benchmark/

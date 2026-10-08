@@ -1,3 +1,4 @@
+using Codexplorer.Automation.Reporting;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Configuration;
 
@@ -129,6 +130,17 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
                 {
                     failures.Add($"Configuration field '{taskPrefix}:TaskId' is required.");
                 }
+                else if (!IsDirectoryName(task.TaskId))
+                {
+                    failures.Add(
+                        $"Configuration field '{taskPrefix}:TaskId' must start with a letter or digit and contain only letters, digits, "
+                        + $"'.', '-', and '_'. Value '{task.TaskId}' cannot name a session directory.");
+                }
+                else if (string.Equals(task.TaskId, JsonRunReportWriter.FileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    failures.Add(
+                        $"Configuration field '{taskPrefix}:TaskId' must not be '{JsonRunReportWriter.FileName}', the run report file name.");
+                }
                 else if (!uniqueTaskIds.Add(task.TaskId))
                 {
                     failures.Add($"Configuration field '{taskPrefix}:TaskId' must be unique. Duplicate value '{task.TaskId}' was found.");
@@ -151,6 +163,14 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
                 }
             }
         }
+    }
+
+    /// <summary>Determines whether a task identifier is one portable directory name.</summary>
+    /// <remarks>The runner names each session directory after its task, so the identifier must stay one segment inside the run folder.</remarks>
+    private static bool IsDirectoryName(string taskId)
+    {
+        return char.IsAsciiLetterOrDigit(taskId[0])
+            && taskId.All(static character => char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_');
     }
 
     private static void ValidateTaskPrompt(
