@@ -203,7 +203,8 @@ internal sealed class AutomationRunner
             RepositoryUrl = state.Task.RepositoryUrl,
             ModelCallBudget = state.Budget.MaxTurns,
             WrapUpWindow = state.Budget.WrapUpWindow,
-            SessionDirectory = state.SessionDirectory
+            SessionDirectory = state.SessionDirectory,
+            Capture = this._options.Capture
         }, ct).ConfigureAwait(false);
         state.SessionLogPath = opened.LogFilePath;
         state.WorkspacePath = opened.Workspace.LocalPath;
@@ -217,6 +218,7 @@ internal sealed class AutomationRunner
                 var response = await this._client.SubmitAsync(new SubmitRequest(opened.SessionId, message), ct).ConfigureAwait(false);
                 sessionOpen = response.SessionOpen;
                 state.SessionLogPath = response.LogFilePath;
+                state.FinalAnswer = response.AssistantText;
                 state.Record(response);
                 state.Outcome = response.Outcome;
                 if (ct.IsCancellationRequested)
@@ -300,9 +302,37 @@ internal sealed class AutomationRunner
             : AutomationRunnerPrompts.CreateContinuationPrompt(state.CallsRemaining);
     }
 
-    private TaskReport CreateTaskReport(TaskExecutionState state) => this._aggregator.CreateTask(
-        state.Task.TaskId!, state.Task.TaskSize.ToString().ToLowerInvariant(), state.Outcome, state.ProtocolCompletion, state.Budget.MaxTurns,
-        state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionLogPath);
+    private TaskReport CreateTaskReport(TaskExecutionState state)
+    {
+        this.WriteFinalAnswer(state);
+        return this._aggregator.CreateTask(
+            state.Task.TaskId!, state.Task.TaskSize.ToString().ToLowerInvariant(), state.Outcome, state.ProtocolCompletion, state.Budget.MaxTurns,
+            state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionLogPath);
+    }
+
+    /// <summary>
+    ///     Writes the complete text of the reply that ended the task to <c>capture/final-answer.md</c> in its session directory.
+    /// </summary>
+    /// <remarks>Nothing is written when capture is off or the task ended without assistant text.</remarks>
+    /// <param name="state">The finished task.</param>
+    private void WriteFinalAnswer(TaskExecutionState state)
+    {
+        if (!this._options.Capture || string.IsNullOrWhiteSpace(state.FinalAnswer))
+        {
+            return;
+        }
+
+        try
+        {
+            var captureDirectory = Path.Combine(state.SessionDirectory, "capture");
+            Directory.CreateDirectory(captureDirectory);
+            File.WriteAllText(Path.Combine(captureDirectory, "final-answer.md"), state.FinalAnswer);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            this._logger.LogWarning("Final answer for task {TaskId} could not be written ({FailureType}).", state.Task.TaskId, ex.GetType().Name);
+        }
+    }
 
     private sealed class TaskExecutionState(AutomationTaskDefinition task, TurnBudgetProfile budget, string sessionDirectory)
     {
@@ -321,6 +351,8 @@ internal sealed class AutomationRunner
         public string? WorkspacePath { get; set; }
         /// <summary>Gets the session transcript path.</summary>
         public string? SessionLogPath { get; set; }
+        /// <summary>Gets the assistant text of the latest submit response.</summary>
+        public string? FinalAnswer { get; set; }
         /// <summary>Gets the task terminal outcome.</summary>
         public string Outcome { get; set; } = "failed";
         /// <summary>Gets whether an in-budget wrap-up reply was received.</summary>

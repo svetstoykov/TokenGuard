@@ -27,6 +27,6 @@ internal sealed class SampleExplorerAgent(Func<int?, IExplorerSession> sessionFa
 
     /// <inheritdoc />
     public IExplorerSession StartAutomationSession(
-        Workspace workspace, int? modelCallBudget, int? wrapUpWindow = null, string? sessionDirectory = null) =>
+        Workspace workspace, int? modelCallBudget, int? wrapUpWindow = null, string? sessionDirectory = null, bool capture = false) =>
         this.SessionFactory(modelCallBudget);
 }

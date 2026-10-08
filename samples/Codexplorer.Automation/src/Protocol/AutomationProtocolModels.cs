@@ -40,6 +40,9 @@ internal sealed record OpenSessionRequest
 
     /// <summary>Gets the absolute directory that receives everything the session writes.</summary>
     public string? SessionDirectory { get; init; }
+
+    /// <summary>Gets a value indicating whether the session records every model call in its capture folder.</summary>
+    public bool Capture { get; init; }
 }
 
 internal sealed record OpenSessionResponse(

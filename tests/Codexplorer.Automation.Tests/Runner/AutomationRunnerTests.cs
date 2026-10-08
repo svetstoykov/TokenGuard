@@ -416,6 +416,39 @@ public sealed class AutomationRunnerTests : IDisposable
         exit.Should().Be(1);
     }
 
+    /// <summary>Verifies the reply that ended the task is written in full to the capture folder of its session directory.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_CaptureOn_WritesFinalAnswerFromLastReply()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Submit = (request, _) => Task.FromResult(request.Message == "initial"
+            ? Response("reply_received", Snapshot(2)) with { AssistantText = "interim reply" }
+            : Response("reply_received", Snapshot(3)) with { AssistantText = "final reply" });
+        fixture.Client.Close = (_, _) => Task.FromResult(new CloseSessionResponse("session", "closed", Snapshot(3, complete: true)));
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var finalAnswerPath = Path.Combine(this._outputDirectory, "20261008-141502-treatment", "task", "capture", "final-answer.md");
+        (await File.ReadAllTextAsync(finalAnswerPath)).Should().Be("final reply");
+        fixture.Client.OpenRequest!.Capture.Should().BeTrue();
+    }
+
+    /// <summary>Verifies a run with capture off asks for no capture and writes no final answer.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_CaptureOff_WritesNoFinalAnswer()
+    {
+        var fixture = new Fixture("treatment", [], this._outputDirectory, capture: false);
+        fixture.Client.Submit = (_, _) =>
+            Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false) with { AssistantText = "partial reply" });
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        fixture.Client.OpenRequest!.Capture.Should().BeFalse();
+        Directory.Exists(Path.Combine(this._outputDirectory, "20261008-141502-treatment", "task", "capture")).Should().BeFalse();
+    }
+
     private Fixture CreateFixture(params string[] ids) => new("treatment", ids, this._outputDirectory);
 
     private Fixture CreateFixture(string arm, string[] ids) => new(arm, ids, this._outputDirectory);
@@ -443,13 +476,15 @@ public sealed class AutomationRunnerTests : IDisposable
         /// <param name="arm">The treatment or control arm.</param>
         /// <param name="ids">The task IDs, or empty to use a single default task.</param>
         /// <param name="outputDirectory">The directory that receives the run folder.</param>
-        public Fixture(string arm, string[] ids, string outputDirectory)
+        /// <param name="capture">Whether sessions capture their model calls.</param>
+        public Fixture(string arm, string[] ids, string outputDirectory, bool capture = true)
         {
             var budget = new TurnBudgetProfile { MaxTurns = 3, WrapUpWindow = 1 };
             var options = Options.Create(new CodexplorerAutomationOptions
             {
                 ManifestPath = null,
                 OutputDirectory = outputDirectory,
+                Capture = capture,
                 Arm = arm,
                 TurnBudgets = new AutomationTurnBudgetOptions { Small = budget, Medium = budget, Large = budget },
                 Tasks = (ids.Length == 0 ? new[] { "task" } : ids).Select(id => new AutomationTaskDefinition

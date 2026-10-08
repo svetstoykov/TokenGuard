@@ -191,7 +191,8 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         {
             explorerSession = this._explorerAgent is IAutomationExplorerAgent automationAgent
                 ? automationAgent.StartAutomationSession(
-                    workspace!, openSessionPayload.ModelCallBudget, openSessionPayload.WrapUpWindow, openSessionPayload.SessionDirectory)
+                    workspace!, openSessionPayload.ModelCallBudget, openSessionPayload.WrapUpWindow, openSessionPayload.SessionDirectory,
+                    openSessionPayload.Capture)
                 : this._explorerAgent.StartSession(workspace!);
         }
         catch
@@ -510,7 +511,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         string SessionDirectory);
 
     private sealed record OpenSessionPayload(
-        string? WorkspacePath, string? RepositoryUrl, int? ModelCallBudget, int? WrapUpWindow, string? SessionDirectory);
+        string? WorkspacePath, string? RepositoryUrl, int? ModelCallBudget, int? WrapUpWindow, string? SessionDirectory, bool Capture = false);
 
     private sealed record AutomationWorkspaceResult(
         string Name,

@@ -35,6 +35,7 @@ internal sealed class ExplorerSession : IExplorerSession
     private readonly int? _modelCallBudget;
     private readonly int? _wrapUpTrigger;
     private readonly ISessionMeasurementCollector? _collector;
+    private readonly ISessionCapture? _capture;
     private int _modelCalls;
     private bool _disposed;
 
@@ -60,6 +61,7 @@ internal sealed class ExplorerSession : IExplorerSession
     /// <param name="modelCallBudget">The optional total automation provider-call allowance.</param>
     /// <param name="collector">The automation collector, or absent for interactive sessions.</param>
     /// <param name="wrapUpWindow">The optional reserved model-call window before the total allowance is exhausted.</param>
+    /// <param name="capture">The passive record of every model call, or <see langword="null" /> when the session does not capture.</param>
     public ExplorerSession(
         WorkspaceModel workspace,
         IConversationContext conversationContext,
@@ -73,7 +75,8 @@ internal sealed class ExplorerSession : IExplorerSession
         ModelOptions modelOptions,
         int? modelCallBudget = null,
         ISessionMeasurementCollector? collector = null,
-        int? wrapUpWindow = null)
+        int? wrapUpWindow = null,
+        ISessionCapture? capture = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(conversationContext);
@@ -98,6 +101,7 @@ internal sealed class ExplorerSession : IExplorerSession
         this._modelOptions = modelOptions;
         this._modelCallBudget = modelCallBudget;
         this._collector = collector;
+        this._capture = capture;
         this._wrapUpTrigger = modelCallBudget.HasValue && wrapUpWindow.HasValue ? modelCallBudget.Value - wrapUpWindow.Value : null;
     }
 
@@ -207,7 +211,14 @@ internal sealed class ExplorerSession : IExplorerSession
                 }
                 catch (Exception exception)
                 {
-                    this._collector?.ProviderFinished(exception is OperationCanceledException && ct.IsCancellationRequested ? "cancelled" : "failed");
+                    var failureStatus = exception is OperationCanceledException && ct.IsCancellationRequested ? "cancelled" : "failed";
+                    this._collector?.ProviderFinished(failureStatus);
+                    if (this._capture is not null)
+                    {
+                        await this._capture.WriteExchangeAsync(globalTurnIndex, prepareResult.Messages, failureStatus, null, CancellationToken.None)
+                            .ConfigureAwait(false);
+                    }
+
                     throw;
                 }
 
@@ -229,6 +240,15 @@ internal sealed class ExplorerSession : IExplorerSession
 
                 this._totalTurns++;
                 this._totalTokens += completion.Usage?.TotalTokenCount ?? 0;
+
+                if (this._capture is not null)
+                {
+                    var capturedResponse = new CapturedResponse(
+                        assistantText, toolCalls, completion.FinishReason.ToString(), completion.Usage?.InputTokenCount,
+                        completion.Usage?.OutputTokenCount, completion.Usage?.TotalTokenCount);
+                    await this._capture.WriteExchangeAsync(globalTurnIndex, prepareResult.Messages, "completed", capturedResponse, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
 
                 await this._sessionLogger.AppendAsync(
                         new ModelRespondedEvent(
@@ -328,6 +348,11 @@ internal sealed class ExplorerSession : IExplorerSession
 
         this._conversationContext.Dispose();
         await this._sessionLogger.DisposeAsync().ConfigureAwait(false);
+        if (this._capture is not null)
+        {
+            await this._capture.DisposeAsync().ConfigureAwait(false);
+        }
+
         await this._rendererTask.ConfigureAwait(false);
     }
 

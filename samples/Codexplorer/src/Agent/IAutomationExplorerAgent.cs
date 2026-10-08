@@ -12,7 +12,8 @@ internal interface IAutomationExplorerAgent
     /// <param name="sessionDirectory">
     ///     The absolute session directory chosen by the runner, or <see langword="null" /> to create one under the sessions root.
     /// </param>
+    /// <param name="capture">Whether the session records every model call in its <c>capture</c> folder.</param>
     /// <returns>The newly created exploration session.</returns>
     IExplorerSession StartAutomationSession(
-        WorkspaceModel workspace, int? modelCallBudget, int? wrapUpWindow = null, string? sessionDirectory = null);
+        WorkspaceModel workspace, int? modelCallBudget, int? wrapUpWindow = null, string? sessionDirectory = null, bool capture = false);
 }

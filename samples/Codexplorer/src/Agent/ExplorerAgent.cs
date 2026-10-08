@@ -71,15 +71,16 @@ internal sealed class ExplorerAgent : IExplorerAgent, IAutomationExplorerAgent
     }
 
     /// <inheritdoc />
-    public IExplorerSession StartSession(WorkspaceModel workspace) => this.CreateSession(workspace, null, null, null, null);
+    public IExplorerSession StartSession(WorkspaceModel workspace) => this.CreateSession(workspace, null, null, null, null, false);
 
     /// <inheritdoc />
     public IExplorerSession StartAutomationSession(
-        WorkspaceModel workspace, int? modelCallBudget, int? wrapUpWindow = null, string? sessionDirectory = null) =>
-        this.CreateSession(workspace, modelCallBudget, this._collector, wrapUpWindow, sessionDirectory);
+        WorkspaceModel workspace, int? modelCallBudget, int? wrapUpWindow = null, string? sessionDirectory = null, bool capture = false) =>
+        this.CreateSession(workspace, modelCallBudget, this._collector, wrapUpWindow, sessionDirectory, capture);
 
     private IExplorerSession CreateSession(
-        WorkspaceModel workspace, int? modelCallBudget, ISessionMeasurementCollector? collector, int? wrapUpWindow, string? requestedDirectory)
+        WorkspaceModel workspace, int? modelCallBudget, ISessionMeasurementCollector? collector, int? wrapUpWindow, string? requestedDirectory,
+        bool capture)
     {
         ArgumentNullException.ThrowIfNull(workspace);
 
@@ -90,6 +91,7 @@ internal sealed class ExplorerAgent : IExplorerAgent, IAutomationExplorerAgent
         var conversationContext = this._conversationContextFactory.Create();
         var sessionDirectory = this._sessionDirectoryFactory.Create(workspace, requestedDirectory);
         var sessionLogger = this._sessionLoggerFactory.BeginSession(workspace, "Interactive repo chat", sessionDirectory);
+        var sessionCapture = capture ? new JsonlSessionCapture(sessionDirectory.CapturePath, this._toolRegistry.GetSchemas()) : null;
         var rendererTask = this._sessionRenderer.RenderAsync(sessionLogger, CancellationToken.None);
         var chatClient = new Lazy<ChatClient>(() => CreateChatClient(this._options));
 
@@ -108,7 +110,8 @@ internal sealed class ExplorerAgent : IExplorerAgent, IAutomationExplorerAgent
             modelOptions,
             modelCallBudget,
             collector,
-            wrapUpWindow);
+            wrapUpWindow,
+            sessionCapture);
     }
 
     internal static ChatCompletionOptions CreateChatCompletionOptions(IReadOnlyList<ChatTool> chatTools, int maxOutputTokens)

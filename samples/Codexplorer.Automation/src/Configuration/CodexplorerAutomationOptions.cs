@@ -15,6 +15,10 @@ internal sealed record CodexplorerAutomationOptions
     /// <remarks>A relative value resolves against the repository that contains the runner.</remarks>
     public string OutputDirectory { get; init; } = ".artifacts/reports/benchmark";
 
+    /// <summary>Gets a value indicating whether each session records every model call in its capture folder.</summary>
+    /// <value><see langword="true" /> if sessions capture; otherwise, <see langword="false" />. The default is <see langword="true" />.</value>
+    public bool Capture { get; init; } = true;
+
     /// <summary>Gets the treatment or control arm, defaulting to treatment.</summary>
     public string Arm { get; init; } = "treatment";
 
