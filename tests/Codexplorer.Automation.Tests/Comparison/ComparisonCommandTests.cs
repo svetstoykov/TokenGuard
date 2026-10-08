@@ -398,6 +398,61 @@ public sealed class ComparisonCommandTests
     }
 
     /// <summary>
+    ///     Verifies that schema version 2 reports with session directories and artifact records compare successfully.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_VersionTwoReportsWithSessionFields_ComparesSuccessfully()
+    {
+        var result = await CompareAsync(WithSession(ReportFixture.Create(inputTokens: 100)), WithSession(ReportFixture.Create(inputTokens: 130)));
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain("providerInputTokens: baseline=100 candidate=130 delta=30");
+    }
+
+    /// <summary>
+    ///     Verifies that a report with another schema version is rejected.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_SchemaVersionOneReport_FailsValidation()
+    {
+        var result = await CompareAsync(ReportFixture.Create() with { SchemaVersion = 1 }, ReportFixture.Create());
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 2.");
+    }
+
+    /// <summary>
+    ///     Verifies that a report in the schema version 1 shape, which records a session log path, is rejected.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_ReportInVersionOneShape_ReturnsFailure()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "tg-compare-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var currentPath = Path.Combine(directory, "current.json");
+            var legacyPath = Path.Combine(directory, "legacy.json");
+            var json = JsonSerializer.Serialize(ReportFixture.Create(), ReportJson.Options);
+            await File.WriteAllTextAsync(currentPath, json);
+            await File.WriteAllTextAsync(legacyPath, json.Replace("\"sessionDirectory\"", "\"sessionLogPath\"", StringComparison.Ordinal));
+            using var output = new StringWriter();
+
+            var exit = await ComparisonCommand.RunAsync([legacyPath, currentPath], output);
+
+            exit.Should().Be(1);
+            output.ToString().Should().Contain("Malformed report JSON, unsupported schema, or invalid required report shape.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     ///     Verifies that malformed required shape returns failure.
     /// </summary>
     /// <param name="corruption">The JSON shape corruption applied to the fixture.</param>
@@ -432,6 +487,16 @@ public sealed class ComparisonCommandTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static RunReport WithSession(RunReport report)
+    {
+        var task = report.Tasks[0];
+        var aggregator = new ReportAggregator();
+        var measured = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
+            ReportAggregator.ToMeasurements(task), [], 0,
+            new TaskSessionRecord("session", task.TaskId, [], [new ArtifactFileReport { Path = "report.md", SizeBytes = 12 }]));
+        return aggregator.CreateReport(report.Run, [measured], [], false);
     }
 
     /// <summary>

@@ -16,9 +16,9 @@ internal static class ReportValidator
     public static IReadOnlyList<string> Validate(RunReport report)
     {
         var errors = new List<string>();
-        if (report.SchemaVersion != 1)
+        if (report.SchemaVersion != 2)
         {
-            errors.Add("Unsupported report schema version; expected 1.");
+            errors.Add("Unsupported report schema version; expected 2.");
             return errors;
         }
 
@@ -40,7 +40,8 @@ internal static class ReportValidator
         foreach (var task in report.Tasks)
         {
             if (task is null || task.Metrics is null || task.PrepareRecords is null || task.ProviderCalls is null
-                || task.HelperResponses is null || task.SummarizerResponses is null)
+                || task.HelperResponses is null || task.SummarizerResponses is null || task.ArtifactsAtStart is null
+                || task.ArtifactsAtEnd is null)
             {
                 errors.Add("Task contains a null required section.");
                 return errors;
@@ -53,7 +54,8 @@ internal static class ReportValidator
             }
 
             var expected = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
-                ReportAggregator.ToMeasurements(task), task.HelperResponses, task.Metrics.HelperCalls, task.SessionLogPath);
+                ReportAggregator.ToMeasurements(task), task.HelperResponses, task.Metrics.HelperCalls,
+                new TaskSessionRecord(task.SessionId, task.SessionDirectory, task.ArtifactsAtStart, task.ArtifactsAtEnd));
             if (!JsonElement.DeepEquals(JsonSerializer.SerializeToElement(task, ReportJson.Options),
                 JsonSerializer.SerializeToElement(expected, ReportJson.Options)))
             {
@@ -104,12 +106,18 @@ internal static class ReportValidator
             errors.Add("Run arm must be treatment or control.");
         }
 
-        if (string.IsNullOrWhiteSpace(metadata.CommitSha) || metadata.EffectiveSettings is null || metadata.TurnBudgets is null
+        if (string.IsNullOrWhiteSpace(metadata.RunId) || string.IsNullOrWhiteSpace(metadata.CommitSha)
+            || metadata.EffectiveSettings is null || metadata.TurnBudgets is null
             || string.IsNullOrWhiteSpace(metadata.HelperModel) || string.IsNullOrWhiteSpace(metadata.ManifestPath)
             || metadata.ManifestSha256 is null || metadata.ManifestSha256.Length != 64 || !metadata.ManifestSha256.All(Uri.IsHexDigit)
             || metadata.ManifestProvenance is not ("file" or "inline"))
         {
             errors.Add("Run provenance or settings are missing or invalid.");
+        }
+
+        if (IsAbsolutePath(metadata.ManifestPath))
+        {
+            errors.Add("Run manifest path must be relative to the run folder.");
         }
 
         if (metadata.StartedAtUtc.Offset != TimeSpan.Zero || metadata.EndedAtUtc.Offset != TimeSpan.Zero
@@ -185,6 +193,13 @@ internal static class ReportValidator
             errors.Add($"Task '{task.TaskId}' has invalid task metadata.");
         }
 
+        if (IsAbsolutePath(task.SessionDirectory) || task.ArtifactsAtStart.Any(path => string.IsNullOrWhiteSpace(path) || IsAbsolutePath(path))
+            || task.ArtifactsAtEnd.Any(file => file is null || string.IsNullOrWhiteSpace(file.Path) || IsAbsolutePath(file.Path)
+                || file.SizeBytes < 0))
+        {
+            errors.Add($"Task '{task.TaskId}' has an absolute session path or invalid artifact records.");
+        }
+
         if (task.PrepareRecords.Any(prepare => prepare is null || prepare.Index <= 0 || prepare.Status is not ("completed" or "incomplete")
             || prepare.MessagesCompacted < 0 || prepare.StrategyRuns < 0
             || (prepare.Status == "completed" && (string.IsNullOrWhiteSpace(prepare.Outcome) || prepare.TokensBefore is null
@@ -214,6 +229,17 @@ internal static class ReportValidator
         {
             errors.Add($"Task '{task.TaskId}' has invalid usage or counter measurements.");
         }
+    }
+
+    /// <summary>
+    ///     Recognizes a rooted path in either Unix or Windows form, so a report validates the same on every machine.
+    /// </summary>
+    /// <param name="path">The recorded path, or <see langword="null" /> when none was recorded.</param>
+    /// <returns><see langword="true" /> if the path is absolute; otherwise, <see langword="false" />.</returns>
+    private static bool IsAbsolutePath(string? path)
+    {
+        return path is not null && (path.StartsWith('/') || path.StartsWith('\\') || Path.IsPathRooted(path)
+            || (path.Length >= 2 && char.IsAsciiLetter(path[0]) && path[1] == ':'));
     }
 
     private static bool HasNonfiniteMetric(ReportMetrics metrics)

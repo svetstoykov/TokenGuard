@@ -49,9 +49,24 @@ internal sealed record TaskReport
     public required string SummaryCrossCheck { get; init; }
 
     /// <summary>
-    ///     Gets the session log path, or <see langword="null" /> when no session log was created.
+    ///     Gets Codexplorer's session identifier, or <see langword="null" /> when the session never opened.
     /// </summary>
-    public required string? SessionLogPath { get; init; }
+    public required string? SessionId { get; init; }
+
+    /// <summary>
+    ///     Gets the task's session directory relative to the run folder, or <see langword="null" /> when the session never opened.
+    /// </summary>
+    public required string? SessionDirectory { get; init; }
+
+    /// <summary>
+    ///     Gets the artifact-relative paths of files present when the session opened; an isolated session starts with none.
+    /// </summary>
+    public required IReadOnlyList<string> ArtifactsAtStart { get; init; }
+
+    /// <summary>
+    ///     Gets the files present in the artifacts folder when the session closed.
+    /// </summary>
+    public required IReadOnlyList<ArtifactFileReport> ArtifactsAtEnd { get; init; }
 
     /// <summary>
     ///     Gets the measured turn offset, or <see langword="null" /> when absent or varying between pairs.

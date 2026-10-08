@@ -103,4 +103,76 @@ public sealed class ReportValidatorTests
 
         result.Validation.IsValid.Should().BeFalse();
     }
+
+    /// <summary>
+    ///     Verifies that only schema version 2 is accepted.
+    /// </summary>
+    /// <param name="schemaVersion">The unsupported schema version.</param>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void Validate_SchemaVersionOtherThanTwo_ReturnsUnsupportedVersionError(int schemaVersion)
+    {
+        var report = ReportFixture.Create() with { SchemaVersion = schemaVersion };
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().ContainSingle().Which.Should().Contain("expected 2");
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 2 report with a relative session directory and artifact records is valid.
+    /// </summary>
+    [Fact]
+    public void Validate_VersionTwoReportWithRelativeSessionPaths_ReturnsNoErrors()
+    {
+        var report = WithSession(new TaskSessionRecord("session", "task", [], [new ArtifactFileReport { Path = "report.md", SizeBytes = 12 }]));
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Verifies that an absolute session directory or artifact path is invalid.
+    /// </summary>
+    /// <param name="sessionDirectory">The recorded session directory.</param>
+    /// <param name="artifactPath">The recorded artifact path.</param>
+    [Theory]
+    [InlineData("/home/user/run/task", "report.md")]
+    [InlineData("C:\\runs\\task", "report.md")]
+    [InlineData("task", "/home/user/run/task/artifacts/report.md")]
+    public void Validate_AbsoluteSessionOrArtifactPath_ReturnsAbsolutePathError(string sessionDirectory, string artifactPath)
+    {
+        var report = WithSession(
+            new TaskSessionRecord("session", sessionDirectory, [], [new ArtifactFileReport { Path = artifactPath, SizeBytes = 12 }]));
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().Contain(error => error.Contains("absolute session path", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    ///     Verifies that an absolute manifest path is invalid.
+    /// </summary>
+    [Fact]
+    public void CreateReport_AbsoluteManifestPath_IsInvalid()
+    {
+        var report = ReportFixture.Create();
+        var metadata = report.Run with { ManifestPath = "/home/user/tasks/test.json" };
+
+        var result = new ReportAggregator().CreateReport(metadata, report.Tasks, [], false);
+
+        result.Validation.Errors.Should().Contain(error => error.Contains("manifest path", StringComparison.Ordinal));
+    }
+
+    private static RunReport WithSession(TaskSessionRecord session)
+    {
+        var report = ReportFixture.Create();
+        var task = report.Tasks[0];
+        var aggregator = new ReportAggregator();
+        var measured = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
+            ReportAggregator.ToMeasurements(task), [], 0, session);
+        return aggregator.CreateReport(report.Run, [measured], [], false);
+    }
 }

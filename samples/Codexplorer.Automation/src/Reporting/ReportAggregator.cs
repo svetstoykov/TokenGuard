@@ -10,7 +10,7 @@ internal sealed class ReportAggregator : IReportAggregator
 {
     /// <inheritdoc />
     public TaskReport CreateTask(string taskId, string size, string outcome, bool protocolCompletion, int budget,
-        SessionMeasurements measurements, IReadOnlyList<UsageMeasurement> helperResponses, long helperCalls, string? logPath)
+        SessionMeasurements measurements, IReadOnlyList<UsageMeasurement> helperResponses, long helperCalls, TaskSessionRecord? session)
     {
         ArgumentNullException.ThrowIfNull(measurements);
         var prepares = measurements.PrepareRecords.ToArray();
@@ -23,7 +23,9 @@ internal sealed class ReportAggregator : IReportAggregator
         {
             TaskId = taskId, Size = size, Outcome = outcome, ProtocolCompletion = protocolCompletion,
             DeliverableCompletion = "notEvaluated", ModelCallBudget = budget, MeasurementsComplete = measurements.Complete,
-            SummaryCrossCheck = measurements.SummaryCrossCheck, SessionLogPath = logPath,
+            SummaryCrossCheck = measurements.SummaryCrossCheck, SessionId = session?.SessionId,
+            SessionDirectory = session?.SessionDirectory, ArtifactsAtStart = session?.ArtifactsAtStart.ToArray() ?? [],
+            ArtifactsAtEnd = session?.ArtifactsAtEnd.ToArray() ?? [],
             TokenGuardTranscriptOffset = offsets.Length == 1 ? offsets[0] : null,
             PrepareRecords = prepares, ProviderCalls = providers, SummarizerResponses = measurements.SummarizerResponses.ToArray(),
             HelperResponses = helperResponses.ToArray(),
@@ -55,7 +57,7 @@ internal sealed class ReportAggregator : IReportAggregator
         var errors = ReportValidator.GetCollectionErrors(metadata, tasks, unrunTaskIds);
         return new RunReport
         {
-            SchemaVersion = 1, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
+            SchemaVersion = 2, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
             Partial = partial || unrunTaskIds.Count > 0 || tasks.Any(task => task.Outcome is "failed" or "cancelled"),
             Totals = new RunTotals
             {

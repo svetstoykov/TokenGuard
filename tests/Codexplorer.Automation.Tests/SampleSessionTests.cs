@@ -77,8 +77,8 @@ public sealed class SampleSessionTests
         var calls = 0;
         var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion(toolCall: ++calls <= 26)));
         await using var session = new ExplorerSession(SampleWorkspaceManager.Workspace, fixture.CreateContext(), new SampleSessionLogger(),
-            SampleSessionDirectory, Task.CompletedTask, new SampleToolRegistry(), new Lazy<ChatClient>(() => provider), [], new AgentOptions { MaxTurns = 50 },
-            new ModelOptions(), 30, fixture.Collector, wrapUpWindow: 4);
+            SampleSessionDirectory, Task.CompletedTask, new SampleToolRegistry(), new Lazy<ChatClient>(() => provider), [],
+            new AgentOptions { MaxTurns = 50 }, new ModelOptions(), 30, fixture.Collector, wrapUpWindow: 4);
 
         var exploration = await session.SubmitAsync("inspect", CancellationToken.None);
         var callsAtBoundary = fixture.Collector.Snapshot().ProviderCalls.Count;

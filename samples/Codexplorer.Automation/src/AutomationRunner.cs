@@ -163,6 +163,8 @@ internal sealed class AutomationRunner
             {
                 CommitSha = identity.CommitSha,
                 RepositoryDirty = identity.Dirty,
+                RunId = runId,
+                CaptureEnabled = this._options.Capture,
                 StartedAtUtc = started,
                 EndedAtUtc = this._timeProvider.GetUtcNow(),
                 EffectiveSettings = settings,
@@ -171,7 +173,7 @@ internal sealed class AutomationRunner
                 HelperTemperature = this._options.HelperAi.Temperature,
                 TurnBudgets = this._options.TurnBudgets,
                 Arm = this._options.Arm,
-                ManifestPath = manifest.Path,
+                ManifestPath = manifest.Provenance == "file" ? Path.GetRelativePath(runFolder, manifest.Path) : manifest.Path,
                 ManifestSha256 = manifest.Sha256,
                 ManifestProvenance = manifest.Provenance
             };
@@ -206,7 +208,8 @@ internal sealed class AutomationRunner
             SessionDirectory = state.SessionDirectory,
             Capture = this._options.Capture
         }, ct).ConfigureAwait(false);
-        state.SessionLogPath = opened.LogFilePath;
+        state.SessionId = opened.SessionId;
+        state.ArtifactsAtStart = ListArtifacts(state.SessionDirectory).Select(file => file.Path).ToArray();
         state.WorkspacePath = opened.Workspace.LocalPath;
         var sessionOpen = true;
         try
@@ -217,7 +220,6 @@ internal sealed class AutomationRunner
             {
                 var response = await this._client.SubmitAsync(new SubmitRequest(opened.SessionId, message), ct).ConfigureAwait(false);
                 sessionOpen = response.SessionOpen;
-                state.SessionLogPath = response.LogFilePath;
                 state.FinalAnswer = response.AssistantText;
                 state.Record(response);
                 state.Outcome = response.Outcome;
@@ -307,7 +309,30 @@ internal sealed class AutomationRunner
         this.WriteFinalAnswer(state);
         return this._aggregator.CreateTask(
             state.Task.TaskId!, state.Task.TaskSize.ToString().ToLowerInvariant(), state.Outcome, state.ProtocolCompletion, state.Budget.MaxTurns,
-            state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionLogPath);
+            state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionId is null ? null : new TaskSessionRecord(
+                state.SessionId, Path.GetFileName(state.SessionDirectory), state.ArtifactsAtStart, ListArtifacts(state.SessionDirectory)));
+    }
+
+    /// <summary>
+    ///     Lists the files in the <c>artifacts</c> folder of a session directory.
+    /// </summary>
+    /// <param name="sessionDirectory">The absolute session directory.</param>
+    /// <returns>The files ordered by artifact-relative path, or an empty list when the folder is absent.</returns>
+    private static ArtifactFileReport[] ListArtifacts(string sessionDirectory)
+    {
+        var artifactsDirectory = Path.Combine(sessionDirectory, "artifacts");
+        if (!Directory.Exists(artifactsDirectory))
+        {
+            return [];
+        }
+
+        return Directory.EnumerateFiles(artifactsDirectory, "*", SearchOption.AllDirectories)
+            .Select(file => new ArtifactFileReport
+            {
+                Path = Path.GetRelativePath(artifactsDirectory, file).Replace(Path.DirectorySeparatorChar, '/'),
+                SizeBytes = new FileInfo(file).Length
+            })
+            .OrderBy(file => file.Path, StringComparer.Ordinal).ToArray();
     }
 
     /// <summary>
@@ -349,8 +374,10 @@ internal sealed class AutomationRunner
         public long HelperCalls { get; set; }
         /// <summary>Gets the opened workspace path.</summary>
         public string? WorkspacePath { get; set; }
-        /// <summary>Gets the session transcript path.</summary>
-        public string? SessionLogPath { get; set; }
+        /// <summary>Gets Codexplorer's session identifier once the session opened.</summary>
+        public string? SessionId { get; set; }
+        /// <summary>Gets the files found in the artifacts folder when the session opened.</summary>
+        public IReadOnlyList<string> ArtifactsAtStart { get; set; } = [];
         /// <summary>Gets the assistant text of the latest submit response.</summary>
         public string? FinalAnswer { get; set; }
         /// <summary>Gets the task terminal outcome.</summary>

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Codexplorer.Automation;
 using Codexplorer.Automation.Client;
 using Codexplorer.Automation.Configuration;
@@ -447,6 +448,100 @@ public sealed class AutomationRunnerTests : IDisposable
 
         fixture.Client.OpenRequest!.Capture.Should().BeFalse();
         Directory.Exists(Path.Combine(this._outputDirectory, "20261008-141502-treatment", "task", "capture")).Should().BeFalse();
+    }
+
+    /// <summary>Verifies the report records the run, the session, and the artifacts with paths relative to the run folder.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_SessionWritesArtifacts_ReportsSessionFieldsRelativeToRunFolder()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Submit = (_, _) =>
+        {
+            var notes = Path.Combine(fixture.Client.OpenRequest!.SessionDirectory!, "artifacts", "notes");
+            Directory.CreateDirectory(notes);
+            File.WriteAllText(Path.Combine(notes, "summary.md"), "12345");
+            return Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
+        };
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var report = fixture.Writer.Report!;
+        report.SchemaVersion.Should().Be(2);
+        report.Run.RunId.Should().Be("20261008-141502-treatment");
+        report.Run.CaptureEnabled.Should().BeTrue();
+        var task = report.Tasks.Single();
+        task.SessionId.Should().Be("session");
+        task.SessionDirectory.Should().Be("task");
+        task.ArtifactsAtStart.Should().BeEmpty();
+        task.ArtifactsAtEnd.Should().BeEquivalentTo([new ArtifactFileReport { Path = "notes/summary.md", SizeBytes = 5 }]);
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
+    /// <summary>Verifies files already in the artifacts folder when the session opens are reported as present at start.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_ArtifactsExistWhenSessionOpens_ReportsThemAtStart()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Open = (request, _) =>
+        {
+            var artifacts = Path.Combine(request.SessionDirectory!, "artifacts");
+            Directory.CreateDirectory(artifacts);
+            File.WriteAllText(Path.Combine(artifacts, "leftover.md"), "old");
+            return Task.FromResult(new OpenSessionResponse("session",
+                new AutomationWorkspace("name", "owner/repo", "/workspace", DateTime.UnixEpoch, 0), "session.log"));
+        };
+        fixture.Client.Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        fixture.Writer.Report!.Tasks.Single().ArtifactsAtStart.Should().Equal("leftover.md");
+    }
+
+    /// <summary>Verifies a task whose session never opened reports no session location.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_SessionNeverOpens_ReportsNoSessionDirectory()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Open = (_, _) => throw new CodexplorerAutomationProtocolException("request", "clone_failed", "clone failed");
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var task = fixture.Writer.Report!.Tasks.Single();
+        task.SessionId.Should().BeNull();
+        task.SessionDirectory.Should().BeNull();
+    }
+
+    /// <summary>Verifies a written report from a file manifest holds no absolute path.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_FileManifest_WritesReportWithoutAbsolutePaths()
+    {
+        Directory.CreateDirectory(this._outputDirectory);
+        var manifestPath = Path.Combine(this._outputDirectory, "manifest.json");
+        await File.WriteAllTextAsync(manifestPath, """
+            {"tasks":[{"taskId":"task","title":"Task","repositoryUrl":"https://github.com/example/repo",
+            "initialPrompt":"Do not modify repository source files."}]}
+            """);
+        var options = Options.Create(new CodexplorerAutomationOptions { ManifestPath = manifestPath, OutputDirectory = this._outputDirectory });
+        var client = new FakeClient
+        {
+            Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false))
+        };
+        var runner = new AutomationRunner(new FakeTransport(), client,
+            new AutomationTaskManifestLoader(options, NullLogger<AutomationTaskManifestLoader>.Instance), new FakeHelper(), new FakeIdentity(),
+            new ReportAggregator(), new JsonRunReportWriter(), options, NullLogger<AutomationRunner>.Instance, new FixedTimeProvider());
+
+        await runner.RunAsync(CancellationToken.None);
+
+        var runFolder = Path.Combine(this._outputDirectory, "20261008-141502-treatment");
+        var json = await File.ReadAllTextAsync(Path.Combine(runFolder, "run-report.json"));
+        var report = JsonSerializer.Deserialize<RunReport>(json, ReportJson.Options)!;
+        report.Run.ManifestPath.Should().Be(Path.Combine("..", "manifest.json"));
+        json.Should().NotContain(this._outputDirectory);
+        ReportValidator.Validate(report).Should().BeEmpty();
     }
 
     private Fixture CreateFixture(params string[] ids) => new("treatment", ids, this._outputDirectory);

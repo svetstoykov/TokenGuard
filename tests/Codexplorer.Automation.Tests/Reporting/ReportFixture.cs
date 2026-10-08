@@ -35,7 +35,7 @@ internal static class ReportFixture
         }, [], 0, null);
         return aggregator.CreateReport(new RunMetadata
         {
-            CommitSha = new string('a', 40), RepositoryDirty = false,
+            RunId = "20261007-100000-" + arm, CaptureEnabled = true, CommitSha = new string('a', 40), RepositoryDirty = false,
             StartedAtUtc = DateTimeOffset.Parse("2026-10-07T10:00:00Z"), EndedAtUtc = DateTimeOffset.Parse("2026-10-07T10:01:00Z"),
             EffectiveSettings = new EffectiveSettings
             {

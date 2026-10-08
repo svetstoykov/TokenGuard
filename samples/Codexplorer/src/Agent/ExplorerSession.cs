@@ -246,8 +246,8 @@ internal sealed class ExplorerSession : IExplorerSession
                     var capturedResponse = new CapturedResponse(
                         assistantText, toolCalls, completion.FinishReason.ToString(), completion.Usage?.InputTokenCount,
                         completion.Usage?.OutputTokenCount, completion.Usage?.TotalTokenCount);
-                    await this._capture.WriteExchangeAsync(globalTurnIndex, prepareResult.Messages, "completed", capturedResponse, CancellationToken.None)
-                        .ConfigureAwait(false);
+                    await this._capture.WriteExchangeAsync(
+                        globalTurnIndex, prepareResult.Messages, "completed", capturedResponse, CancellationToken.None).ConfigureAwait(false);
                 }
 
                 await this._sessionLogger.AppendAsync(
