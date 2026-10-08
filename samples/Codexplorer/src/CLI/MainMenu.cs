@@ -1,5 +1,6 @@
 using Codexplorer.CLI.Screens;
 using Codexplorer.Configuration;
+using Codexplorer.Sessions;
 using Codexplorer.Workspace;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -118,7 +119,7 @@ internal sealed class MainMenu
             ?? throw new InvalidOperationException("Codexplorer logging options are not configured.");
         var sessionLogsDirectory = loggingOptions.SessionLogsDirectory
             ?? throw new InvalidOperationException("Codexplorer session logs directory is not configured.");
-        var absoluteLogDirectory = CodexplorerPathResolver.ResolveFromAppBaseDirectory(sessionLogsDirectory);
+        var absoluteLogDirectory = CodexplorerPathResolver.ResolveFromRepositoryRoot(sessionLogsDirectory);
 
         if (!Directory.Exists(absoluteLogDirectory))
         {
@@ -128,8 +129,10 @@ internal sealed class MainMenu
             return new GoToMenu();
         }
 
-        var logFiles = Directory.EnumerateFiles(absoluteLogDirectory, "*.md", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(static path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+        var logFiles = Directory.EnumerateDirectories(absoluteLogDirectory)
+            .Select(static directory => new SessionDirectory(directory).TranscriptPath)
+            .Where(File.Exists)
+            .OrderByDescending(static path => Path.GetFileName(Path.GetDirectoryName(path)), StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
         if (logFiles.Length == 0)
@@ -144,7 +147,7 @@ internal sealed class MainMenu
             this._console,
             "Pick a session log",
             logFiles,
-            static path => Markup.Escape(Path.GetFileName(path)),
+            static path => Markup.Escape(Path.GetFileName(Path.GetDirectoryName(path)) ?? path),
             "Back to main menu");
 
         await Task.CompletedTask.ConfigureAwait(false);

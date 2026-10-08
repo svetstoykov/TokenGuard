@@ -45,6 +45,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IRepositoryIdentityReader, GitRepositoryIdentityReader>();
         services.TryAddSingleton<IReportAggregator, ReportAggregator>();
         services.TryAddSingleton<IRunReportWriter, JsonRunReportWriter>();
+        services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<AutomationRunner>();
 
         return services;

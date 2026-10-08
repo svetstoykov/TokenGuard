@@ -25,6 +25,7 @@ internal sealed class ExplorerSession : IExplorerSession
     private readonly WorkspaceModel _workspace;
     private readonly IConversationContext _conversationContext;
     private readonly ISessionLogger _sessionLogger;
+    private readonly SessionDirectory _sessionDirectory;
     private readonly Task _rendererTask;
     private readonly IToolRegistry _toolRegistry;
     private readonly Lazy<ChatClient> _chatClient;
@@ -49,6 +50,7 @@ internal sealed class ExplorerSession : IExplorerSession
     /// <param name="workspace">The workspace being explored.</param>
     /// <param name="conversationContext">The long-lived TokenGuard conversation context.</param>
     /// <param name="sessionLogger">The session logger that persists the full transcript.</param>
+    /// <param name="sessionDirectory">The directory that holds everything the session writes.</param>
     /// <param name="rendererTask">The live renderer task for the session event stream.</param>
     /// <param name="toolRegistry">The workspace tool registry.</param>
     /// <param name="chatClient">The deferred model client used for completions.</param>
@@ -62,6 +64,7 @@ internal sealed class ExplorerSession : IExplorerSession
         WorkspaceModel workspace,
         IConversationContext conversationContext,
         ISessionLogger sessionLogger,
+        SessionDirectory sessionDirectory,
         Task rendererTask,
         IToolRegistry toolRegistry,
         Lazy<ChatClient> chatClient,
@@ -75,6 +78,7 @@ internal sealed class ExplorerSession : IExplorerSession
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(conversationContext);
         ArgumentNullException.ThrowIfNull(sessionLogger);
+        ArgumentNullException.ThrowIfNull(sessionDirectory);
         ArgumentNullException.ThrowIfNull(rendererTask);
         ArgumentNullException.ThrowIfNull(toolRegistry);
         ArgumentNullException.ThrowIfNull(chatClient);
@@ -85,6 +89,7 @@ internal sealed class ExplorerSession : IExplorerSession
         this._workspace = workspace;
         this._conversationContext = conversationContext;
         this._sessionLogger = sessionLogger;
+        this._sessionDirectory = sessionDirectory;
         this._rendererTask = rendererTask;
         this._toolRegistry = toolRegistry;
         this._chatClient = chatClient;
@@ -98,6 +103,9 @@ internal sealed class ExplorerSession : IExplorerSession
 
     /// <inheritdoc />
     public string LogFilePath => this._sessionLogger.LogFilePath;
+
+    /// <inheritdoc />
+    public string SessionDirectory => this._sessionDirectory.Path;
 
     /// <inheritdoc />
     public async Task<AgentExchangeResult> SubmitAsync(string userMessage, CancellationToken ct)

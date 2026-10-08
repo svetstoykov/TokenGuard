@@ -16,6 +16,7 @@ public interface ISessionLoggerFactory
     /// </summary>
     /// <param name="workspace">The workspace the query operates against.</param>
     /// <param name="sessionLabel">The short human-readable session label that should appear in the transcript header.</param>
+    /// <param name="sessionDirectory">The session directory that receives the transcript as <c>session.md</c>.</param>
     /// <returns>A new session logger with its transcript file already created and initialized.</returns>
-    ISessionLogger BeginSession(WorkspaceModel workspace, string sessionLabel);
+    ISessionLogger BeginSession(WorkspaceModel workspace, string sessionLabel, SessionDirectory sessionDirectory);
 }

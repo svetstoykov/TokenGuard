@@ -134,6 +134,10 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
             return AutomationResponseEnvelope.ErrorResponse(
                 request.RequestId, "invalid_request", "Wrap-up window must be positive and smaller than the model-call budget.");
 
+        if (!string.IsNullOrWhiteSpace(openSessionPayload.SessionDirectory) && !Path.IsPathRooted(openSessionPayload.SessionDirectory))
+            return AutomationResponseEnvelope.ErrorResponse(
+                request.RequestId, "invalid_request", "Payload property 'sessionDirectory' must be an absolute path.");
+
         if (this._collector.IsActive)
             return AutomationResponseEnvelope.ErrorResponse(request.RequestId, "session_already_open", "Only one automation session may be open.");
 
@@ -186,7 +190,8 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         try
         {
             explorerSession = this._explorerAgent is IAutomationExplorerAgent automationAgent
-                ? automationAgent.StartAutomationSession(workspace!, openSessionPayload.ModelCallBudget, openSessionPayload.WrapUpWindow)
+                ? automationAgent.StartAutomationSession(
+                    workspace!, openSessionPayload.ModelCallBudget, openSessionPayload.WrapUpWindow, openSessionPayload.SessionDirectory)
                 : this._explorerAgent.StartSession(workspace!);
         }
         catch
@@ -208,7 +213,8 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                         workspace.LocalPath,
                         workspace.ClonedAt,
                         workspace.SizeBytes),
-                    registration.LogFilePath));
+                    registration.LogFilePath,
+                    registration.SessionDirectory));
         }
         catch
         {
@@ -500,9 +506,11 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
     private sealed record OpenSessionResult(
         string SessionId,
         AutomationWorkspaceResult Workspace,
-        string LogFilePath);
+        string LogFilePath,
+        string SessionDirectory);
 
-    private sealed record OpenSessionPayload(string? WorkspacePath, string? RepositoryUrl, int? ModelCallBudget, int? WrapUpWindow);
+    private sealed record OpenSessionPayload(
+        string? WorkspacePath, string? RepositoryUrl, int? ModelCallBudget, int? WrapUpWindow, string? SessionDirectory);
 
     private sealed record AutomationWorkspaceResult(
         string Name,

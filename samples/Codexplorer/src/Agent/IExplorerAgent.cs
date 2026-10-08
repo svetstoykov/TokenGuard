@@ -34,6 +34,11 @@ public interface IExplorerSession : IAsyncDisposable
     string LogFilePath { get; }
 
     /// <summary>
+    /// Gets the absolute path of the directory that holds everything the session writes.
+    /// </summary>
+    string SessionDirectory { get; }
+
+    /// <summary>
     /// Submits one user message into the current session.
     /// </summary>
     /// <param name="userMessage">The new user message to add to the live conversation.</param>

@@ -37,6 +37,9 @@ internal sealed record OpenSessionRequest
 
     /// <summary>Gets the optional provider-call window reserved for the wrap-up prompt.</summary>
     public int? WrapUpWindow { get; init; }
+
+    /// <summary>Gets the absolute directory that receives everything the session writes.</summary>
+    public string? SessionDirectory { get; init; }
 }
 
 internal sealed record OpenSessionResponse(

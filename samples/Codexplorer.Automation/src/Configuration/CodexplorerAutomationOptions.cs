@@ -11,8 +11,9 @@ internal sealed record CodexplorerAutomationOptions
     /// <summary>Gets the absolute child executable path.</summary>
     public string? CodexplorerExecutablePath { get; init; }
 
-    /// <summary>Gets the report output directory, defaulting to ./reports.</summary>
-    public string OutputDirectory { get; init; } = "./reports";
+    /// <summary>Gets the directory that receives one run folder per run, defaulting to .artifacts/reports/benchmark.</summary>
+    /// <remarks>A relative value resolves against the repository that contains the runner.</remarks>
+    public string OutputDirectory { get; init; } = ".artifacts/reports/benchmark";
 
     /// <summary>Gets the treatment or control arm, defaulting to treatment.</summary>
     public string Arm { get; init; } = "treatment";

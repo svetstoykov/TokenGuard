@@ -21,6 +21,7 @@ internal sealed class AutomationRunner
     private readonly IRunReportWriter _writer;
     private readonly CodexplorerAutomationOptions _options;
     private readonly ILogger<AutomationRunner> _logger;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>Initializes a new instance of the <see cref="AutomationRunner" /> class.</summary>
     /// <param name="transport">The child process transport.</param>
@@ -32,10 +33,11 @@ internal sealed class AutomationRunner
     /// <param name="writer">The atomic report writer.</param>
     /// <param name="options">The runner configuration.</param>
     /// <param name="logger">The runner logger.</param>
+    /// <param name="timeProvider">The clock that names the run folder, or <see langword="null" /> to use the system clock.</param>
     public AutomationRunner(
         IAutomationProtocolTransport transport, ICodexplorerAutomationClient client, IAutomationTaskManifestLoader taskManifestLoader,
         IRunnerHelperAi helperAi, IRepositoryIdentityReader repositoryIdentityReader, IReportAggregator aggregator, IRunReportWriter writer,
-        IOptions<CodexplorerAutomationOptions> options, ILogger<AutomationRunner> logger)
+        IOptions<CodexplorerAutomationOptions> options, ILogger<AutomationRunner> logger, TimeProvider? timeProvider = null)
     {
         this._transport = transport;
         this._client = client;
@@ -46,22 +48,39 @@ internal sealed class AutomationRunner
         this._writer = writer;
         this._options = options.Value;
         this._logger = logger;
+        this._timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    /// <summary>Asynchronously runs tasks and writes the final report independently of work cancellation.</summary>
+    /// <summary>Asynchronously runs tasks into a new run folder and writes the final report independently of work cancellation.</summary>
+    /// <remarks>
+    ///     The run folder is <c>&lt;OutputDirectory&gt;/&lt;runId&gt;</c>, where the run identifier is the UTC start time plus the arm.
+    ///     It holds the report and one session directory per task, named by task identifier.
+    /// </remarks>
     /// <param name="ct">The token observed while executing tasks.</param>
     /// <returns>
     ///     A task that represents the asynchronous operation. The task result contains zero for a completed run,
     ///     or one for failure, cancellation, budget exhaustion, or invalid collection.
     /// </returns>
     /// <exception cref="OptionsValidationException">The manifest fails preflight validation.</exception>
-    /// <exception cref="InvalidOperationException">The repository identity cannot be read.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     The repository identity cannot be read.
+    ///     -or-
+    ///     The run folder already exists.
+    /// </exception>
     /// <exception cref="OperationCanceledException">Cancellation is requested during repository preflight.</exception>
     public async Task<int> RunAsync(CancellationToken ct)
     {
-        var started = DateTimeOffset.UtcNow;
+        var started = this._timeProvider.GetUtcNow();
         var manifest = this._taskManifestLoader.LoadSnapshot();
         var identity = await this._repositoryIdentityReader.ReadAsync(this._options.RepositoryPath, ct).ConfigureAwait(false);
+        var runId = $"{started:yyyyMMdd-HHmmss}-{this._options.Arm}";
+        var runFolder = Path.Combine(OutputPathResolver.Resolve(this._options.OutputDirectory, AppContext.BaseDirectory), runId);
+        if (Directory.Exists(runFolder))
+        {
+            throw new InvalidOperationException($"Run folder '{runFolder}' already exists.");
+        }
+
+        Directory.CreateDirectory(runFolder);
         var taskReports = new List<TaskReport>();
         var settings = new EffectiveSettings();
         var partial = false;
@@ -75,7 +94,7 @@ internal sealed class AutomationRunner
             foreach (var task in manifest.Tasks)
             {
                 ct.ThrowIfCancellationRequested();
-                active = new TaskExecutionState(task, this._options.GetTurnBudget(task.TaskSize));
+                active = new TaskExecutionState(task, this._options.GetTurnBudget(task.TaskSize), Path.Combine(runFolder, task.TaskId!));
                 try
                 {
                     await this.ExecuteTaskAsync(active, ct).ConfigureAwait(false);
@@ -145,7 +164,7 @@ internal sealed class AutomationRunner
                 CommitSha = identity.CommitSha,
                 RepositoryDirty = identity.Dirty,
                 StartedAtUtc = started,
-                EndedAtUtc = DateTimeOffset.UtcNow,
+                EndedAtUtc = this._timeProvider.GetUtcNow(),
                 EffectiveSettings = settings,
                 HelperModel = this._options.HelperAi.ModelName ?? "",
                 HelperMaxOutputTokens = this._options.HelperAi.MaxOutputTokens,
@@ -159,8 +178,7 @@ internal sealed class AutomationRunner
             try
             {
                 var report = this._aggregator.CreateReport(metadata, taskReports, unrun, partial);
-                var outputDirectory = Path.GetFullPath(this._options.OutputDirectory, AppContext.BaseDirectory);
-                await this._writer.WriteAsync(report, outputDirectory).ConfigureAwait(false);
+                await this._writer.WriteAsync(report, runFolder).ConfigureAwait(false);
                 if (!report.Validation.IsValid)
                 {
                     exitCode = 1;
@@ -171,6 +189,8 @@ internal sealed class AutomationRunner
                 exitCode = 1;
                 this._logger.LogError("Run report could not be written ({FailureType}).", ex.GetType().Name);
             }
+
+            this._logger.LogInformation("Run folder: {RunFolder}", runFolder);
         }
 
         return exitCode;
@@ -182,7 +202,8 @@ internal sealed class AutomationRunner
         {
             RepositoryUrl = state.Task.RepositoryUrl,
             ModelCallBudget = state.Budget.MaxTurns,
-            WrapUpWindow = state.Budget.WrapUpWindow
+            WrapUpWindow = state.Budget.WrapUpWindow,
+            SessionDirectory = state.SessionDirectory
         }, ct).ConfigureAwait(false);
         state.SessionLogPath = opened.LogFilePath;
         state.WorkspacePath = opened.Workspace.LocalPath;
@@ -283,12 +304,14 @@ internal sealed class AutomationRunner
         state.Task.TaskId!, state.Task.TaskSize.ToString().ToLowerInvariant(), state.Outcome, state.ProtocolCompletion, state.Budget.MaxTurns,
         state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionLogPath);
 
-    private sealed class TaskExecutionState(AutomationTaskDefinition task, TurnBudgetProfile budget)
+    private sealed class TaskExecutionState(AutomationTaskDefinition task, TurnBudgetProfile budget, string sessionDirectory)
     {
         /// <summary>Gets the immutable task definition.</summary>
         public AutomationTaskDefinition Task { get; } = task;
         /// <summary>Gets the model-call allowance and wrap-up window.</summary>
         public TurnBudgetProfile Budget { get; } = budget;
+        /// <summary>Gets the absolute session directory of the task inside the run folder.</summary>
+        public string SessionDirectory { get; } = sessionDirectory;
         public SessionMeasurements Measurements { get; set; } = new() { ModelCallBudget = budget.MaxTurns };
         /// <summary>Gets the received helper usage records.</summary>
         public List<UsageMeasurement> HelperResponses { get; } = [];

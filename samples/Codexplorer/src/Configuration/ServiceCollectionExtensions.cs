@@ -147,6 +147,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IGitCloner, LibGit2Cloner>();
         services.TryAddSingleton<IWorkspaceManager, WorkspaceManager>();
         services.TryAddSingleton<IToolRegistry, ToolRegistry>();
+        services.TryAddSingleton<ISessionDirectoryFactory, SessionDirectoryFactory>();
         services.TryAddSingleton<ISessionLoggerFactory, SessionLoggerFactory>();
         services.TryAddSingleton<SessionRenderer>();
         services.TryAddSingleton<IExplorerAgent, ExplorerAgent>();

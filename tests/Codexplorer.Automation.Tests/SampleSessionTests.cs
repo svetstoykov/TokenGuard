@@ -77,7 +77,7 @@ public sealed class SampleSessionTests
         var calls = 0;
         var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion(toolCall: ++calls <= 26)));
         await using var session = new ExplorerSession(SampleWorkspaceManager.Workspace, fixture.CreateContext(), new SampleSessionLogger(),
-            Task.CompletedTask, new SampleToolRegistry(), new Lazy<ChatClient>(() => provider), [], new AgentOptions { MaxTurns = 50 },
+            SampleSessionDirectory, Task.CompletedTask, new SampleToolRegistry(), new Lazy<ChatClient>(() => provider), [], new AgentOptions { MaxTurns = 50 },
             new ModelOptions(), 30, fixture.Collector, wrapUpWindow: 4);
 
         var exploration = await session.SubmitAsync("inspect", CancellationToken.None);
@@ -290,12 +290,14 @@ public sealed class SampleSessionTests
         measurements.GetProperty("providerCalls")[0].GetProperty("status").GetString().Should().Be("cancelled");
     }
 
+    private static SessionDirectory SampleSessionDirectory => new(Path.Combine(Path.GetTempPath(), "sample-test-session"));
+
     private static ExplorerSession CreateSession(
         SampleTelemetryFixture fixture, ChatClient client, int? budget, SampleToolRegistry? tools = null)
     {
         var context = fixture.CreateContext();
-        return new ExplorerSession(SampleWorkspaceManager.Workspace, context, new SampleSessionLogger(), Task.CompletedTask,
-            tools ?? new SampleToolRegistry(), new Lazy<ChatClient>(() => client), [], new AgentOptions { MaxTurns = 5 },
+        return new ExplorerSession(SampleWorkspaceManager.Workspace, context, new SampleSessionLogger(), SampleSessionDirectory,
+            Task.CompletedTask, tools ?? new SampleToolRegistry(), new Lazy<ChatClient>(() => client), [], new AgentOptions { MaxTurns = 5 },
             new ModelOptions(), budget, fixture.Collector);
     }
 
