@@ -22,13 +22,120 @@ public sealed class AutomationRunnerTests
         fixture.Client.Submit = (_, _) => Task.FromResult(Response("max_turns_reached", Snapshot(3), asksRunner: true));
         fixture.Client.Close = (_, _) => Task.FromResult(new CloseSessionResponse("session", "closed", Snapshot(3, complete: true)));
 
-        await fixture.Runner.RunAsync(CancellationToken.None);
+        var exit = await fixture.Runner.RunAsync(CancellationToken.None);
 
+        exit.Should().Be(1);
+        fixture.Writer.Report!.Partial.Should().BeFalse();
         fixture.Writer.Report!.Tasks.Single().Outcome.Should().Be("turn_budget_reached");
         fixture.Writer.Report.Tasks.Single().Metrics.HelperCalls.Should().Be(0);
         fixture.Writer.Report.Tasks.Single().Metrics.BudgetOvershoot.Should().Be(0);
         fixture.Client.OpenRequest!.ModelCallBudget.Should().Be(3);
         fixture.Client.OpenRequest.WrapUpWindow.Should().Be(1);
+    }
+
+    /// <summary>Verifies budget-stop report coverage depends on measurement completeness in either arm.</summary>
+    /// <param name="arm">The treatment or control arm.</param>
+    /// <param name="complete">Whether the terminal snapshot contains complete measurements.</param>
+    /// <param name="expectedPartial">The expected report coverage status.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("treatment", true, false)]
+    [InlineData("control", true, false)]
+    [InlineData("treatment", false, true)]
+    [InlineData("control", false, true)]
+    public async Task RunAsync_BudgetStop_PartialTracksMeasurementCompleteness(string arm, bool complete, bool expectedPartial)
+    {
+        var fixture = new Fixture(arm, []);
+        fixture.Client.Submit = (_, _) => Task.FromResult(Response("turn_budget_reached", Snapshot(3, complete), open: false));
+
+        var exit = await fixture.Runner.RunAsync(CancellationToken.None);
+
+        exit.Should().Be(1);
+        var report = fixture.Writer.Report!;
+        report.Partial.Should().Be(expectedPartial);
+        report.UnrunTaskIds.Should().BeEmpty();
+        report.Tasks.Single().ProtocolCompletion.Should().BeFalse();
+        report.Tasks.Single().MeasurementsComplete.Should().Be(complete);
+        if (complete)
+        {
+            ReportValidator.Validate(report).Should().BeEmpty();
+        }
+    }
+
+    /// <summary>Verifies manifest preflight failures surface actionable diagnostics and preserve an existing report.</summary>
+    /// <param name="failure">The manifest defect to exercise.</param>
+    /// <param name="diagnostic">The required diagnostic fragment.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("missingTaskId", "Tasks:0:TaskId' is required")]
+    [InlineData("missingFile", "does not exist")]
+    [InlineData("invalidJson", "contains invalid JSON")]
+    [InlineData("nullTasks", "must provide at least one task")]
+    public async Task RunAsync_InvalidManifest_SurfacesDiagnosticWithoutReplacingReport(string failure, string diagnostic)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "tg-preflight-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var manifestPath = Path.Combine(directory, "manifest.json");
+            if (failure != "missingFile")
+            {
+                var content = failure switch
+                {
+                    "invalidJson" => "{",
+                    "nullTasks" => "{\"tasks\":null}",
+                    _ => """
+                        {"tasks":[{"title":"Task","repositoryUrl":"https://github.com/example/repo",
+                        "initialPrompt":"Do not modify repository source files."}]}
+                        """
+                };
+                await File.WriteAllTextAsync(manifestPath, content);
+            }
+
+            var reportPath = Path.Combine(directory, "run-report.json");
+            await File.WriteAllTextAsync(reportPath, "existing report");
+            var options = Options.Create(new CodexplorerAutomationOptions { ManifestPath = manifestPath, OutputDirectory = directory });
+            var manifest = new AutomationTaskManifestLoader(options, NullLogger<AutomationTaskManifestLoader>.Instance);
+            var runner = new AutomationRunner(new FakeTransport(), new FakeClient(), manifest, new FakeHelper(), new FakeIdentity(),
+                new ReportAggregator(), new JsonRunReportWriter(), options, NullLogger<AutomationRunner>.Instance);
+
+            var run = () => runner.RunAsync(CancellationToken.None);
+
+            var thrown = await run.Should().ThrowAsync<OptionsValidationException>();
+            thrown.Which.Failures.Should().Contain(message => message.Contains(diagnostic, StringComparison.Ordinal));
+            (await File.ReadAllTextAsync(reportPath)).Should().Be("existing report");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>Verifies a repository preflight failure preserves its diagnostic and an existing report.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_InvalidRepository_SurfacesDiagnosticWithoutReplacingReport()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "tg-repository-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var reportPath = Path.Combine(directory, "run-report.json");
+            await File.WriteAllTextAsync(reportPath, "existing report");
+            var options = Options.Create(new CodexplorerAutomationOptions { OutputDirectory = directory, RepositoryPath = directory });
+            var runner = new AutomationRunner(new FakeTransport(), new FakeClient(), new FakeManifest([]), new FakeHelper(),
+                new GitRepositoryIdentityReader(), new ReportAggregator(), new JsonRunReportWriter(), options,
+                NullLogger<AutomationRunner>.Instance);
+
+            var run = () => runner.RunAsync(CancellationToken.None);
+
+            await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("Git could not read the configured repository identity.");
+            (await File.ReadAllTextAsync(reportPath)).Should().Be("existing report");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     /// <summary>Verifies the wrap-up window takes priority over a helper question.</summary>
@@ -267,12 +374,20 @@ public sealed class AutomationRunnerTests
     {
         /// <summary>Initializes a new instance of the <see cref="Fixture" /> class.</summary>
         /// <param name="ids">The task IDs, or empty to use a single default task.</param>
-        public Fixture(params string[] ids)
+        public Fixture(params string[] ids) : this("treatment", ids)
+        {
+        }
+
+        /// <summary>Initializes a fixture with the selected report arm.</summary>
+        /// <param name="arm">The treatment or control arm.</param>
+        /// <param name="ids">The task IDs, or empty to use a single default task.</param>
+        public Fixture(string arm, string[] ids)
         {
             var budget = new TurnBudgetProfile { MaxTurns = 3, WrapUpWindow = 1 };
             var options = Options.Create(new CodexplorerAutomationOptions
             {
                 ManifestPath = null,
+                Arm = arm,
                 TurnBudgets = new AutomationTurnBudgetOptions { Small = budget, Medium = budget, Large = budget },
                 Tasks = (ids.Length == 0 ? new[] { "task" } : ids).Select(id => new AutomationTaskDefinition
                 {

@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 
 namespace Codexplorer.Automation;
 
-/// <summary>Runs manifest tasks and always finalizes a partial or complete measurement report.</summary>
+/// <summary>Represents the manifest runner that finalizes reports after successful preflight validation.</summary>
 internal sealed class AutomationRunner
 {
     private readonly IAutomationProtocolTransport _transport;
@@ -50,21 +50,25 @@ internal sealed class AutomationRunner
 
     /// <summary>Asynchronously runs tasks and writes the final report independently of work cancellation.</summary>
     /// <param name="ct">The token observed while executing tasks.</param>
-    /// <returns>A task containing zero for a valid completed run, or one for failure, cancellation, or invalid collection.</returns>
+    /// <returns>
+    ///     A task that represents the asynchronous operation. The task result contains zero for a completed run,
+    ///     or one for failure, cancellation, budget exhaustion, or invalid collection.
+    /// </returns>
+    /// <exception cref="OptionsValidationException">The manifest fails preflight validation.</exception>
+    /// <exception cref="InvalidOperationException">The repository identity cannot be read.</exception>
+    /// <exception cref="OperationCanceledException">Cancellation is requested during repository preflight.</exception>
     public async Task<int> RunAsync(CancellationToken ct)
     {
         var started = DateTimeOffset.UtcNow;
+        var manifest = this._taskManifestLoader.LoadSnapshot();
+        var identity = await this._repositoryIdentityReader.ReadAsync(this._options.RepositoryPath, ct).ConfigureAwait(false);
         var taskReports = new List<TaskReport>();
-        AutomationManifestSnapshot? manifest = null;
-        var identity = new RepositoryIdentity("unavailable", false);
         var settings = new EffectiveSettings();
         var partial = false;
         var exitCode = 0;
         TaskExecutionState? active = null;
         try
         {
-            manifest = this._taskManifestLoader.LoadSnapshot();
-            identity = await this._repositoryIdentityReader.ReadAsync(this._options.RepositoryPath, ct).ConfigureAwait(false);
             await this._transport.StartAsync(ct).ConfigureAwait(false);
             var ping = await this._client.PingAsync(ct).ConfigureAwait(false);
             settings = ping.Settings ?? throw new CodexplorerAutomationTransportException("Ping omitted effective settings.");
@@ -91,7 +95,7 @@ internal sealed class AutomationRunner
                 }
 
                 taskReports.Add(this.CreateTaskReport(active));
-                partial |= !active.ProtocolCompletion || !active.Measurements.Complete;
+                partial |= active.Outcome is "failed" or "cancelled" || !active.Measurements.Complete;
                 exitCode |= active.ProtocolCompletion && active.Measurements.Complete ? 0 : 1;
                 var cancelled = active.Outcome == "cancelled";
                 active = null;
@@ -135,7 +139,7 @@ internal sealed class AutomationRunner
             }
 
             var completedIds = taskReports.Select(task => task.TaskId).ToHashSet(StringComparer.Ordinal);
-            var unrun = manifest?.Tasks.Select(task => task.TaskId!).Where(id => !completedIds.Contains(id)).ToArray() ?? [];
+            var unrun = manifest.Tasks.Select(task => task.TaskId!).Where(id => !completedIds.Contains(id)).ToArray();
             var metadata = new RunMetadata
             {
                 CommitSha = identity.CommitSha,
@@ -148,9 +152,9 @@ internal sealed class AutomationRunner
                 HelperTemperature = this._options.HelperAi.Temperature,
                 TurnBudgets = this._options.TurnBudgets,
                 Arm = this._options.Arm,
-                ManifestPath = manifest?.Path ?? this._options.ManifestPath ?? "inline",
-                ManifestSha256 = manifest?.Sha256 ?? "unavailable",
-                ManifestProvenance = manifest?.Provenance ?? "unavailable"
+                ManifestPath = manifest.Path,
+                ManifestSha256 = manifest.Sha256,
+                ManifestProvenance = manifest.Provenance
             };
             try
             {

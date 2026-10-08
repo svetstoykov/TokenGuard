@@ -89,6 +89,11 @@ internal static class ComparisonCommand
             return 1;
         }
 
+        output.WriteLine($"Baseline partial: {baseline.Partial}");
+        output.WriteLine($"Candidate partial: {candidate.Partial}");
+        output.WriteLine("Baseline unrun tasks: " + string.Join(", ", baseline.UnrunTaskIds));
+        output.WriteLine("Candidate unrun tasks: " + string.Join(", ", candidate.UnrunTaskIds));
+
         var mismatches = GetCompatibilityMismatches(baseline, candidate);
         foreach (var mismatch in mismatches)
         {
@@ -107,6 +112,12 @@ internal static class ComparisonCommand
 
         var baselineMetrics = GetTotalsMetrics(baseline);
         var candidateMetrics = GetTotalsMetrics(candidate);
+        foreach (var metric in limits.Keys.Where(IsKnownDistributionMetric))
+        {
+            baselineMetrics.TryAdd(metric, 0);
+            candidateMetrics.TryAdd(metric, 0);
+        }
+
         foreach (var name in baselineMetrics.Keys.Union(candidateMetrics.Keys, StringComparer.Ordinal).ToArray())
         {
             baselineMetrics.TryAdd(name, 0);
@@ -132,6 +143,19 @@ internal static class ComparisonCommand
         output.WriteLine("Candidate-only tasks: " + string.Join(", ", candidateTasks.Keys.Except(baselineTasks.Keys).Order(StringComparer.Ordinal)));
         output.WriteLine("Estimator error unit: " + baseline.EstimatorErrorUnit);
         PrintMeasuredReduction(output, baseline, candidate, mismatches.Count == 0);
+        if (limits.Count > 0 && (baseline.Partial || candidate.Partial || baseline.UnrunTaskIds.Count > 0 || candidate.UnrunTaskIds.Count > 0
+            || baseline.Tasks.Any(task => !task.MeasurementsComplete) || candidate.Tasks.Any(task => !task.MeasurementsComplete)
+            || !baselineTasks.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(candidateTasks.Keys)))
+        {
+            output.WriteLine("Regression limits require complete runs with matching task coverage.");
+            if (!allowIncompatible)
+            {
+                return 1;
+            }
+
+            output.WriteLine("Compatibility override enabled; regression limits use incomplete or differing task coverage.");
+        }
+
         var failedLimit = false;
         foreach (var (metric, limit) in limits)
         {
@@ -389,12 +413,23 @@ internal static class ComparisonCommand
         return limits.TryAdd(value[..separator], limit);
     }
 
+    /// <summary>Recognizes distribution counters defined by report schema version 1.</summary>
+    /// <param name="metric">The full distribution metric name. Cannot be <see langword="null" />.</param>
+    /// <returns>Whether the metric names a known prepare outcome or health signal.</returns>
+    private static bool IsKnownDistributionMetric(string metric) => metric is
+        "prepareOutcomeCounts.Ready" or "prepareOutcomeCounts.Compacted" or "prepareOutcomeCounts.CompactionInsufficient"
+        or "prepareOutcomeCounts.CannotCompact" or "healthSignalCounts.EstimatorDrift" or "healthSignalCounts.RepeatedCompaction"
+        or "healthSignalCounts.LowCompactionYield" or "healthSignalCounts.SummarizationFailureStreak" or "healthSignalCounts.RepeatedOverBudget"
+        or "healthSignalCounts.PinnedPressure" or "healthSignalCounts.CheckpointChurn";
+
     private static string Format(double? value) => value?.ToString("R", CultureInfo.InvariantCulture) ?? "unavailable";
 
     private static void PrintHelp(TextWriter output)
     {
         output.WriteLine("compare <baseline.json> <candidate.json> [--allow-incompatible] [--limit metric=value]...");
         output.WriteLine("Limits use absolute metric-unit deltas, including ratios (0.05 means five percentage points).");
+        output.WriteLine("Limits require complete runs with matching task coverage unless --allow-incompatible is supplied.");
+        output.WriteLine("Absent known prepare outcomes and health signals count as zero; unknown names are rejected.");
         output.WriteLine("Increases regress token/count metrics and estimatorAbsoluteMean/P95; decreases regress protocolCompletionRate "
             + "and estimatedPromptTokenReduction. Signed estimator statistics accept no limits.");
         output.WriteLine("Metrics: " + string.Join(", ", typeof(ReportMetrics).GetProperties()

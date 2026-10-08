@@ -94,7 +94,10 @@ Run headless stdio host with:
 dotnet run --project ./src/Codexplorer.csproj -- --automation
 ```
 
-Automation mode reads exactly one JSON request per stdin line and writes exactly one JSON response per stdout line. Human logs and warnings stay on stderr so parent process can parse stdout directly.
+While stdin remains open, automation mode reads one JSON request per line and writes one JSON response per request.
+Human logs and warnings stay on stderr so the parent process can parse stdout directly. Closing stdin signals runner
+disconnection: it cancels the active command, writes that command's final response, discards queued requests, and disposes
+the sessions. A client must keep stdin open until all expected responses arrive, including when sending scripted input.
 
 Minimal request sequence (replace the session ID with the value returned by `open_session`):
 
@@ -190,6 +193,8 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
 ### Run reports and comparison
 
 Every manifest run writes UTF-8 schema-version-1 JSON to `<OutputDirectory>/run-report.json` using an atomic replacement.
+Manifest and checkout identity validation happen before the run starts. Preflight errors surface their diagnostics and
+preserve any existing report in the output directory.
 Set `CodexplorerAutomation:OutputDirectory` to choose the directory; relative output paths resolve from the runner executable.
 Run these commands from the TokenGuard repository root after building both sample projects:
 
@@ -211,10 +216,13 @@ Task turn budgets are hard limits on started agent provider calls, including fai
 allowance before preparing another context. Per-exchange caps can pause an exchange but cannot extend the task allowance.
 The sample yields a long exchange at the start of the reserved window so the runner can send its wrap-up prompt. An in-budget wrap-up reply counts as protocol completion;
 `turn_budget_reached` does not. Deliverable completion is `notEvaluated`: the report does not judge answer quality or artifacts.
+A budget stop returns a nonzero exit code. A run whose tasks all have complete measurements can remain non-partial despite
+a budget stop; protocol completion and measurement coverage are separate report fields.
 
 A failed or cancelled run writes a partial report containing completed and active tasks and `unrunTaskIds`. Cancellation reaches
 provider and tool work, while transcript and report finalization remain independent of the cancelled work token. If the child
 cannot return its final measurements within the cleanup interval, the report retains its last snapshot and marks collection incomplete.
+Failed or cancelled tasks, incomplete task measurements, and unrun tasks make the report partial.
 Reporting, invalid control measurements, and task failures return a nonzero exit code.
 
 Prepare records include attempted operations that never reached a provider. Token totals count completed prepares. Provider records
@@ -263,6 +271,7 @@ dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.c
 
 The command validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
 including distributions and unavailable values. It lists tasks present in only one report and categorical completion changes.
+It also prints each report's partial flag and unrun task IDs.
 By default, models, effective budget/summarization/generation settings, task budgets, and manifest hash must match.
 A treatment/control pair may differ only in context-window tokens. `--allow-incompatible` prints mismatches and permits an
 informational comparison; an invalid or incomplete control never permits a measured-reduction claim.
@@ -273,9 +282,17 @@ shows each arm's input tokens, outcomes, and calls, flagging differing outcomes.
 it does not establish that the arms did equivalent work.
 
 Regression limits use `--limit metric=value` and absolute deltas in the metric's units, not relative percentages.
+Limits require non-partial runs, complete task measurements, no unrun tasks, and matching task IDs. Use `--allow-incompatible`
+to explicitly permit limits against incomplete or differing coverage; the command prints a coverage warning when doing so.
+Comparisons without limits can display differing task coverage without that override.
 An increase regresses token/count metrics and absolute estimator error; a decrease regresses protocol completion rate and
 estimated reduction. Signed estimator error statistics are informational and cannot have limits. Unknown names, unavailable
 metrics, invalid or negative limits, incompatible reports, and exceeded limits return nonzero. Numeric output uses invariant formatting.
+Absent known entries in `prepareOutcomeCounts` and `healthSignalCounts` count as zero on both sides, so clean runs accept
+limits such as `--limit prepareOutcomeCounts.CannotCompact=0 --limit healthSignalCounts.RepeatedOverBudget=0`.
+The known prepare outcomes are `Ready`, `Compacted`, `CompactionInsufficient`, and `CannotCompact`. The known health signals
+are `EstimatorDrift`, `RepeatedCompaction`, `LowCompactionYield`, `SummarizationFailureStreak`, `RepeatedOverBudget`,
+`PinnedPressure`, and `CheckpointChurn`. Other recorded names remain comparable; absent unknown names are rejected.
 
 Manual baseline reports live under `samples/Codexplorer.Automation/baselines/`. Their recorded commit must include both TG-013
 and this implementation. Baselines come from real provider calls after committing the implementation; credentials stay in local

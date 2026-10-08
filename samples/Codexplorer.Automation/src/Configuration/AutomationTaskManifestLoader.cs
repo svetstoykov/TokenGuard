@@ -43,20 +43,38 @@ internal sealed class AutomationTaskManifestLoader : IAutomationTaskManifestLoad
 
             var fromFile = !string.IsNullOrWhiteSpace(this._options.ManifestPath);
             var path = fromFile ? Path.GetFullPath(this._options.ManifestPath!, AppContext.BaseDirectory) : "inline";
-            var bytes = fromFile
-                ? File.ReadAllBytes(path)
-                : JsonSerializer.SerializeToUtf8Bytes(new AutomationTaskManifest { Tasks = this._options.Tasks }, JsonOptions);
-            var offset = bytes.AsSpan().StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]) ? 3 : 0;
-            var manifest = JsonSerializer.Deserialize<AutomationTaskManifest>(bytes.AsSpan(offset), JsonOptions)
-                ?? throw new InvalidOperationException("The automation manifest is empty.");
+            byte[] bytes;
+            AutomationTaskManifest manifest;
+            try
+            {
+                bytes = fromFile
+                    ? File.ReadAllBytes(path)
+                    : JsonSerializer.SerializeToUtf8Bytes(new AutomationTaskManifest { Tasks = this._options.Tasks }, JsonOptions);
+                var offset = bytes.AsSpan().StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]) ? 3 : 0;
+                manifest = JsonSerializer.Deserialize<AutomationTaskManifest>(bytes.AsSpan(offset), JsonOptions)
+                    ?? throw new OptionsValidationException(CodexplorerAutomationOptions.SectionName, typeof(AutomationTaskManifest),
+                        ["The automation manifest is empty."]);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                var failure = ex switch
+                {
+                    FileNotFoundException or DirectoryNotFoundException => $"Configured manifest path '{path}' does not exist.",
+                    JsonException => $"Configured manifest path '{path}' contains invalid JSON.",
+                    _ => $"Configured manifest path '{path}' could not be read."
+                };
+                throw new OptionsValidationException(CodexplorerAutomationOptions.SectionName, typeof(AutomationTaskManifest), [failure]);
+            }
+
+            var configuredTasks = manifest.Tasks ?? [];
             var failures = new List<string>();
-            CodexplorerAutomationOptionsValidator.ValidateTasks(manifest.Tasks, this._options.ManifestPath, failures);
+            CodexplorerAutomationOptionsValidator.ValidateTasks(configuredTasks, this._options.ManifestPath, failures);
             if (failures.Count > 0)
             {
                 throw new OptionsValidationException(CodexplorerAutomationOptions.SectionName, typeof(AutomationTaskManifest), failures);
             }
 
-            var tasks = Array.AsReadOnly(manifest.Tasks.ToArray());
+            var tasks = Array.AsReadOnly(configuredTasks.ToArray());
             this._snapshot = new AutomationManifestSnapshot(tasks, path, Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
                 fromFile ? "file" : "inline");
             this._logger.LogInformation("Loaded {TaskCount} automation tasks from {Provenance} manifest.", tasks.Count, this._snapshot.Provenance);

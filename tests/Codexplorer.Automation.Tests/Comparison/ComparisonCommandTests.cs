@@ -143,6 +143,124 @@ public sealed class ComparisonCommandTests
         result.Text.Should().Contain("healthSignalCounts.warning: baseline=2 candidate=0 delta=-2");
     }
 
+    /// <summary>Verifies an absent known distribution entry counts as zero in both reports.</summary>
+    /// <param name="metric">The known outcome or health signal counter.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("prepareOutcomeCounts.Compacted")]
+    [InlineData("prepareOutcomeCounts.CompactionInsufficient")]
+    [InlineData("prepareOutcomeCounts.CannotCompact")]
+    [InlineData("healthSignalCounts.EstimatorDrift")]
+    [InlineData("healthSignalCounts.RepeatedCompaction")]
+    [InlineData("healthSignalCounts.LowCompactionYield")]
+    [InlineData("healthSignalCounts.SummarizationFailureStreak")]
+    [InlineData("healthSignalCounts.RepeatedOverBudget")]
+    [InlineData("healthSignalCounts.PinnedPressure")]
+    [InlineData("healthSignalCounts.CheckpointChurn")]
+    public async Task RunAsync_DistributionEntryAbsentOnBothSides_UsesZeroForLimits(string metric)
+    {
+        var result = await CompareAsync(ReportFixture.Create(), ReportFixture.Create(), ["--limit", metric + "=0"]);
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain(metric + ": baseline=0 candidate=0 delta=0").And.NotContain("Unknown or informational metric");
+    }
+
+    /// <summary>Verifies unrun tasks cannot pass regression limits without an explicit override.</summary>
+    /// <param name="allowIncompatible">Whether incomplete coverage is explicitly permitted.</param>
+    /// <param name="expectedExit">The expected comparison exit code.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    public async Task RunAsync_UnrunCandidateTasks_RequireOverrideForLimits(bool allowIncompatible, int expectedExit)
+    {
+        var baseline = ReportFixture.Create();
+        var candidate = new ReportAggregator().CreateReport(baseline.Run, [], ["task"], false);
+        var options = new List<string> { "--limit", "modelCallsMade=0", "--limit", "tokensAfter=0" };
+        if (allowIncompatible)
+        {
+            options.Add("--allow-incompatible");
+        }
+
+        var result = await CompareAsync(baseline, candidate, options.ToArray());
+
+        result.ExitCode.Should().Be(expectedExit);
+        result.Text.Should().Contain("Candidate partial: True").And.Contain("Candidate unrun tasks: task")
+            .And.Contain("Regression limits require complete runs with matching task coverage");
+        if (allowIncompatible)
+        {
+            result.Text.Should().Contain("Compatibility override enabled; regression limits use incomplete or differing task coverage");
+        }
+    }
+
+    /// <summary>Verifies different task IDs cannot pass regression limits without an explicit override.</summary>
+    /// <param name="allowIncompatible">Whether differing coverage is explicitly permitted.</param>
+    /// <param name="expectedExit">The expected comparison exit code.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    public async Task RunAsync_DifferentTaskSets_RequireOverrideForLimits(bool allowIncompatible, int expectedExit)
+    {
+        var options = allowIncompatible ? new[] { "--limit", "modelCallsMade=0", "--allow-incompatible" }
+            : ["--limit", "modelCallsMade=0"];
+
+        var result = await CompareAsync(ReportFixture.Create(taskId: "baseline-only"), ReportFixture.Create(taskId: "candidate-only"), options);
+
+        result.ExitCode.Should().Be(expectedExit);
+        result.Text.Should().Contain("Baseline-only tasks: baseline-only").And.Contain("Candidate-only tasks: candidate-only")
+            .And.Contain("Regression limits require complete runs with matching task coverage");
+    }
+
+    /// <summary>Verifies a partial report cannot pass regression limits even when task IDs match.</summary>
+    /// <param name="partialBaseline">Whether the baseline rather than the candidate contains a task failure.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_PartialReportWithMatchingTasks_RejectsLimits(bool partialBaseline)
+    {
+        var complete = ReportFixture.Create();
+        var partial = new ReportAggregator().CreateReport(complete.Run,
+            [complete.Tasks[0] with { Outcome = "failed", ProtocolCompletion = false }], [], false);
+
+        var result = await CompareAsync(partialBaseline ? partial : complete, partialBaseline ? complete : partial,
+            ["--limit", "modelCallsMade=0"]);
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Regression limits require complete runs with matching task coverage");
+    }
+
+    /// <summary>Verifies incomplete task measurements cannot pass count limits.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_IncompleteMeasurements_RejectsLimits()
+    {
+        var baseline = ReportFixture.Create();
+        var candidate = new ReportAggregator().CreateReport(baseline.Run,
+            [baseline.Tasks[0] with { MeasurementsComplete = false, SummaryCrossCheck = "pending" }], [], false);
+
+        var result = await CompareAsync(baseline, candidate, ["--limit", "modelCallsMade=0"]);
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Regression limits require complete runs with matching task coverage");
+    }
+
+    /// <summary>Verifies informational comparisons display partial and unrun coverage.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_UnrunCandidateTasksWithoutLimits_PrintsCoverage()
+    {
+        var baseline = ReportFixture.Create();
+        var candidate = new ReportAggregator().CreateReport(baseline.Run, [], ["task"], false);
+
+        var result = await CompareAsync(baseline, candidate);
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain("Baseline partial: False").And.Contain("Candidate partial: True")
+            .And.Contain("Candidate unrun tasks: task").And.Contain("Baseline-only tasks: task");
+    }
+
     /// <summary>
     ///     Verifies that invalid limit returns failure.
     /// </summary>
@@ -151,6 +269,9 @@ public sealed class ComparisonCommandTests
     [Theory]
     [InlineData("estimatorSignedMean=1")]
     [InlineData("unknown=1")]
+    [InlineData("prepareOutcomeCounts.CannotCompcat=0")]
+    [InlineData("healthSignalCounts.RepeatedOverBuget=0")]
+    [InlineData("healthSignalCounts.=0")]
     [InlineData("providerInputTokens=-1")]
     [InlineData("providerInputTokens=NaN")]
     [InlineData("providerInputTokens=Infinity")]
