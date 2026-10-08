@@ -1,10 +1,9 @@
 using System.Text.Json;
-using WorkspaceModel = Codexplorer.Workspace.Workspace;
 
 namespace Codexplorer.Tools;
 
 /// <summary>
-/// Exposes cached tool schemas and executes workspace-scoped tools by name.
+/// Exposes cached tool schemas and executes repository, web, and artifact tools by name.
 /// </summary>
 /// <remarks>
 /// This abstraction keeps tool discovery and tool dispatch behind one boundary so the agent loop can
@@ -20,16 +19,16 @@ public interface IToolRegistry
     IReadOnlyList<ToolSchema> GetSchemas();
 
     /// <summary>
-    /// Executes one registered tool against one cloned workspace.
+    /// Executes one registered tool against the roots of one session.
     /// </summary>
     /// <param name="toolName">The registered tool name to execute.</param>
     /// <param name="arguments">The raw JSON argument payload supplied by the model.</param>
-    /// <param name="workspace">The workspace that constrains filesystem access.</param>
+    /// <param name="context">The cloned workspace and the artifacts folder that constrain filesystem access.</param>
     /// <param name="ct">The cancellation token for the current tool call.</param>
     /// <returns>The tool result as plain text for the model.</returns>
     /// <exception cref="UnknownToolException">Thrown when <paramref name="toolName"/> is not registered.</exception>
-    /// <exception cref="PathEscapeException">Thrown when a path argument tries to escape <paramref name="workspace"/>.</exception>
-    Task<string> ExecuteAsync(string toolName, JsonElement arguments, WorkspaceModel workspace, CancellationToken ct);
+    /// <exception cref="PathEscapeException">Thrown when a repository tool path argument tries to escape the workspace.</exception>
+    Task<string> ExecuteAsync(string toolName, JsonElement arguments, ToolContext context, CancellationToken ct);
 }
 
 /// <summary>

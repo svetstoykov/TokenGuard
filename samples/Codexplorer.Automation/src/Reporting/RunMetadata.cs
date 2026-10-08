@@ -10,6 +10,16 @@ namespace Codexplorer.Automation.Reporting;
 internal sealed record RunMetadata
 {
     /// <summary>
+    ///     Gets the run identifier, which is the name of the run folder.
+    /// </summary>
+    public required string RunId { get; init; }
+
+    /// <summary>
+    ///     Gets a value indicating whether sessions wrote <c>capture</c> folders.
+    /// </summary>
+    public required bool CaptureEnabled { get; init; }
+
+    /// <summary>
     ///     Gets the TokenGuard repository commit recorded at run start.
     /// </summary>
     public required string CommitSha { get; init; }
@@ -60,7 +70,7 @@ internal sealed record RunMetadata
     public required string Arm { get; init; }
 
     /// <summary>
-    ///     Gets the manifest path or explicit inline identifier.
+    ///     Gets the manifest path relative to the run folder, or the explicit inline identifier.
     /// </summary>
     public required string ManifestPath { get; init; }
 

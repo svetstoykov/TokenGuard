@@ -21,6 +21,7 @@ internal sealed class AutomationRunner
     private readonly IRunReportWriter _writer;
     private readonly CodexplorerAutomationOptions _options;
     private readonly ILogger<AutomationRunner> _logger;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>Initializes a new instance of the <see cref="AutomationRunner" /> class.</summary>
     /// <param name="transport">The child process transport.</param>
@@ -32,10 +33,11 @@ internal sealed class AutomationRunner
     /// <param name="writer">The atomic report writer.</param>
     /// <param name="options">The runner configuration.</param>
     /// <param name="logger">The runner logger.</param>
+    /// <param name="timeProvider">The clock that names the run folder, or <see langword="null" /> to use the system clock.</param>
     public AutomationRunner(
         IAutomationProtocolTransport transport, ICodexplorerAutomationClient client, IAutomationTaskManifestLoader taskManifestLoader,
         IRunnerHelperAi helperAi, IRepositoryIdentityReader repositoryIdentityReader, IReportAggregator aggregator, IRunReportWriter writer,
-        IOptions<CodexplorerAutomationOptions> options, ILogger<AutomationRunner> logger)
+        IOptions<CodexplorerAutomationOptions> options, ILogger<AutomationRunner> logger, TimeProvider? timeProvider = null)
     {
         this._transport = transport;
         this._client = client;
@@ -46,22 +48,39 @@ internal sealed class AutomationRunner
         this._writer = writer;
         this._options = options.Value;
         this._logger = logger;
+        this._timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    /// <summary>Asynchronously runs tasks and writes the final report independently of work cancellation.</summary>
+    /// <summary>Asynchronously runs tasks into a new run folder and writes the final report independently of work cancellation.</summary>
+    /// <remarks>
+    ///     The run folder is <c>&lt;OutputDirectory&gt;/&lt;runId&gt;</c>, where the run identifier is the UTC start time plus the arm.
+    ///     It holds the report and one session directory per task, named by task identifier.
+    /// </remarks>
     /// <param name="ct">The token observed while executing tasks.</param>
     /// <returns>
     ///     A task that represents the asynchronous operation. The task result contains zero for a completed run,
     ///     or one for failure, cancellation, budget exhaustion, or invalid collection.
     /// </returns>
     /// <exception cref="OptionsValidationException">The manifest fails preflight validation.</exception>
-    /// <exception cref="InvalidOperationException">The repository identity cannot be read.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     The repository identity cannot be read.
+    ///     -or-
+    ///     The run folder already exists.
+    /// </exception>
     /// <exception cref="OperationCanceledException">Cancellation is requested during repository preflight.</exception>
     public async Task<int> RunAsync(CancellationToken ct)
     {
-        var started = DateTimeOffset.UtcNow;
+        var started = this._timeProvider.GetUtcNow();
         var manifest = this._taskManifestLoader.LoadSnapshot();
         var identity = await this._repositoryIdentityReader.ReadAsync(this._options.RepositoryPath, ct).ConfigureAwait(false);
+        var runId = $"{started:yyyyMMdd-HHmmss}-{this._options.Arm}";
+        var runFolder = Path.Combine(OutputPathResolver.Resolve(this._options.OutputDirectory, AppContext.BaseDirectory), runId);
+        if (Directory.Exists(runFolder))
+        {
+            throw new InvalidOperationException($"Run folder '{runFolder}' already exists.");
+        }
+
+        Directory.CreateDirectory(runFolder);
         var taskReports = new List<TaskReport>();
         var settings = new EffectiveSettings();
         var partial = false;
@@ -75,7 +94,7 @@ internal sealed class AutomationRunner
             foreach (var task in manifest.Tasks)
             {
                 ct.ThrowIfCancellationRequested();
-                active = new TaskExecutionState(task, this._options.GetTurnBudget(task.TaskSize));
+                active = new TaskExecutionState(task, this._options.GetTurnBudget(task.TaskSize), Path.Combine(runFolder, task.TaskId!));
                 try
                 {
                     await this.ExecuteTaskAsync(active, ct).ConfigureAwait(false);
@@ -144,23 +163,24 @@ internal sealed class AutomationRunner
             {
                 CommitSha = identity.CommitSha,
                 RepositoryDirty = identity.Dirty,
+                RunId = runId,
+                CaptureEnabled = this._options.Capture,
                 StartedAtUtc = started,
-                EndedAtUtc = DateTimeOffset.UtcNow,
+                EndedAtUtc = this._timeProvider.GetUtcNow(),
                 EffectiveSettings = settings,
                 HelperModel = this._options.HelperAi.ModelName ?? "",
                 HelperMaxOutputTokens = this._options.HelperAi.MaxOutputTokens,
                 HelperTemperature = this._options.HelperAi.Temperature,
                 TurnBudgets = this._options.TurnBudgets,
                 Arm = this._options.Arm,
-                ManifestPath = manifest.Path,
+                ManifestPath = manifest.Provenance == "file" ? Path.GetRelativePath(runFolder, manifest.Path) : manifest.Path,
                 ManifestSha256 = manifest.Sha256,
                 ManifestProvenance = manifest.Provenance
             };
             try
             {
                 var report = this._aggregator.CreateReport(metadata, taskReports, unrun, partial);
-                var outputDirectory = Path.GetFullPath(this._options.OutputDirectory, AppContext.BaseDirectory);
-                await this._writer.WriteAsync(report, outputDirectory).ConfigureAwait(false);
+                await this._writer.WriteAsync(report, runFolder).ConfigureAwait(false);
                 if (!report.Validation.IsValid)
                 {
                     exitCode = 1;
@@ -171,6 +191,8 @@ internal sealed class AutomationRunner
                 exitCode = 1;
                 this._logger.LogError("Run report could not be written ({FailureType}).", ex.GetType().Name);
             }
+
+            this._logger.LogInformation("Run folder: {RunFolder}", runFolder);
         }
 
         return exitCode;
@@ -182,9 +204,12 @@ internal sealed class AutomationRunner
         {
             RepositoryUrl = state.Task.RepositoryUrl,
             ModelCallBudget = state.Budget.MaxTurns,
-            WrapUpWindow = state.Budget.WrapUpWindow
+            WrapUpWindow = state.Budget.WrapUpWindow,
+            SessionDirectory = state.SessionDirectory,
+            Capture = this._options.Capture
         }, ct).ConfigureAwait(false);
-        state.SessionLogPath = opened.LogFilePath;
+        state.SessionId = opened.SessionId;
+        state.ArtifactsAtStart = ListArtifacts(state.SessionDirectory).Select(file => file.Path).ToArray();
         state.WorkspacePath = opened.Workspace.LocalPath;
         var sessionOpen = true;
         try
@@ -195,7 +220,7 @@ internal sealed class AutomationRunner
             {
                 var response = await this._client.SubmitAsync(new SubmitRequest(opened.SessionId, message), ct).ConfigureAwait(false);
                 sessionOpen = response.SessionOpen;
-                state.SessionLogPath = response.LogFilePath;
+                state.FinalAnswer = response.AssistantText;
                 state.Record(response);
                 state.Outcome = response.Outcome;
                 if (ct.IsCancellationRequested)
@@ -279,16 +304,69 @@ internal sealed class AutomationRunner
             : AutomationRunnerPrompts.CreateContinuationPrompt(state.CallsRemaining);
     }
 
-    private TaskReport CreateTaskReport(TaskExecutionState state) => this._aggregator.CreateTask(
-        state.Task.TaskId!, state.Task.TaskSize.ToString().ToLowerInvariant(), state.Outcome, state.ProtocolCompletion, state.Budget.MaxTurns,
-        state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionLogPath);
+    private TaskReport CreateTaskReport(TaskExecutionState state)
+    {
+        this.WriteFinalAnswer(state);
+        return this._aggregator.CreateTask(
+            state.Task.TaskId!, state.Task.TaskSize.ToString().ToLowerInvariant(), state.Outcome, state.ProtocolCompletion, state.Budget.MaxTurns,
+            state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionId is null ? null : new TaskSessionRecord(
+                state.SessionId, Path.GetFileName(state.SessionDirectory), state.ArtifactsAtStart, ListArtifacts(state.SessionDirectory)));
+    }
 
-    private sealed class TaskExecutionState(AutomationTaskDefinition task, TurnBudgetProfile budget)
+    /// <summary>
+    ///     Lists the files in the <c>artifacts</c> folder of a session directory.
+    /// </summary>
+    /// <param name="sessionDirectory">The absolute session directory.</param>
+    /// <returns>The files ordered by artifact-relative path, or an empty list when the folder is absent.</returns>
+    private static ArtifactFileReport[] ListArtifacts(string sessionDirectory)
+    {
+        var artifactsDirectory = Path.Combine(sessionDirectory, "artifacts");
+        if (!Directory.Exists(artifactsDirectory))
+        {
+            return [];
+        }
+
+        return Directory.EnumerateFiles(artifactsDirectory, "*", SearchOption.AllDirectories)
+            .Select(file => new ArtifactFileReport
+            {
+                Path = Path.GetRelativePath(artifactsDirectory, file).Replace(Path.DirectorySeparatorChar, '/'),
+                SizeBytes = new FileInfo(file).Length
+            })
+            .OrderBy(file => file.Path, StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>
+    ///     Writes the complete text of the reply that ended the task to <c>capture/final-answer.md</c> in its session directory.
+    /// </summary>
+    /// <remarks>Nothing is written when capture is off or the task ended without assistant text.</remarks>
+    /// <param name="state">The finished task.</param>
+    private void WriteFinalAnswer(TaskExecutionState state)
+    {
+        if (!this._options.Capture || string.IsNullOrWhiteSpace(state.FinalAnswer))
+        {
+            return;
+        }
+
+        try
+        {
+            var captureDirectory = Path.Combine(state.SessionDirectory, "capture");
+            Directory.CreateDirectory(captureDirectory);
+            File.WriteAllText(Path.Combine(captureDirectory, "final-answer.md"), state.FinalAnswer);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            this._logger.LogWarning("Final answer for task {TaskId} could not be written ({FailureType}).", state.Task.TaskId, ex.GetType().Name);
+        }
+    }
+
+    private sealed class TaskExecutionState(AutomationTaskDefinition task, TurnBudgetProfile budget, string sessionDirectory)
     {
         /// <summary>Gets the immutable task definition.</summary>
         public AutomationTaskDefinition Task { get; } = task;
         /// <summary>Gets the model-call allowance and wrap-up window.</summary>
         public TurnBudgetProfile Budget { get; } = budget;
+        /// <summary>Gets the absolute session directory of the task inside the run folder.</summary>
+        public string SessionDirectory { get; } = sessionDirectory;
         public SessionMeasurements Measurements { get; set; } = new() { ModelCallBudget = budget.MaxTurns };
         /// <summary>Gets the received helper usage records.</summary>
         public List<UsageMeasurement> HelperResponses { get; } = [];
@@ -296,8 +374,12 @@ internal sealed class AutomationRunner
         public long HelperCalls { get; set; }
         /// <summary>Gets the opened workspace path.</summary>
         public string? WorkspacePath { get; set; }
-        /// <summary>Gets the session transcript path.</summary>
-        public string? SessionLogPath { get; set; }
+        /// <summary>Gets Codexplorer's session identifier once the session opened.</summary>
+        public string? SessionId { get; set; }
+        /// <summary>Gets the files found in the artifacts folder when the session opened.</summary>
+        public IReadOnlyList<string> ArtifactsAtStart { get; set; } = [];
+        /// <summary>Gets the assistant text of the latest submit response.</summary>
+        public string? FinalAnswer { get; set; }
         /// <summary>Gets the task terminal outcome.</summary>
         public string Outcome { get; set; } = "failed";
         /// <summary>Gets whether an in-budget wrap-up reply was received.</summary>

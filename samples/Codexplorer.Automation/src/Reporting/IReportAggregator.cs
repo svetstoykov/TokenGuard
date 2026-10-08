@@ -19,11 +19,11 @@ internal interface IReportAggregator
     /// <param name="measurements">The cumulative session snapshot. Cannot be <see langword="null" />.</param>
     /// <param name="helperResponses">The usage of received helper responses. Cannot be <see langword="null" />.</param>
     /// <param name="helperCalls">The number of started helper attempts.</param>
-    /// <param name="logPath">The session log path, or <see langword="null" /> when no log was created.</param>
+    /// <param name="session">The session location and artifact listings, or <see langword="null" /> when the session never opened.</param>
     /// <returns>The task report with measurements aggregated from the snapshot.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="measurements" /> is <see langword="null" />.</exception>
     TaskReport CreateTask(string taskId, string size, string outcome, bool protocolCompletion, int budget,
-        SessionMeasurements measurements, IReadOnlyList<UsageMeasurement> helperResponses, long helperCalls, string? logPath);
+        SessionMeasurements measurements, IReadOnlyList<UsageMeasurement> helperResponses, long helperCalls, TaskSessionRecord? session);
 
     /// <summary>
     ///     Combines task populations into a versioned run report.

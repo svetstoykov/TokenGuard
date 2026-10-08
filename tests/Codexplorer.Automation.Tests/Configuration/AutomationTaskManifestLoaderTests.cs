@@ -75,6 +75,49 @@ public sealed class AutomationTaskManifestLoaderTests
         load.Should().Throw<OptionsValidationException>();
     }
 
+    /// <summary>Verifies a task identifier that cannot name one session directory in the run folder is rejected.</summary>
+    /// <param name="taskId">The task identifier under test.</param>
+    [Theory]
+    [InlineData("../shared")]
+    [InlineData("group/task")]
+    [InlineData("group\\task")]
+    [InlineData("..")]
+    [InlineData(".hidden")]
+    [InlineData("task one")]
+    [InlineData("run-report.json")]
+    [InlineData("Run-Report.json")]
+    public void LoadSnapshot_TaskIdIsNotOneDirectoryName_RejectsTheLoadedManifest(string taskId)
+    {
+        var loader = new AutomationTaskManifestLoader(
+            Options.Create(new CodexplorerAutomationOptions { ManifestPath = null, Tasks = [ValidTask(taskId)] }),
+            NullLogger<AutomationTaskManifestLoader>.Instance);
+
+        var load = () => loader.LoadSnapshot();
+
+        load.Should().Throw<OptionsValidationException>().Which.Failures.Should().ContainSingle().Which.Should().Contain("TaskId");
+    }
+
+    /// <summary>Verifies a task identifier made of letters, digits, dots, hyphens, and underscores is accepted.</summary>
+    [Fact]
+    public void LoadSnapshot_TaskIdIsOneDirectoryName_LoadsTheTask()
+    {
+        var loader = new AutomationTaskManifestLoader(
+            Options.Create(new CodexplorerAutomationOptions { ManifestPath = null, Tasks = [ValidTask("batch-small_01.v2")] }),
+            NullLogger<AutomationTaskManifestLoader>.Instance);
+
+        var snapshot = loader.LoadSnapshot();
+
+        snapshot.Tasks.Single().TaskId.Should().Be("batch-small_01.v2");
+    }
+
+    private static AutomationTaskDefinition ValidTask(string taskId) => new()
+    {
+        TaskId = taskId,
+        Title = "Task",
+        RepositoryUrl = "https://github.com/example/repo",
+        InitialPrompt = "Do not modify repository source files."
+    };
+
     private static string Manifest(string taskId) => $$"""
         {"tasks":[{"taskId":"{{taskId}}","title":"Task","repositoryUrl":"https://github.com/example/repo",
         "initialPrompt":"Do not modify repository source files."}]}

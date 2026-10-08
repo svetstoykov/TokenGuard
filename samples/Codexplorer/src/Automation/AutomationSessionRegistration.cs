@@ -9,4 +9,6 @@ internal sealed record AutomationSessionRegistration(
     IExplorerSession Session)
 {
     public string LogFilePath => this.Session.LogFilePath;
+
+    public string SessionDirectory => this.Session.SessionDirectory;
 }

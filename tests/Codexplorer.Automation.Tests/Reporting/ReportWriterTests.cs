@@ -27,7 +27,7 @@ public sealed class ReportWriterTests
             var json = await File.ReadAllTextAsync(Path.Combine(directory, "run-report.json"));
             var report = JsonSerializer.Deserialize<RunReport>(json, ReportJson.Options)!;
             report.Totals.Metrics.ProviderInputTokens.Should().Be(200);
-            json.Should().Contain("\"schemaVersion\": 1");
+            json.Should().Contain("\"schemaVersion\": 2");
             json.Should().NotContain("initialPrompt").And.NotContain("apiKey").And.NotContain("repositoryUrl").And.NotContain("answerText");
             Directory.GetFiles(directory).Should().HaveCount(1);
         }

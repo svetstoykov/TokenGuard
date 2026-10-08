@@ -8,11 +8,14 @@ namespace Codexplorer.Automation.Reporting;
 /// <remarks>This stateless service supports singleton registration. Writes to different directories may run concurrently.</remarks>
 internal sealed class JsonRunReportWriter : IRunReportWriter
 {
+    /// <summary>The name of the report file inside the run folder.</summary>
+    internal const string FileName = "run-report.json";
+
     /// <inheritdoc />
     public async Task WriteAsync(RunReport report, string outputDirectory)
     {
         Directory.CreateDirectory(outputDirectory);
-        var destination = Path.Combine(outputDirectory, "run-report.json");
+        var destination = Path.Combine(outputDirectory, FileName);
         var temporary = Path.Combine(outputDirectory, $".run-report-{Guid.NewGuid():N}.tmp");
         try
         {

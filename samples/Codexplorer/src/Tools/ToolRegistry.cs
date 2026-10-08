@@ -1,7 +1,6 @@
 using System.Net.Http;
 using System.Text.Json;
 using TokenGuard.Core.Abstractions;
-using WorkspaceModel = Codexplorer.Workspace.Workspace;
 
 namespace Codexplorer.Tools;
 
@@ -21,6 +20,7 @@ public sealed class ToolRegistry : IToolRegistry
     };
 
     private readonly IReadOnlyDictionary<string, IWorkspaceTool> _toolsByName;
+    private readonly IReadOnlyDictionary<string, IArtifactTool> _artifactToolsByName;
     private readonly IReadOnlyList<ToolSchema> _schemas;
 
     /// <summary>
@@ -52,13 +52,19 @@ public sealed class ToolRegistry : IToolRegistry
             new FindFilesTool(),
             new FileTreeTool(),
             new WebSearchTool(httpClientFactory, braveSearchSettings),
-            new WebFetchTool(httpClientFactory, tokenCounter),
-            new CreateFileTool(),
-            new WriteTextTool()
+            new WebFetchTool(httpClientFactory, tokenCounter)
         ];
 
-        var duplicateName = toolList
-            .GroupBy(tool => tool.Name, StringComparer.Ordinal)
+        IArtifactTool[] artifactToolList =
+        [
+            new CreateArtifactTool(),
+            new WriteArtifactTool(),
+            new ReadArtifactTool(),
+            new ListArtifactsTool()
+        ];
+
+        var duplicateName = toolList.Select(tool => tool.Name).Concat(artifactToolList.Select(tool => tool.Name))
+            .GroupBy(name => name, StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() > 1)?
             .Key;
 
@@ -68,24 +74,30 @@ public sealed class ToolRegistry : IToolRegistry
         }
 
         this._toolsByName = toolList.ToDictionary(tool => tool.Name, StringComparer.Ordinal);
-        this._schemas = toolList.Select(tool => tool.Schema).ToArray();
+        this._artifactToolsByName = artifactToolList.ToDictionary(tool => tool.Name, StringComparer.Ordinal);
+        this._schemas = toolList.Select(tool => tool.Schema).Concat(artifactToolList.Select(tool => tool.Schema)).ToArray();
     }
 
     /// <inheritdoc />
     public IReadOnlyList<ToolSchema> GetSchemas() => this._schemas;
 
     /// <inheritdoc />
-    public Task<string> ExecuteAsync(string toolName, JsonElement arguments, WorkspaceModel workspace, CancellationToken ct)
+    public Task<string> ExecuteAsync(string toolName, JsonElement arguments, ToolContext context, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
-        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (this._artifactToolsByName.TryGetValue(toolName, out var artifactTool))
+        {
+            return artifactTool.ExecuteAsync(arguments, context.ArtifactsDirectory, ct);
+        }
 
         if (!this._toolsByName.TryGetValue(toolName, out var tool))
         {
             throw new UnknownToolException(toolName);
         }
 
-        return tool.ExecuteAsync(arguments, workspace, ct);
+        return tool.ExecuteAsync(arguments, context.Workspace, ct);
     }
 
     internal static TParameters DeserializeArguments<TParameters>(JsonElement arguments)

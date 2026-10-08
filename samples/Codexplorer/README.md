@@ -16,11 +16,11 @@ It is built as standalone sample inside TokenGuard repo and shows off two things
 | Clone repos | Clone GitHub repos from HTTPS or SSH URLs into local workspaces |
 | Ask repo questions | Hold multi-turn conversation about one cloned repo |
 | Explore with tools | Agent can map tree, list folders, find files, grep, search public web results, read focused file ranges, and fetch readable text from public web pages |
-| Create and edit notes | Agent can create files and update text inside its `.codexplorer/` scratch space |
+| Create and edit notes | Agent writes notes and deliverables into its session's `artifacts/` folder, outside the cloned repo |
 | Stay inside budget | TokenGuard manages session context and compacts message history as token pressure grows |
 | See live compaction | Terminal shows prepare results, token counts, compacted messages, degradation warnings, and final answer as run happens |
-| Keep transcripts | Every session is saved as readable markdown log |
-| Stay safe by default | Agent scratch writes go only into `.codexplorer/`, not repo source files |
+| Keep transcripts | Every session gets its own directory with a readable markdown transcript, `session.md` |
+| Stay safe by default | Agent writes only into its session's `artifacts/` folder; the cloned repo is read-only |
 
 ## How TokenGuard drives this app
 
@@ -113,6 +113,9 @@ Responses include `requestId`, `success`, and either `result` or `error`. Ping r
 
 `open_session` accepts `repositoryUrl` for clone-on-open from a public GitHub HTTPS or SSH URL. Automation sessions are sequential; opening a second session fails before another conversation is created. The optional `modelCallBudget` sets the total provider-call allowance for the session.
 An optional `wrapUpWindow` reserves calls for the runner wrap-up prompt; it must be positive and smaller than the total allowance.
+An optional absolute `sessionDirectory` names the directory the session writes to; without it Codexplorer creates
+`<SessionLogsDirectory>/<sessionId>/`, for example `20261008-141502-sharkdp_bat`. An optional `capture` flag (default `false`)
+records every model call in the session directory's `capture/` folder. The response returns the `sessionDirectory` in use.
 
 If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
 
@@ -162,17 +165,43 @@ dotnet run
 Shipped batch workflow:
 
 1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty queued tasks with task ID, title, `repositoryUrl`, initial prompt, and size class.
-2. Runner loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
-3. Each shipped task tells Codexplorer not to modify repository source files and to keep task-owned notes under an `artifacts/` folder in its current workspace.
-4. Resulting task artifacts land inside the target workspace under that `artifacts/` folder.
-5. Codexplorer session transcripts still land in Codexplorer's normal session log location, which is reported in automation responses and written by Codexplorer itself.
+2. Runner creates one run folder, loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
+3. Each shipped task tells Codexplorer not to modify repository source files and to write its deliverables with the artifact tools.
+4. Each task's session writes only into its own session directory inside the run folder. Nothing is written into the cloned repository.
 
-Automation paths are now resolved relative to each executable's own directory. The runner starts Codexplorer with the Codexplorer executable directory as its working directory, and Codexplorer resolves its relative workspace and log paths from that same executable directory.
+One run is one self-contained folder, `<OutputDirectory>/<runId>/`. `<runId>` is the UTC start time plus the arm, for example
+`20261008-141502-treatment`. The runner fails before running any task when that folder already exists, and logs the run folder
+path when it finishes. Session directories are named by `taskId`, so a task has the same folder name in a treatment and a control run.
+A `taskId` therefore has to be one directory name: it starts with a letter or digit, contains only letters, digits, `.`, `-`, and `_`,
+and is not `run-report.json`. Manifest validation rejects any other value before the run folder is created:
 
-To inspect results after a batch:
+```text
+.artifacts/reports/benchmark/
+  20261008-141502-treatment/          run folder
+    run-report.json                   written by the runner
+    <taskId>/                         one session directory per task
+      session.md                      markdown transcript, capped for reading
+      artifacts/                      the agent's output, empty at start
+      capture/                        present when Capture is on
+        exchanges.jsonl               one line per model call
+        tools.json                    tool schemas, written once
+        final-answer.md               complete text of the reply that ended the task
+```
 
-- Check the `artifacts/` folder inside the target workspace for task-owned notes and drafts.
-- Check Codexplorer session transcripts under its configured session logs directory for the full conversation history.
+`CodexplorerAutomation:OutputDirectory` defaults to `.artifacts/reports/benchmark`. A relative value resolves against the repository
+root, found by walking up from the runner's folder to the nearest `.git`; when there is none, against the runner's folder. An absolute
+value is used as given. The runner starts Codexplorer with the Codexplorer executable directory as its working directory, and
+Codexplorer resolves its relative workspace root from that executable directory.
+
+`CodexplorerAutomation:Capture` defaults to `true`. With capture on, each line of `exchanges.jsonl` holds the model-call number
+(the same number as the turn in `session.md`), the complete list of messages sent after compaction, and the complete response:
+text, tool calls with full arguments, finish reason, and token usage. Each line is flushed as it is written, so a failed or
+cancelled session keeps every call up to that point. Capture is passive: the messages sent, what the agent sees, and every token
+count are the same with it on or off. Nothing from the HTTP layer is recorded, so no credential or header reaches a capture file.
+`session.md` keeps its length caps and is for reading; `capture/` is the complete record. A Large task can produce several megabytes.
+
+To inspect results after a batch, open the task's session directory in the run folder: `artifacts/` for the agent's notes and
+deliverables, `session.md` for the conversation, and `capture/` for exactly what was sent to the model and what came back.
 
 To run a different manifest, point `CodexplorerAutomation:ManifestPath` at another JSON file in `appsettings.Development.json`. The manifest format is:
 
@@ -184,7 +213,7 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
       "title": "Example title",
       "repositoryUrl": "https://github.com/cli/cli",
       "taskSize": "Medium",
-      "initialPrompt": "Write notes under an `artifacts/` folder in your current workspace. Do not modify repository source files, tests, or configuration. Keep all task-owned artifacts under an `artifacts/` folder in your current workspace."
+      "initialPrompt": "Write notes with the artifact tools. Do not modify repository source files, tests, or configuration. Write all task-owned deliverables with the artifact tools."
     }
   ]
 }
@@ -192,16 +221,14 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
 
 ### Run reports and comparison
 
-Every manifest run writes UTF-8 schema-version-1 JSON to `<OutputDirectory>/run-report.json` using an atomic replacement.
-Manifest and checkout identity validation happen before the run starts. Preflight errors surface their diagnostics and
-preserve any existing report in the output directory.
-Set `CodexplorerAutomation:OutputDirectory` to choose the directory; relative output paths resolve from the runner executable.
+Every manifest run writes UTF-8 schema-version-2 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
+Manifest and checkout identity validation happen before the run folder is created, so a preflight error surfaces its diagnostics
+and leaves the output directory untouched.
 Run these commands from the TokenGuard repository root after building both sample projects:
 
 ```bash
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- \
   --CodexplorerAutomation:ManifestPath="$PWD/samples/Codexplorer.Automation/src/tasks/report-baseline.json" \
-  --CodexplorerAutomation:OutputDirectory="$PWD/.artifacts/reports/treatment" \
   --CodexplorerAutomation:Arm=treatment
 ```
 
@@ -211,6 +238,20 @@ To identify a checkout when automatic Git discovery cannot find TokenGuard, set 
 Run metadata records the commit and dirty flag at run start, UTC timestamps, effective model and budget settings, generation caps,
 TokenGuard log level, arm, and the SHA-256 hash of the immutable manifest bytes executed. Inline tasks use deterministic JSON
 serialization with explicit inline provenance. Reports exclude prompts, answers, tool content, raw configuration, secrets, and exception messages.
+
+Schema version 2 adds these fields:
+
+| Where | Field | Meaning |
+| --- | --- | --- |
+| Run | `runId` | Name of the run folder |
+| Run | `captureEnabled` | Whether `capture/` folders were written |
+| Task | `sessionId` | Codexplorer's session identifier |
+| Task | `sessionDirectory` | The task's session directory |
+| Task | `artifactsAtStart` | Files in `artifacts/` when the session opened; an isolated session starts with none |
+| Task | `artifactsAtEnd` | File paths and sizes in `artifacts/` when the session closed |
+
+Every path in the report, including the manifest path, is relative to the run folder, so a run folder can be moved or archived
+and a committed report carries no machine-local path. Validation rejects a report that contains an absolute path.
 
 Task turn budgets are hard limits on started agent provider calls, including failed and cancelled attempts. The agent checks the
 allowance before preparing another context. Per-exchange caps can pause an exchange but cannot extend the task allowance.
@@ -245,14 +286,12 @@ For a control run, use a context window large enough to prevent every strategy a
 ```bash
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- \
   --CodexplorerAutomation:ManifestPath="$PWD/samples/Codexplorer.Automation/src/tasks/report-baseline.json" \
-  --CodexplorerAutomation:OutputDirectory="$PWD/.artifacts/reports/control" \
   --CodexplorerAutomation:Arm=control \
   --CodexplorerAutomation:ControlContextWindowTokens=1000000
 ```
 
-Before each treatment or control run, manually remove task-owned notes under the cloned repository's `.codexplorer/artifacts/`
-(and any `artifacts/` directory created by older runs). Preserve repository source files. Shared workspace notes can change the
-agent's behavior and contaminate the comparison; TG-008 will provide isolated workspaces. Git corpus commits are not pinned here.
+Each run writes into a new run folder and each task into its own session directory, so one run cannot read another run's notes.
+Clones under the workspace root are reused between runs and stay unmodified. Git corpus commits are not pinned here.
 A control is invalid if any prepare is incomplete or has an outcome other than `Ready`, or if any strategy or summarizer ran,
 even when that strategy changed zero messages.
 
@@ -260,16 +299,16 @@ Comparison runs before host construction and requires neither API credentials no
 
 ```bash
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare \
-  .artifacts/reports/control/run-report.json .artifacts/reports/treatment/run-report.json
+  .artifacts/reports/benchmark/<control runId>/run-report.json .artifacts/reports/benchmark/<treatment runId>/run-report.json
 
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare \
-  .artifacts/reports/treatment/run-report.json .artifacts/reports/candidate/run-report.json \
+  samples/Codexplorer.Automation/baselines/2026-10-07-bat-treatment.json .artifacts/reports/benchmark/<runId>/run-report.json \
   --limit providerInputTokens=1000 --limit estimatorAbsoluteMean=0.05
 
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare --help
 ```
 
-The command validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
+The command accepts schema version 2 reports only. It validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
 including distributions and unavailable values. It lists tasks present in only one report and categorical completion changes.
 It also prints each report's partial flag and unrun task IDs.
 By default, models, effective budget/summarization/generation settings, task budgets, and manifest hash must match.
@@ -298,7 +337,7 @@ Manual baseline reports live under `samples/Codexplorer.Automation/baselines/`. 
 and this implementation. Baselines come from real provider calls after committing the implementation; credentials stay in local
 configuration or the environment. Deterministic sample tests live in `tests/Codexplorer.Automation.Tests`; live runs remain manual.
 
-The [2026-10-07 treatment baseline](../Codexplorer.Automation/baselines/README.md) records a successful real run of
+The [treatment baseline](../Codexplorer.Automation/baselines/README.md) records a successful real run of
 `report-baseline.json`, including its implementation commit, effective settings, and measurement checks.
 
 ## Configuration
@@ -338,7 +377,7 @@ If `BRAVE_SEARCH_API_KEY` is missing and `Codexplorer:BraveSearch:ApiKey` is emp
 
 ### Optional: override defaults
 
-Shared defaults live in `src/appsettings.json`. You can override any of them in `src/appsettings.Development.json`. Relative paths in those files are resolved from Codexplorer's executable/output directory.
+Shared defaults live in `src/appsettings.json`. You can override any of them in `src/appsettings.Development.json`. A relative `SessionLogsDirectory` resolves against the repository root, found by walking up from Codexplorer's executable directory to the nearest `.git`, or against the executable directory when there is none. Other relative paths, such as the workspace root, resolve from Codexplorer's executable/output directory. Absolute paths are used as given.
 
 Example:
 
@@ -365,7 +404,7 @@ Example:
       "MaxTurns": 50
     },
     "Logging": {
-      "SessionLogsDirectory": "./logs/sessions",
+      "SessionLogsDirectory": ".artifacts/reports/interactive",
       "MinimumLevel": "Information"
     },
     "OpenRouter": {
@@ -452,7 +491,7 @@ During run, terminal shows:
 - token pressure against configured budget
 - how many tokens existed before and after compaction
 - whether preparation stayed healthy, became compaction-insufficient, or could not compact further
-- tool calls like `file_tree`, `grep`, `web_search`, `read_range`, `web_fetch`, `create_file`, and `write_text`
+- tool calls like `file_tree`, `grep`, `web_search`, `read_range`, `web_fetch`, `create_artifact`, and `read_artifact`
 - final answer
 
 If TokenGuard has to compact or truncate aggressively, Codexplorer surfaces that in real time instead of hiding it behind silent message dropping.
@@ -463,11 +502,13 @@ Back in main menu, choose **Query an existing repo** to continue exploring alrea
 
 ### 5. Review transcript
 
-Choose **View past session logs** to inspect markdown transcripts of previous runs.
+Choose **View past session logs** to inspect the `session.md` transcript of a previous interactive session.
 
 ## Tooling available to agent
 
-Codexplorer is more than chat box. Agent can inspect repo and keep working notes:
+Codexplorer is more than chat box. Agent has twelve tools in three groups.
+
+Repository tools read the cloned repo, which is read-only:
 
 | Tool | Use |
 | --- | --- |
@@ -475,11 +516,28 @@ Codexplorer is more than chat box. Agent can inspect repo and keep working notes
 | `list_directory` | Inspect one folder |
 | `find_files` | Match filenames by glob |
 | `grep` | Search content with regex |
-| `web_search` | Search public web results through Brave Search. Optional `count` defaults to `5`, caps at `10`, and returns compact numbered title/URL/snippet entries |
 | `read_file` | Read smaller text files |
 | `read_range` | Read exact line windows from larger files |
+
+Web tools have no root:
+
+| Tool | Use |
+| --- | --- |
+| `web_search` | Search public web results through Brave Search. Optional `count` defaults to `5`, caps at `10`, and returns compact numbered title/URL/snippet entries |
 | `web_fetch` | Fetch readable plain text from one public URL. Optional `max_tokens` defaults to `4000`, caps at `12000`, and appends `[Content truncated at N tokens. Use a smaller range or request a specific section.]` when truncated |
-| `create_file` / `write_text` | Create and edit UTF-8 text files under `.codexplorer/` scratch space |
+
+Artifact tools are rooted at the session's `artifacts/` folder:
+
+| Tool | Behaviour |
+| --- | --- |
+| `create_artifact` | Creates a new UTF-8 text file; fails if it exists, without overwriting it |
+| `write_artifact` | Replaces or appends to an existing file; fails if it is missing |
+| `read_artifact` | Reads a file, optionally a line range, capped at 2000 lines |
+| `list_artifacts` | Lists the files written so far with their sizes |
+
+A path means the same file in all four artifact tools, and tool results report the artifact-relative path, for example `report.md`.
+A path that leaves `artifacts/` is rejected. Creating and writing stay separate on purpose: after compaction the agent may not
+remember what it wrote, a create on an existing file fails without overwriting it, and the two read tools let it check.
 
 `web_search` is for finding candidate public URLs quickly. Use it to discover promising sources, then call `web_fetch` on the best URLs to read actual page content.
 
@@ -489,18 +547,28 @@ Codexplorer is more than chat box. Agent can inspect repo and keep working notes
 
 | Path | Purpose |
 | --- | --- |
-| `./workspace` | Cloned repositories by default |
-| `./logs/sessions` | Markdown session transcripts |
+| `./workspace` | Cloned repositories by default, under the executable directory; read-only for the agent |
+| `.artifacts/reports/interactive/<sessionId>/` | Session directory of an interactive session: `session.md` and `artifacts/` |
+| `.artifacts/reports/benchmark/<runId>/` | Run folder of an automation run: `run-report.json` and one session directory per task |
 | `./src/bin/.../logs` | Rolling application logs under build output |
-| `<repo>/.codexplorer/` | Agent-owned scratch notes inside cloned workspace |
 
-Workspace, session-log, and other relative paths are resolved from Codexplorer's executable/output directory, not from your shell's current working directory.
+A session writes to exactly one place, its session directory, which is never inside a clone:
+
+```text
+<session directory>/
+  session.md                 markdown transcript (capped, for reading)
+  artifacts/                 the agent's output root, empty at start
+  capture/                   automation sessions with capture on
+```
+
+`.artifacts/` is gitignored and sits at the repository root. An interactive `<sessionId>` is the UTC start time plus the
+repository, for example `20261008-141502-sharkdp_bat`. Interactive sessions have no `capture/` folder.
 
 ## Editing scope
 
-Codexplorer agent **can create and edit files**, but only inside repo-local `.codexplorer/` scratch directory. It **does not edit repository source files**.
+Codexplorer agent **can create and edit files**, but only inside its session's `artifacts/` folder. It **does not edit repository source files**, and its notes never appear in its own repository searches.
 
-That gives you safe note-taking and intermediate artifacts without mutating checked-in code.
+That gives you safe note-taking and deliverables without mutating the cloned repository, and a deliverable that survives a re-clone.
 
 ## Why this sample is interesting
 

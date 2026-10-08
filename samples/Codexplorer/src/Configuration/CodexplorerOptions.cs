@@ -161,9 +161,12 @@ public sealed record WorkspaceOptions
 public sealed record LoggingOptions
 {
     /// <summary>
-    /// Gets directory where per-session log files should be written.
+    /// Gets the root directory under which each interactive session directory is created.
     /// </summary>
-    public string? SessionLogsDirectory { get; init; } = "./logs/sessions";
+    /// <remarks>
+    /// A relative value resolves against the repository that contains the application.
+    /// </remarks>
+    public string? SessionLogsDirectory { get; init; } = ".artifacts/reports/interactive";
 
     /// <summary>
     /// Gets configured minimum log level name.

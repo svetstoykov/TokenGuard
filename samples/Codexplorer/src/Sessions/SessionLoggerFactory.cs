@@ -5,11 +5,11 @@ using WorkspaceModel = Codexplorer.Workspace.Workspace;
 namespace Codexplorer.Sessions;
 
 /// <summary>
-/// Creates markdown-backed session loggers using the configured Codexplorer transcript directory.
+/// Creates markdown-backed session loggers that write the transcript into a session directory.
 /// </summary>
 /// <remarks>
-/// The factory centralizes filename generation and configuration capture so the rest of the application only needs a
-/// workspace and session label to begin a new transcript.
+/// The factory centralizes configuration capture so the rest of the application only needs a workspace, a session
+/// label, and a session directory to begin a new transcript.
 /// </remarks>
 public sealed class SessionLoggerFactory : ISessionLoggerFactory
 {
@@ -26,53 +26,19 @@ public sealed class SessionLoggerFactory : ISessionLoggerFactory
     }
 
     /// <inheritdoc />
-    public ISessionLogger BeginSession(WorkspaceModel workspace, string sessionLabel)
+    public ISessionLogger BeginSession(WorkspaceModel workspace, string sessionLabel, SessionDirectory sessionDirectory)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionLabel);
+        ArgumentNullException.ThrowIfNull(sessionDirectory);
 
-        var loggingOptions = this._options.Logging
-            ?? throw new InvalidOperationException("Codexplorer logging options are not configured.");
         var modelOptions = this._options.Model
             ?? throw new InvalidOperationException("Codexplorer model options are not configured.");
         var budgetOptions = this._options.Budget
             ?? throw new InvalidOperationException("Codexplorer budget options are not configured.");
-        var sessionLogsDirectory = loggingOptions.SessionLogsDirectory
-            ?? throw new InvalidOperationException("Codexplorer session logs directory is not configured.");
         var modelName = modelOptions.Name
             ?? throw new InvalidOperationException("Codexplorer model name is not configured.");
 
-        var logDirectory = CodexplorerPathResolver.ResolveFromAppBaseDirectory(sessionLogsDirectory);
-        Directory.CreateDirectory(logDirectory);
-
-        var timestampUtc = DateTime.UtcNow;
-        var baseFileName = $"{timestampUtc:yyyyMMdd-HHmmssfff}-{SessionSlug.Create(workspace.OwnerRepo)}-{SessionSlug.Create(sessionLabel)}";
-        var logFilePath = CreateUniqueFilePath(logDirectory, baseFileName);
-
-        return new MarkdownSessionLogger(
-            logFilePath,
-            timestampUtc,
-            workspace,
-            sessionLabel,
-            modelName,
-            budgetOptions);
-    }
-
-    private static string CreateUniqueFilePath(string logDirectory, string baseFileName)
-    {
-        var attempt = 0;
-
-        while (true)
-        {
-            var suffix = attempt == 0 ? string.Empty : $"-{attempt}";
-            var candidatePath = Path.Combine(logDirectory, $"{baseFileName}{suffix}.md");
-
-            if (!File.Exists(candidatePath))
-            {
-                return candidatePath;
-            }
-
-            attempt++;
-        }
+        return new MarkdownSessionLogger(sessionDirectory.TranscriptPath, DateTime.UtcNow, workspace, sessionLabel, modelName, budgetOptions);
     }
 }

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Codexplorer.Automation;
 using Codexplorer.Automation.Client;
 using Codexplorer.Automation.Configuration;
@@ -12,13 +13,76 @@ using Microsoft.Extensions.Options;
 namespace Codexplorer.Automation.Tests.Runner;
 
 /// <summary>Verifies task execution and partial-report finalization.</summary>
-public sealed class AutomationRunnerTests
+public sealed class AutomationRunnerTests : IDisposable
 {
+    private readonly string _outputDirectory = Path.Combine(Path.GetTempPath(), "tg-runner-" + Guid.NewGuid().ToString("N"));
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Directory.Exists(this._outputDirectory))
+        {
+            Directory.Delete(this._outputDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>Verifies the run folder is named by the UTC start time and the arm and receives the report.</summary>
+    /// <param name="arm">The treatment or control arm.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("treatment")]
+    [InlineData("control")]
+    public async Task RunAsync_NewRun_CreatesRunFolderNamedByStartTimeAndArm(string arm)
+    {
+        var fixture = this.CreateFixture(arm, []);
+        fixture.Client.Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var runFolder = Path.Combine(this._outputDirectory, "20261008-141502-" + arm);
+        Directory.Exists(runFolder).Should().BeTrue();
+        fixture.Writer.OutputDirectory.Should().Be(runFolder);
+    }
+
+    /// <summary>Verifies an existing run folder stops the run before any task starts.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_RunFolderExists_FailsBeforeRunningAnyTask()
+    {
+        var fixture = this.CreateFixture();
+        Directory.CreateDirectory(Path.Combine(this._outputDirectory, "20261008-141502-treatment"));
+
+        var run = () => fixture.Runner.RunAsync(CancellationToken.None);
+
+        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*already exists*");
+        fixture.Client.OpenRequest.Should().BeNull();
+        fixture.Writer.Report.Should().BeNull();
+    }
+
+    /// <summary>Verifies each task opens its session in a run-folder directory named by its task identifier.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_SeveralTasks_PassesSessionDirectoryNamedByTaskId()
+    {
+        var fixture = this.CreateFixture("first", "second");
+        var sessionDirectories = new List<string?>();
+        fixture.Client.Submit = (_, _) =>
+        {
+            sessionDirectories.Add(fixture.Client.OpenRequest!.SessionDirectory);
+            return Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
+        };
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var runFolder = Path.Combine(this._outputDirectory, "20261008-141502-treatment");
+        sessionDirectories.Should().Equal(Path.Combine(runFolder, "first"), Path.Combine(runFolder, "second"));
+    }
+
     /// <summary>Verifies an exhausted call allowance stops without helper work.</summary>
     [Fact]
     public async Task RunAsync_NoCallsRemain_StopsWithoutAskingHelper()
     {
-        var fixture = new Fixture();
+        var fixture = this.CreateFixture();
         fixture.Client.Submit = (_, _) => Task.FromResult(Response("max_turns_reached", Snapshot(3), asksRunner: true));
         fixture.Client.Close = (_, _) => Task.FromResult(new CloseSessionResponse("session", "closed", Snapshot(3, complete: true)));
 
@@ -45,7 +109,7 @@ public sealed class AutomationRunnerTests
     [InlineData("control", false, true)]
     public async Task RunAsync_BudgetStop_PartialTracksMeasurementCompleteness(string arm, bool complete, bool expectedPartial)
     {
-        var fixture = new Fixture(arm, []);
+        var fixture = this.CreateFixture(arm, []);
         fixture.Client.Submit = (_, _) => Task.FromResult(Response("turn_budget_reached", Snapshot(3, complete), open: false));
 
         var exit = await fixture.Runner.RunAsync(CancellationToken.None);
@@ -142,7 +206,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_QuestionWithinWrapUpWindow_SendsWrapUpAndCompletesProtocol()
     {
-        var fixture = new Fixture();
+        var fixture = this.CreateFixture();
         fixture.Client.Submit = (request, _) => Task.FromResult(request.Message == "initial"
             ? Response("reply_received", Snapshot(2), asksRunner: true)
             : Response("reply_received", Snapshot(3)));
@@ -160,7 +224,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_CumulativeSnapshots_UsesLatestCallCountForWrapUp()
     {
-        var fixture = new Fixture();
+        var fixture = this.CreateFixture();
         fixture.Client.Submit = (request, _) => Task.FromResult(Response("reply_received", Snapshot(request.Message switch
         {
             "initial" => 1,
@@ -180,7 +244,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_TaskFailure_ContinuesWithLaterTask()
     {
-        var fixture = new Fixture("first", "second");
+        var fixture = this.CreateFixture("first", "second");
         fixture.Client.Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
 
         await fixture.Runner.RunAsync(CancellationToken.None);
@@ -194,7 +258,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_CancelledWhileOpening_PreservesStartedTaskAndRemainingIds()
     {
-        var fixture = new Fixture("active", "unrun");
+        var fixture = this.CreateFixture("active", "unrun");
         using var cancellation = new CancellationTokenSource();
         fixture.Client.Open = (_, _) =>
         {
@@ -215,7 +279,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_CancelledOpeningReturnsProtocolError_ClassifiesTaskAsCancelled()
     {
-        var fixture = new Fixture("active", "unrun");
+        var fixture = this.CreateFixture("active", "unrun");
         using var cancellation = new CancellationTokenSource();
         fixture.Client.Open = (_, _) =>
         {
@@ -232,7 +296,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_CancellationReturnsTerminalSnapshot_PreservesCancelledAttempt()
     {
-        var fixture = new Fixture("active", "unrun");
+        var fixture = this.CreateFixture("active", "unrun");
         using var cancellation = new CancellationTokenSource();
         var snapshot = Snapshot(2, complete: true);
         snapshot = snapshot with
@@ -259,7 +323,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_EmptyHelperResponse_RecordsUsageBeforeFailing()
     {
-        var fixture = new Fixture();
+        var fixture = this.CreateFixture();
         fixture.Client.Submit = (_, _) => Task.FromResult(Response("reply_received", Snapshot(1), asksRunner: true));
         fixture.Helper.Response = new RunnerHelperAiResult(null, new UsageMeasurement { InputTokens = 17, OutputTokens = 8 });
 
@@ -276,7 +340,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_FatalTransportAfterSnapshot_RetainsActiveTaskAndStopsRun()
     {
-        var fixture = new Fixture("active", "unrun");
+        var fixture = this.CreateFixture("active", "unrun");
         fixture.Client.Submit = (request, _) => request.Message == "initial"
             ? Task.FromResult(Response("reply_received", Snapshot(1)))
             : throw new CodexplorerAutomationTransportException("Disconnected");
@@ -294,7 +358,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_SummaryCrossCheckFailsOnDisposal_FailsTask()
     {
-        var fixture = new Fixture();
+        var fixture = this.CreateFixture();
         fixture.Client.Submit = (request, _) => Task.FromResult(Response("reply_received", Snapshot(request.Message == "initial" ? 2 : 3)));
         fixture.Client.Close = (_, _) => Task.FromResult(new CloseSessionResponse("session", "closed",
             Snapshot(3, complete: true) with { SummaryCrossCheck = "mismatched" }));
@@ -314,7 +378,7 @@ public sealed class AutomationRunnerTests
     [InlineData(true)]
     public async Task RunAsync_CloseFailsAfterWrapUp_ReportsFailureWithoutProtocolCompletion(bool cancelled)
     {
-        var fixture = new Fixture("active", "unrun");
+        var fixture = this.CreateFixture("active", "unrun");
         using var cancellation = new CancellationTokenSource();
         fixture.Client.Submit = (request, _) => Task.FromResult(Response("reply_received", Snapshot(request.Message == "initial" ? 2 : 3)));
         fixture.Client.Close = (_, _) =>
@@ -344,7 +408,7 @@ public sealed class AutomationRunnerTests
     [Fact]
     public async Task RunAsync_WriterFailure_ReturnsNonzero()
     {
-        var fixture = new Fixture();
+        var fixture = this.CreateFixture();
         fixture.Client.Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(0, complete: true), open: false));
         fixture.Writer.Fail = true;
 
@@ -352,6 +416,137 @@ public sealed class AutomationRunnerTests
 
         exit.Should().Be(1);
     }
+
+    /// <summary>Verifies the reply that ended the task is written in full to the capture folder of its session directory.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_CaptureOn_WritesFinalAnswerFromLastReply()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Submit = (request, _) => Task.FromResult(request.Message == "initial"
+            ? Response("reply_received", Snapshot(2)) with { AssistantText = "interim reply" }
+            : Response("reply_received", Snapshot(3)) with { AssistantText = "final reply" });
+        fixture.Client.Close = (_, _) => Task.FromResult(new CloseSessionResponse("session", "closed", Snapshot(3, complete: true)));
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var finalAnswerPath = Path.Combine(this._outputDirectory, "20261008-141502-treatment", "task", "capture", "final-answer.md");
+        (await File.ReadAllTextAsync(finalAnswerPath)).Should().Be("final reply");
+        fixture.Client.OpenRequest!.Capture.Should().BeTrue();
+    }
+
+    /// <summary>Verifies a run with capture off asks for no capture and writes no final answer.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_CaptureOff_WritesNoFinalAnswer()
+    {
+        var fixture = new Fixture("treatment", [], this._outputDirectory, capture: false);
+        fixture.Client.Submit = (_, _) =>
+            Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false) with { AssistantText = "partial reply" });
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        fixture.Client.OpenRequest!.Capture.Should().BeFalse();
+        Directory.Exists(Path.Combine(this._outputDirectory, "20261008-141502-treatment", "task", "capture")).Should().BeFalse();
+    }
+
+    /// <summary>Verifies the report records the run, the session, and the artifacts with paths relative to the run folder.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_SessionWritesArtifacts_ReportsSessionFieldsRelativeToRunFolder()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Submit = (_, _) =>
+        {
+            var notes = Path.Combine(fixture.Client.OpenRequest!.SessionDirectory!, "artifacts", "notes");
+            Directory.CreateDirectory(notes);
+            File.WriteAllText(Path.Combine(notes, "summary.md"), "12345");
+            return Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
+        };
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var report = fixture.Writer.Report!;
+        report.SchemaVersion.Should().Be(2);
+        report.Run.RunId.Should().Be("20261008-141502-treatment");
+        report.Run.CaptureEnabled.Should().BeTrue();
+        var task = report.Tasks.Single();
+        task.SessionId.Should().Be("session");
+        task.SessionDirectory.Should().Be("task");
+        task.ArtifactsAtStart.Should().BeEmpty();
+        task.ArtifactsAtEnd.Should().BeEquivalentTo([new ArtifactFileReport { Path = "notes/summary.md", SizeBytes = 5 }]);
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
+    /// <summary>Verifies files already in the artifacts folder when the session opens are reported as present at start.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_ArtifactsExistWhenSessionOpens_ReportsThemAtStart()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Open = (request, _) =>
+        {
+            var artifacts = Path.Combine(request.SessionDirectory!, "artifacts");
+            Directory.CreateDirectory(artifacts);
+            File.WriteAllText(Path.Combine(artifacts, "leftover.md"), "old");
+            return Task.FromResult(new OpenSessionResponse("session",
+                new AutomationWorkspace("name", "owner/repo", "/workspace", DateTime.UnixEpoch, 0), "session.log"));
+        };
+        fixture.Client.Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        fixture.Writer.Report!.Tasks.Single().ArtifactsAtStart.Should().Equal("leftover.md");
+    }
+
+    /// <summary>Verifies a task whose session never opened reports no session location.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_SessionNeverOpens_ReportsNoSessionDirectory()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Open = (_, _) => throw new CodexplorerAutomationProtocolException("request", "clone_failed", "clone failed");
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var task = fixture.Writer.Report!.Tasks.Single();
+        task.SessionId.Should().BeNull();
+        task.SessionDirectory.Should().BeNull();
+    }
+
+    /// <summary>Verifies a written report from a file manifest holds no absolute path.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_FileManifest_WritesReportWithoutAbsolutePaths()
+    {
+        Directory.CreateDirectory(this._outputDirectory);
+        var manifestPath = Path.Combine(this._outputDirectory, "manifest.json");
+        await File.WriteAllTextAsync(manifestPath, """
+            {"tasks":[{"taskId":"task","title":"Task","repositoryUrl":"https://github.com/example/repo",
+            "initialPrompt":"Do not modify repository source files."}]}
+            """);
+        var options = Options.Create(new CodexplorerAutomationOptions { ManifestPath = manifestPath, OutputDirectory = this._outputDirectory });
+        var client = new FakeClient
+        {
+            Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false))
+        };
+        var runner = new AutomationRunner(new FakeTransport(), client,
+            new AutomationTaskManifestLoader(options, NullLogger<AutomationTaskManifestLoader>.Instance), new FakeHelper(), new FakeIdentity(),
+            new ReportAggregator(), new JsonRunReportWriter(), options, NullLogger<AutomationRunner>.Instance, new FixedTimeProvider());
+
+        await runner.RunAsync(CancellationToken.None);
+
+        var runFolder = Path.Combine(this._outputDirectory, "20261008-141502-treatment");
+        var json = await File.ReadAllTextAsync(Path.Combine(runFolder, "run-report.json"));
+        var report = JsonSerializer.Deserialize<RunReport>(json, ReportJson.Options)!;
+        report.Run.ManifestPath.Should().Be(Path.Combine("..", "manifest.json"));
+        json.Should().NotContain(this._outputDirectory);
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
+    private Fixture CreateFixture(params string[] ids) => new("treatment", ids, this._outputDirectory);
+
+    private Fixture CreateFixture(string arm, string[] ids) => new(arm, ids, this._outputDirectory);
 
     private static SubmitResponse Response(string outcome, SessionMeasurements measurements, bool asksRunner = false, bool open = true) =>
         new("session", outcome, null, false, measurements.ProviderCalls.Count, null, open, asksRunner,
@@ -373,20 +568,18 @@ public sealed class AutomationRunnerTests
     private sealed class Fixture
     {
         /// <summary>Initializes a new instance of the <see cref="Fixture" /> class.</summary>
-        /// <param name="ids">The task IDs, or empty to use a single default task.</param>
-        public Fixture(params string[] ids) : this("treatment", ids)
-        {
-        }
-
-        /// <summary>Initializes a fixture with the selected report arm.</summary>
         /// <param name="arm">The treatment or control arm.</param>
         /// <param name="ids">The task IDs, or empty to use a single default task.</param>
-        public Fixture(string arm, string[] ids)
+        /// <param name="outputDirectory">The directory that receives the run folder.</param>
+        /// <param name="capture">Whether sessions capture their model calls.</param>
+        public Fixture(string arm, string[] ids, string outputDirectory, bool capture = true)
         {
             var budget = new TurnBudgetProfile { MaxTurns = 3, WrapUpWindow = 1 };
             var options = Options.Create(new CodexplorerAutomationOptions
             {
                 ManifestPath = null,
+                OutputDirectory = outputDirectory,
+                Capture = capture,
                 Arm = arm,
                 TurnBudgets = new AutomationTurnBudgetOptions { Small = budget, Medium = budget, Large = budget },
                 Tasks = (ids.Length == 0 ? new[] { "task" } : ids).Select(id => new AutomationTaskDefinition
@@ -396,7 +589,7 @@ public sealed class AutomationRunnerTests
                 }).ToArray()
             });
             this.Runner = new AutomationRunner(new FakeTransport(), this.Client, new FakeManifest(options.Value.Tasks), this.Helper,
-                new FakeIdentity(), new ReportAggregator(), this.Writer, options, NullLogger<AutomationRunner>.Instance);
+                new FakeIdentity(), new ReportAggregator(), this.Writer, options, NullLogger<AutomationRunner>.Instance, new FixedTimeProvider());
         }
 
         /// <summary>Gets the configurable protocol boundary.</summary>
@@ -407,6 +600,12 @@ public sealed class AutomationRunnerTests
         public FakeWriter Writer { get; } = new();
         /// <summary>Gets the runner under test.</summary>
         public AutomationRunner Runner { get; }
+    }
+
+    private sealed class FixedTimeProvider : TimeProvider
+    {
+        /// <inheritdoc />
+        public override DateTimeOffset GetUtcNow() => new(2026, 10, 8, 14, 15, 2, TimeSpan.Zero);
     }
 
     private sealed class FakeManifest(IReadOnlyList<AutomationTaskDefinition> tasks) : IAutomationTaskManifestLoader
@@ -430,10 +629,13 @@ public sealed class AutomationRunnerTests
         public RunReport? Report { get; private set; }
         /// <summary>Gets or sets whether report writing fails.</summary>
         public bool Fail { get; set; }
+        /// <summary>Gets the directory the report was written to.</summary>
+        public string? OutputDirectory { get; private set; }
         /// <inheritdoc />
         public Task WriteAsync(RunReport report, string outputDirectory)
         {
             this.Report = report;
+            this.OutputDirectory = outputDirectory;
             return this.Fail ? Task.FromException(new IOException("Cannot write")) : Task.CompletedTask;
         }
     }

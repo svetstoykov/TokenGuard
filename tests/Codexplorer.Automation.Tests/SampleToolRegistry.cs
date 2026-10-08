@@ -30,7 +30,7 @@ internal sealed class SampleToolRegistry : IToolRegistry
     public IReadOnlyList<ToolSchema> GetSchemas() => [];
 
     /// <inheritdoc />
-    public async Task<string> ExecuteAsync(string toolName, JsonElement arguments, Workspace workspace, CancellationToken ct)
+    public async Task<string> ExecuteAsync(string toolName, JsonElement arguments, ToolContext context, CancellationToken ct)
     {
         this.Started.TrySetResult();
         if (this._waitForCancellation)
