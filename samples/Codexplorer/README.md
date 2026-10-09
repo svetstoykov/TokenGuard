@@ -398,7 +398,7 @@ dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.c
   .artifacts/reports/benchmark/<control runId>/run-report.json .artifacts/reports/benchmark/<treatment runId>/run-report.json
 
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare \
-  samples/Codexplorer.Automation/baselines/2026-10-07-bat-treatment.json .artifacts/reports/benchmark/<runId>/run-report.json \
+  .artifacts/reports/benchmark/<baseline runId>/run-report.json .artifacts/reports/benchmark/<runId>/run-report.json \
   --limit providerInputTokens=1000 --limit estimatorAbsoluteMean=0.05
 
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare --help
@@ -437,16 +437,9 @@ rates fail. Informational fields cannot have limits: `checksTotal`, `checksPasse
 `deliverableCompletedTaskCount`, `probeCount`, `passedProbeCount`, `canaryPresentCount`. There are no default thresholds.
 Use `probePassRate` limits between the same arm's valid-probe populations.
 
-The [full pinned-corpus baseline](../Codexplorer.Automation/baselines/2026-10-09-verifiable-baseline.md) records real
-schema-3 Qwen treatment and control runs, deliverable checks, probe eligibility, measured input usage, and observed
-failures. The [baseline index](../Codexplorer.Automation/baselines/README.md) also retains the earlier one-task model trial.
-
-Manual baseline reports live under `samples/Codexplorer.Automation/baselines/`. Their recorded commit must include both TG-013
-and this implementation. Baselines come from real provider calls after committing the implementation; credentials stay in local
+Baseline reports are local. A baseline is the `run-report.json` of an earlier run, kept in its run folder under the ignored
+`.artifacts/reports/`. Baselines come from real provider calls after committing the implementation; credentials stay in local
 configuration or the environment. Deterministic sample tests live in `tests/Codexplorer.Automation.Tests`; live runs remain manual.
-
-The [baseline index](../Codexplorer.Automation/baselines/README.md) links the full pinned corpus and the successful
-one-task `report-baseline.json` trial, including their implementation commits, effective settings, and measurement checks.
 
 ## Configuration
 

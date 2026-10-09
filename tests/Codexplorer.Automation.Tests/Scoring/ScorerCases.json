@@ -754,7 +754,7 @@
   {
     "name": "verifiable-gh-api-emergency-retention-end-cursor-helper",
     "why": "The final answer explicitly names findEndCursor; the function is declared in pkg/cmd/api/pagination.go:26 at the pinned cli/cli commit. This verdict covers its name, not the surrounding algorithm explanation or line citations.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; calibration run 20261009-090309-treatment; .artifacts/tg008-calibration/emergency-pilot-2/20261009-090309-treatment/gh-api-emergency-retention/capture/final-answer.md; sha256:cc42ddc192269ef2e93205147f0e62984b9cecd3d217f4a6cbba5cf8a47d2710",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; calibration run 20261009-090309-treatment; .artifacts/reports/verifiable-corpus/pilots/emergency-pilot-2/20261009-090309-treatment/gh-api-emergency-retention/capture/final-answer.md; sha256:cc42ddc192269ef2e93205147f0e62984b9cecd3d217f4a6cbba5cf8a47d2710",
     "check": {
       "id": "end-cursor-helper",
       "kind": "contains",
@@ -771,7 +771,7 @@
   {
     "name": "verifiable-gh-api-emergency-retention-next-page-helper",
     "why": "The notes explicitly name findNextPage; pkg/cmd/api/pagination.go:17 declares that helper at the pinned cli/cli commit. This verdict covers the requested symbol name.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; calibration run 20261009-090309-treatment; .artifacts/tg008-calibration/emergency-pilot-2/20261009-090309-treatment/gh-api-emergency-retention/artifacts/evidence.md; sha256:c5a8be65cc998d0852322f6b2b14c823f4cd1c2685a77757d645054bcd92bc84",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; calibration run 20261009-090309-treatment; .artifacts/reports/verifiable-corpus/pilots/emergency-pilot-2/20261009-090309-treatment/gh-api-emergency-retention/artifacts/evidence.md; sha256:c5a8be65cc998d0852322f6b2b14c823f4cd1c2685a77757d645054bcd92bc84",
     "check": {
       "id": "next-page-helper",
       "kind": "contains",
@@ -789,7 +789,7 @@
   {
     "name": "verifiable-gh-api-emergency-retention-rest-page-size",
     "why": "The notes state rest-page-size: 100. pkg/cmd/api/api.go:334 calls addPerPage(requestPath, 100, params) for REST pagination at the pinned cli/cli commit.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; calibration run 20261009-090309-treatment; .artifacts/tg008-calibration/emergency-pilot-2/20261009-090309-treatment/gh-api-emergency-retention/artifacts/evidence.md; sha256:c5a8be65cc998d0852322f6b2b14c823f4cd1c2685a77757d645054bcd92bc84",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; calibration run 20261009-090309-treatment; .artifacts/reports/verifiable-corpus/pilots/emergency-pilot-2/20261009-090309-treatment/gh-api-emergency-retention/artifacts/evidence.md; sha256:c5a8be65cc998d0852322f6b2b14c823f4cd1c2685a77757d645054bcd92bc84",
     "check": {
       "id": "rest-page-size",
       "kind": "matches",
@@ -805,7 +805,7 @@
   {
     "name": "verifiable-rg-preprocessor-retention-worker-source",
     "why": "The notes identify crates/core/search.rs as the worker source. The pinned ripgrep file contains the search dispatch and should_preprocess predicate at lines 255-291.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; calibration run 20261009-090529-treatment; .artifacts/tg008-calibration/retention-pilot/20261009-090529-treatment/rg-preprocessor-retention/artifacts/evidence.md; sha256:04a4efeaed309ff62db52e4e7965467f67ea0699299c72534a5093d13e31f61f",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; calibration run 20261009-090529-treatment; .artifacts/reports/verifiable-corpus/pilots/retention-pilot/20261009-090529-treatment/rg-preprocessor-retention/artifacts/evidence.md; sha256:04a4efeaed309ff62db52e4e7965467f67ea0699299c72534a5093d13e31f61f",
     "check": {
       "id": "worker-source",
       "kind": "contains",
@@ -823,7 +823,7 @@
   {
     "name": "verifiable-rg-preprocessor-retention-dispatch-predicate",
     "why": "The final answer explicitly names should_preprocess, declared at crates/core/search.rs:284 and used by the dispatch branch at line 259 of the pinned ripgrep commit. This label verifies the predicate name only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; calibration run 20261009-090529-treatment; .artifacts/tg008-calibration/retention-pilot/20261009-090529-treatment/rg-preprocessor-retention/capture/final-answer.md; sha256:933e3e9e3b87f9adbdcfc3d7ea7a39f080bd7f5bd016bc37a02ff669c99df0f2",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; calibration run 20261009-090529-treatment; .artifacts/reports/verifiable-corpus/pilots/retention-pilot/20261009-090529-treatment/rg-preprocessor-retention/capture/final-answer.md; sha256:933e3e9e3b87f9adbdcfc3d7ea7a39f080bd7f5bd016bc37a02ff669c99df0f2",
     "check": {
       "id": "dispatch-predicate",
       "kind": "contains",
@@ -840,7 +840,7 @@
   {
     "name": "verifiable-rg-preprocessor-retention-glob-builder",
     "why": "The notes identify rg::flags::hiargs::preprocessor_globs. The helper is declared in the flags/hiargs module at crates/core/flags/hiargs.rs:1225 at the pinned ripgrep commit; rg is the binary crate qualification. This verdict verifies the helper and module, not the notes' additional behavioral claims.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; calibration run 20261009-090529-treatment; .artifacts/tg008-calibration/retention-pilot/20261009-090529-treatment/rg-preprocessor-retention/artifacts/evidence.md; sha256:04a4efeaed309ff62db52e4e7965467f67ea0699299c72534a5093d13e31f61f",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; calibration run 20261009-090529-treatment; .artifacts/reports/verifiable-corpus/pilots/retention-pilot/20261009-090529-treatment/rg-preprocessor-retention/artifacts/evidence.md; sha256:04a4efeaed309ff62db52e4e7965467f67ea0699299c72534a5093d13e31f61f",
     "check": {
       "id": "glob-builder",
       "kind": "matches",
@@ -856,7 +856,7 @@
   {
     "name": "verifiable-bat-theme-defaults-theme-source",
     "why": "The answer identifies src/theme.rs, the pinned bat file declaring default_theme at line 30. This verdict covers the declared fact only.",
-    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-63wiDhijrR8NMTaw9yyO; .artifacts/tg008-calibration/20261009-093623-reference-answers/bat-theme-defaults/answer.md; sha256:9b116c1ff5e679a198dc5309ce1e723e05a6a42ea3f6a84727d4ffbe9791dbed",
+    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-63wiDhijrR8NMTaw9yyO; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/bat-theme-defaults/answer.md; sha256:9b116c1ff5e679a198dc5309ce1e723e05a6a42ea3f6a84727d4ffbe9791dbed",
     "check": {
       "id": "theme-source",
       "kind": "contains",
@@ -874,7 +874,7 @@
   {
     "name": "verifiable-bat-theme-defaults-default-function",
     "why": "The answer names default_theme. The function is declared in src/theme.rs:30 at the pinned bat commit and returns the scheme-specific built-in theme. This verdict covers the declared fact only.",
-    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-63wiDhijrR8NMTaw9yyO; .artifacts/tg008-calibration/20261009-093623-reference-answers/bat-theme-defaults/answer.md; sha256:9b116c1ff5e679a198dc5309ce1e723e05a6a42ea3f6a84727d4ffbe9791dbed",
+    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-63wiDhijrR8NMTaw9yyO; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/bat-theme-defaults/answer.md; sha256:9b116c1ff5e679a198dc5309ce1e723e05a6a42ea3f6a84727d4ffbe9791dbed",
     "check": {
       "id": "default-function",
       "kind": "matches",
@@ -890,7 +890,7 @@
   {
     "name": "verifiable-bat-theme-defaults-light-theme",
     "why": "The answer explicitly states Monokai Extended Light for the light scheme, matching the ColorScheme::Light branch in src/theme.rs:33 at the pinned bat commit. This verdict covers the declared fact only.",
-    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-63wiDhijrR8NMTaw9yyO; .artifacts/tg008-calibration/20261009-093623-reference-answers/bat-theme-defaults/answer.md; sha256:9b116c1ff5e679a198dc5309ce1e723e05a6a42ea3f6a84727d4ffbe9791dbed",
+    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-63wiDhijrR8NMTaw9yyO; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/bat-theme-defaults/answer.md; sha256:9b116c1ff5e679a198dc5309ce1e723e05a6a42ea3f6a84727d4ffbe9791dbed",
     "check": {
       "id": "light-theme",
       "kind": "contains",
@@ -907,7 +907,7 @@
   {
     "name": "verifiable-bat-pager-precedence-pager-source",
     "why": "The answer identifies src/pager.rs, which owns pager selection at the pinned bat commit. This verdict covers the declared fact only.",
-    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-VgejcqxY6y4SOj8ORI23; .artifacts/tg008-calibration/20261009-093623-reference-answers/bat-pager-precedence/answer.md; sha256:877204dd12e28450f5c16ca90b43858906f6a2ac99e8cd663237853cc108b5d0",
+    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-VgejcqxY6y4SOj8ORI23; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/bat-pager-precedence/answer.md; sha256:877204dd12e28450f5c16ca90b43858906f6a2ac99e8cd663237853cc108b5d0",
     "check": {
       "id": "pager-source",
       "kind": "contains",
@@ -925,7 +925,7 @@
   {
     "name": "verifiable-bat-pager-precedence-selection-function",
     "why": "The answer names get_pager, declared at src/pager.rs:93 at the pinned bat commit. This verdict covers the declared fact only.",
-    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-VgejcqxY6y4SOj8ORI23; .artifacts/tg008-calibration/20261009-093623-reference-answers/bat-pager-precedence/answer.md; sha256:877204dd12e28450f5c16ca90b43858906f6a2ac99e8cd663237853cc108b5d0",
+    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-VgejcqxY6y4SOj8ORI23; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/bat-pager-precedence/answer.md; sha256:877204dd12e28450f5c16ca90b43858906f6a2ac99e8cd663237853cc108b5d0",
     "check": {
       "id": "selection-function",
       "kind": "matches",
@@ -941,7 +941,7 @@
   {
     "name": "verifiable-bat-pager-precedence-environment-variant",
     "why": "The answer names PagerSource::EnvVarBatPager, matching the BAT_PAGER branch at src/pager.rs:99 and its enum declaration at line 11. This verdict covers the declared fact only.",
-    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-VgejcqxY6y4SOj8ORI23; .artifacts/tg008-calibration/20261009-093623-reference-answers/bat-pager-precedence/answer.md; sha256:877204dd12e28450f5c16ca90b43858906f6a2ac99e8cd663237853cc108b5d0",
+    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538583-VgejcqxY6y4SOj8ORI23; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/bat-pager-precedence/answer.md; sha256:877204dd12e28450f5c16ca90b43858906f6a2ac99e8cd663237853cc108b5d0",
     "check": {
       "id": "environment-variant",
       "kind": "contains",
@@ -958,7 +958,7 @@
   {
     "name": "verifiable-bat-asset-loading-asset-source",
     "why": "The answer identifies src/assets.rs, which contains HighlightingAssets::from_cache and from_binary at the pinned bat commit. This verdict covers the declared fact only.",
-    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538621-NGv6oGS5cTg54ov0k4et; .artifacts/tg008-calibration/20261009-093623-reference-answers/bat-asset-loading/answer.md; sha256:71730d0a929254d78aa0e3a0b647fb8faa4a2c03053ba7f49600927a4e353ba6",
+    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538621-NGv6oGS5cTg54ov0k4et; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/bat-asset-loading/answer.md; sha256:71730d0a929254d78aa0e3a0b647fb8faa4a2c03053ba7f49600927a4e353ba6",
     "check": {
       "id": "asset-source",
       "kind": "contains",
@@ -976,7 +976,7 @@
   {
     "name": "verifiable-bat-asset-loading-cached-theme-file",
     "why": "The answer states themes.bin as the cached theme-set filename, matching cache_path.join at src/assets.rs:76. This verdict covers the declared fact only.",
-    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538621-NGv6oGS5cTg54ov0k4et; .artifacts/tg008-calibration/20261009-093623-reference-answers/bat-asset-loading/answer.md; sha256:71730d0a929254d78aa0e3a0b647fb8faa4a2c03053ba7f49600927a4e353ba6",
+    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538621-NGv6oGS5cTg54ov0k4et; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/bat-asset-loading/answer.md; sha256:71730d0a929254d78aa0e3a0b647fb8faa4a2c03053ba7f49600927a4e353ba6",
     "check": {
       "id": "cached-theme-file",
       "kind": "contains",
@@ -994,7 +994,7 @@
   {
     "name": "verifiable-bat-asset-loading-integrated-theme-helper",
     "why": "The answer names get_integrated_themeset, declared at src/assets.rs:310 and called by from_binary at line 83. This verdict covers the declared fact only.",
-    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538621-NGv6oGS5cTg54ov0k4et; .artifacts/tg008-calibration/20261009-093623-reference-answers/bat-asset-loading/answer.md; sha256:71730d0a929254d78aa0e3a0b647fb8faa4a2c03053ba7f49600927a4e353ba6",
+    "source": "https://github.com/sharkdp/bat at 25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538621-NGv6oGS5cTg54ov0k4et; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/bat-asset-loading/answer.md; sha256:71730d0a929254d78aa0e3a0b647fb8faa4a2c03053ba7f49600927a4e353ba6",
     "check": {
       "id": "integrated-theme-helper",
       "kind": "contains",
@@ -1011,7 +1011,7 @@
   {
     "name": "verifiable-rg-thread-selection-thread-source",
     "why": "The answer names crates/core/flags/hiargs.rs, whose lines 167-173 select the thread count at the pinned ripgrep commit. This verdict covers the declared fact only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538630-dNKGu41NjMYMuW86tTmR; .artifacts/tg008-calibration/20261009-093623-reference-answers/rg-thread-selection/answer.md; sha256:aad4c72c068cd1da244fdeeb3b753b5cba3631450332b22457f0267a499d5e6a",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538630-dNKGu41NjMYMuW86tTmR; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/rg-thread-selection/answer.md; sha256:aad4c72c068cd1da244fdeeb3b753b5cba3631450332b22457f0267a499d5e6a",
     "check": {
       "id": "thread-source",
       "kind": "contains",
@@ -1029,7 +1029,7 @@
   {
     "name": "verifiable-rg-thread-selection-automatic-cap",
     "why": "The answer states automatic-thread-cap: 12. The automatic branch calls available_parallelism().map_or(1, |n| n.get()).min(12) at hiargs.rs:172. This verdict covers the declared fact only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538630-dNKGu41NjMYMuW86tTmR; .artifacts/tg008-calibration/20261009-093623-reference-answers/rg-thread-selection/answer.md; sha256:aad4c72c068cd1da244fdeeb3b753b5cba3631450332b22457f0267a499d5e6a",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538630-dNKGu41NjMYMuW86tTmR; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/rg-thread-selection/answer.md; sha256:aad4c72c068cd1da244fdeeb3b753b5cba3631450332b22457f0267a499d5e6a",
     "check": {
       "id": "automatic-cap",
       "kind": "matches",
@@ -1044,7 +1044,7 @@
   {
     "name": "verifiable-rg-thread-selection-sorted-count",
     "why": "The answer states sorted-thread-count: 1. The low.sort.is_some() branch at crates/core/flags/hiargs.rs:167-168 selects one thread. This verdict covers the declared fact only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538630-dNKGu41NjMYMuW86tTmR; .artifacts/tg008-calibration/20261009-093623-reference-answers/rg-thread-selection/answer.md; sha256:aad4c72c068cd1da244fdeeb3b753b5cba3631450332b22457f0267a499d5e6a",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538630-dNKGu41NjMYMuW86tTmR; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/rg-thread-selection/answer.md; sha256:aad4c72c068cd1da244fdeeb3b753b5cba3631450332b22457f0267a499d5e6a",
     "check": {
       "id": "sorted-count",
       "kind": "matches",
@@ -1060,7 +1060,7 @@
   {
     "name": "verifiable-rg-encoding-disable-encoding-source",
     "why": "The answer names crates/core/flags/defs.rs, whose Encoding flag parser maps none to EncodingMode::Disabled at line 1605. This verdict covers the declared fact only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538669-BHpjnTn1n0z4QjZx5163; .artifacts/tg008-calibration/20261009-093623-reference-answers/rg-encoding-disable/answer.md; sha256:5ab25e84954b3b79dcb46f8bb5b1e41f6c1b65f58b26749fa9f66e376a018e5d",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538669-BHpjnTn1n0z4QjZx5163; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/rg-encoding-disable/answer.md; sha256:5ab25e84954b3b79dcb46f8bb5b1e41f6c1b65f58b26749fa9f66e376a018e5d",
     "check": {
       "id": "encoding-source",
       "kind": "contains",
@@ -1078,7 +1078,7 @@
   {
     "name": "verifiable-rg-encoding-disable-disabled-mode",
     "why": "The answer names EncodingMode::Disabled, the actual flag-model variant selected by defs.rs:1605 at the pinned ripgrep commit. This verdict covers the declared fact only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538669-BHpjnTn1n0z4QjZx5163; .artifacts/tg008-calibration/20261009-093623-reference-answers/rg-encoding-disable/answer.md; sha256:5ab25e84954b3b79dcb46f8bb5b1e41f6c1b65f58b26749fa9f66e376a018e5d",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538669-BHpjnTn1n0z4QjZx5163; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/rg-encoding-disable/answer.md; sha256:5ab25e84954b3b79dcb46f8bb5b1e41f6c1b65f58b26749fa9f66e376a018e5d",
     "check": {
       "id": "disabled-mode",
       "kind": "contains",
@@ -1096,7 +1096,7 @@
   {
     "name": "verifiable-rg-encoding-disable-encoding-regression",
     "why": "The answer names f1207_ignore_encoding, declared in tests/feature.rs:867 and testing --encoding none at the pinned commit. This verdict covers the declared fact only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538669-BHpjnTn1n0z4QjZx5163; .artifacts/tg008-calibration/20261009-093623-reference-answers/rg-encoding-disable/answer.md; sha256:5ab25e84954b3b79dcb46f8bb5b1e41f6c1b65f58b26749fa9f66e376a018e5d",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538669-BHpjnTn1n0z4QjZx5163; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/rg-encoding-disable/answer.md; sha256:5ab25e84954b3b79dcb46f8bb5b1e41f6c1b65f58b26749fa9f66e376a018e5d",
     "check": {
       "id": "encoding-regression",
       "kind": "contains",
@@ -1113,7 +1113,7 @@
   {
     "name": "verifiable-rg-binary-retention-binary-source",
     "why": "The answer identifies crates/core/flags/hiargs.rs, where BinaryDetection::from_low_args at lines 1149-1165 constructs explicit and implicit policies. This verdict covers the declared fact only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538670-nKg1h0YRZwHymhq3KeX1; .artifacts/tg008-calibration/20261009-093623-reference-answers/rg-binary-retention/answer.md; sha256:9fe37bbf906b925c630b276f445e926cf5fb34218209b1f3ba85b74b370fab4a",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538670-nKg1h0YRZwHymhq3KeX1; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/rg-binary-retention/answer.md; sha256:9fe37bbf906b925c630b276f445e926cf5fb34218209b1f3ba85b74b370fab4a",
     "check": {
       "id": "binary-source",
       "kind": "contains",
@@ -1131,7 +1131,7 @@
   {
     "name": "verifiable-rg-binary-retention-text-mode",
     "why": "The answer names BinaryMode::AsText, declared in crates/core/flags/lowargs.rs and matched in hiargs.rs:1151 to disable binary detection. This verdict covers the declared fact only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538670-nKg1h0YRZwHymhq3KeX1; .artifacts/tg008-calibration/20261009-093623-reference-answers/rg-binary-retention/answer.md; sha256:9fe37bbf906b925c630b276f445e926cf5fb34218209b1f3ba85b74b370fab4a",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538670-nKg1h0YRZwHymhq3KeX1; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/rg-binary-retention/answer.md; sha256:9fe37bbf906b925c630b276f445e926cf5fb34218209b1f3ba85b74b370fab4a",
     "check": {
       "id": "text-mode",
       "kind": "contains",
@@ -1149,7 +1149,7 @@
   {
     "name": "verifiable-rg-binary-retention-quit-constructor",
     "why": "The answer names grep::searcher::BinaryDetection::quit. hiargs.rs:1163 applies that constructor to the NUL byte, and searcher/mod.rs:79 declares it. This verdict covers the declared fact only.",
-    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538670-nKg1h0YRZwHymhq3KeX1; .artifacts/tg008-calibration/20261009-093623-reference-answers/rg-binary-retention/answer.md; sha256:9fe37bbf906b925c630b276f445e926cf5fb34218209b1f3ba85b74b370fab4a",
+    "source": "https://github.com/BurntSushi/ripgrep at 4649aa9700619f94cf9c66876e9549d83420e16c; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538670-nKg1h0YRZwHymhq3KeX1; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/rg-binary-retention/answer.md; sha256:9fe37bbf906b925c630b276f445e926cf5fb34218209b1f3ba85b74b370fab4a",
     "check": {
       "id": "quit-constructor",
       "kind": "contains",
@@ -1166,7 +1166,7 @@
   {
     "name": "verifiable-gh-clone-retention-clone-source",
     "why": "The answer identifies pkg/cmd/repo/clone/clone.go, the command implementation at the pinned cli/cli commit. This verdict covers the declared fact only.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538706-uRUqjak3JxSiL0ZauQXi; .artifacts/tg008-calibration/20261009-093623-reference-answers/gh-clone-retention/answer.md; sha256:e96275040c5b11390e0e71c25c6fff9241f3cfdb3efadf53452e90048e0e405e",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538706-uRUqjak3JxSiL0ZauQXi; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/gh-clone-retention/answer.md; sha256:e96275040c5b11390e0e71c25c6fff9241f3cfdb3efadf53452e90048e0e405e",
     "check": {
       "id": "clone-source",
       "kind": "contains",
@@ -1184,7 +1184,7 @@
   {
     "name": "verifiable-gh-clone-retention-url-cleanup",
     "why": "The answer names simplifyURL, declared at clone.go:236 to construct a cleaned repository URL. This verdict covers the declared fact only.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538706-uRUqjak3JxSiL0ZauQXi; .artifacts/tg008-calibration/20261009-093623-reference-answers/gh-clone-retention/answer.md; sha256:e96275040c5b11390e0e71c25c6fff9241f3cfdb3efadf53452e90048e0e405e",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538706-uRUqjak3JxSiL0ZauQXi; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/gh-clone-retention/answer.md; sha256:e96275040c5b11390e0e71c25c6fff9241f3cfdb3efadf53452e90048e0e405e",
     "check": {
       "id": "url-cleanup",
       "kind": "contains",
@@ -1202,7 +1202,7 @@
   {
     "name": "verifiable-gh-clone-retention-base-remote-method",
     "why": "The answer names SetRemoteResolution, called with base at clone.go:213 and declared in git/client.go:208. This verdict covers the declared fact only.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538706-uRUqjak3JxSiL0ZauQXi; .artifacts/tg008-calibration/20261009-093623-reference-answers/gh-clone-retention/answer.md; sha256:e96275040c5b11390e0e71c25c6fff9241f3cfdb3efadf53452e90048e0e405e",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-093623-reference-answers; generation gen-1791538706-uRUqjak3JxSiL0ZauQXi; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/gh-clone-retention/answer.md; sha256:e96275040c5b11390e0e71c25c6fff9241f3cfdb3efadf53452e90048e0e405e",
     "check": {
       "id": "base-remote-method",
       "kind": "contains",
@@ -1219,7 +1219,7 @@
   {
     "name": "verifiable-gh-list-pagination-search-cap-field",
     "why": "The answer names SearchCapped, declared in api/queries_pr.go:16 and api/queries_issue.go:20 and set when limit exceeds 1000. This verdict covers the declared fact only.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-094006-reference-answers; generation gen-1791538806-fd1510aYGMAHte9OC9Yq; .artifacts/tg008-calibration/20261009-094006-reference-answers/gh-list-pagination/answer.md; sha256:9588e1c08bd819e9ef01f6b7a310cd4434e64420787257fc5dde24e309047717",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-094006-reference-answers; generation gen-1791538806-fd1510aYGMAHte9OC9Yq; .artifacts/reports/verifiable-corpus/reference-answers/20261009-094006-reference-answers/gh-list-pagination/answer.md; sha256:9588e1c08bd819e9ef01f6b7a310cd4434e64420787257fc5dde24e309047717",
     "check": {
       "id": "search-cap-field",
       "kind": "matches",
@@ -1234,7 +1234,7 @@
   {
     "name": "verifiable-gh-list-pagination-pr-list-source",
     "why": "The answer names pkg/cmd/pr/list/list.go, the pinned PR-list command implementation. This verdict covers the declared fact only.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-094006-reference-answers; generation gen-1791538806-fd1510aYGMAHte9OC9Yq; .artifacts/tg008-calibration/20261009-094006-reference-answers/gh-list-pagination/answer.md; sha256:9588e1c08bd819e9ef01f6b7a310cd4434e64420787257fc5dde24e309047717",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-094006-reference-answers; generation gen-1791538806-fd1510aYGMAHte9OC9Yq; .artifacts/reports/verifiable-corpus/reference-answers/20261009-094006-reference-answers/gh-list-pagination/answer.md; sha256:9588e1c08bd819e9ef01f6b7a310cd4434e64420787257fc5dde24e309047717",
     "check": {
       "id": "pr-list-source",
       "kind": "contains",
@@ -1252,7 +1252,7 @@
   {
     "name": "verifiable-gh-list-pagination-default-list-limit",
     "why": "The answer states default-list-limit: 30, matching the --limit defaults in pkg/cmd/pr/list/list.go:105 and pkg/cmd/issue/list/list.go:104. This verdict covers the declared fact only.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-094006-reference-answers; generation gen-1791538806-fd1510aYGMAHte9OC9Yq; .artifacts/tg008-calibration/20261009-094006-reference-answers/gh-list-pagination/answer.md; sha256:9588e1c08bd819e9ef01f6b7a310cd4434e64420787257fc5dde24e309047717",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-094006-reference-answers; generation gen-1791538806-fd1510aYGMAHte9OC9Yq; .artifacts/reports/verifiable-corpus/reference-answers/20261009-094006-reference-answers/gh-list-pagination/answer.md; sha256:9588e1c08bd819e9ef01f6b7a310cd4434e64420787257fc5dde24e309047717",
     "check": {
       "id": "default-list-limit",
       "kind": "matches",
@@ -1268,7 +1268,7 @@
   {
     "name": "verifiable-gh-list-pagination-search-result-ceiling",
     "why": "The answer states search-result-ceiling: 1000. Both list commands warn that Search API results are capped at 1000, at PR list.go:197 and issue list.go:203; 100 is the per-request page size. This verdict covers the declared fact only.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-094006-reference-answers; generation gen-1791538806-fd1510aYGMAHte9OC9Yq; .artifacts/tg008-calibration/20261009-094006-reference-answers/gh-list-pagination/answer.md; sha256:9588e1c08bd819e9ef01f6b7a310cd4434e64420787257fc5dde24e309047717",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; real reference answer from supplied pinned source excerpts (not a runner benchmark); run 20261009-094006-reference-answers; generation gen-1791538806-fd1510aYGMAHte9OC9Yq; .artifacts/reports/verifiable-corpus/reference-answers/20261009-094006-reference-answers/gh-list-pagination/answer.md; sha256:9588e1c08bd819e9ef01f6b7a310cd4434e64420787257fc5dde24e309047717",
     "check": {
       "id": "search-result-ceiling",
       "kind": "matches",
@@ -1284,7 +1284,7 @@
   {
     "name": "verifiable-gh-list-pagination-wrong-ceiling",
     "why": "The answer labels search-result-ceiling: 100, confusing page size with the overall Search API ceiling. Pinned PR list.go:197 and issue list.go:203 explicitly warn of the 1000-result cap. The declared 1000 check must reject this real wrong answer.",
-    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; supplied-source reference run 20261009-093623-reference-answers; generation gen-1791538707-Q92TrZk3ES3lcQhzDgbQ; .artifacts/tg008-calibration/20261009-093623-reference-answers/gh-list-pagination/answer.md; sha256:4757c987d4614adbd3971ea3641dbfd1c1b9c3b8af973702ef9bb46bd4b04fc0",
+    "source": "https://github.com/cli/cli at b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a; qwen/qwen3.7-flash; supplied-source reference run 20261009-093623-reference-answers; generation gen-1791538707-Q92TrZk3ES3lcQhzDgbQ; .artifacts/reports/verifiable-corpus/reference-answers/20261009-093623-reference-answers/gh-list-pagination/answer.md; sha256:4757c987d4614adbd3971ea3641dbfd1c1b9c3b8af973702ef9bb46bd4b04fc0",
     "check": {
       "id": "search-result-ceiling",
       "kind": "matches",
