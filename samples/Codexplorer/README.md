@@ -146,7 +146,10 @@ Then copy `samples/Codexplorer.Automation/src/appsettings.Development.example.js
 }
 ```
 
-Set `CodexplorerExecutablePath` to your local absolute path from previous build. Then provide helper credentials either in that ignored local file or through environment variable:
+Set `CodexplorerExecutablePath` to your local absolute path from the previous build. The helper automatically uses
+`Codexplorer:OpenRouter:ApiKey` from the sample's `appsettings.Development.json` beside that executable when no helper key
+or `OPENROUTER_API_KEY` is configured. Building the sample copies its local development file there, so one local key is enough.
+You can also provide separate helper credentials in the runner's ignored local file or through an environment variable:
 
 ```bash
 export OPENROUTER_API_KEY="your-openrouter-api-key"

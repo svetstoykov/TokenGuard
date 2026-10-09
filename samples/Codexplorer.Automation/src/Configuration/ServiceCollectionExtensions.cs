@@ -25,12 +25,27 @@ public static class ServiceCollectionExtensions
     /// <param name="services">The service collection to update.</param>
     /// <param name="configuration">The configuration root used to bind runner options.</param>
     /// <returns>The same <see cref="IServiceCollection"/> instance for fluent chaining.</returns>
+    /// <remarks>
+    /// When helper credentials are absent, reads Codexplorer:OpenRouter:ApiKey from appsettings.Development.json beside the sample executable.
+    /// </remarks>
     public static IServiceCollection AddCodexplorerAutomation(
         this IServiceCollection services,
         IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
+
+        var helperApiKeyPath = $"{CodexplorerAutomationOptions.SectionName}:HelperAi:ApiKey";
+        var executablePath = configuration[$"{CodexplorerAutomationOptions.SectionName}:CodexplorerExecutablePath"];
+        if (string.IsNullOrWhiteSpace(configuration[helperApiKeyPath]) && string.IsNullOrWhiteSpace(configuration["OPENROUTER_API_KEY"])
+            && !string.IsNullOrWhiteSpace(executablePath) && Path.IsPathRooted(executablePath))
+        {
+            using var sampleConfiguration = new ConfigurationManager();
+            sampleConfiguration.AddJsonFile(Path.Combine(Path.GetDirectoryName(executablePath)!, "appsettings.Development.json"), optional: true);
+            var sampleApiKey = sampleConfiguration["Codexplorer:OpenRouter:ApiKey"];
+            if (!string.IsNullOrWhiteSpace(sampleApiKey))
+                configuration[helperApiKeyPath] = sampleApiKey;
+        }
 
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<CodexplorerAutomationOptions>, CodexplorerAutomationOptionsValidator>());
