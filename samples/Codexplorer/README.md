@@ -142,7 +142,7 @@ Then copy `samples/Codexplorer.Automation/src/appsettings.Development.example.js
     "CodexplorerExecutablePath": "/absolute/path/to/TokenGuard/samples/Codexplorer/src/bin/Debug/net10.0/Codexplorer",
     "ManifestPath": "./tasks/initial-corpus.json",
     "HelperAi": {
-      "ModelName": "deepseek/deepseek-v4.1-flash",
+      "ModelName": "qwen/qwen3.7-flash",
       "ApiKey": ""
     }
   }
@@ -420,8 +420,8 @@ rates fail. Informational fields cannot have limits: `checksTotal`, `checksPasse
 `deliverableCompletedTaskCount`, `probeCount`, `passedProbeCount`, `canaryPresentCount`. There are no default thresholds.
 Use `probePassRate` limits between the same arm's valid-probe populations.
 
-The committed historical treatment baseline is schema 2. It awaits an authorized live schema-3 replacement and cannot be compared
-by the schema-3 command. Preserve its recorded provenance until a qualifying real run replaces it.
+The committed treatment baseline is a real schema-3 Qwen run. Its [baseline notes](../Codexplorer.Automation/baselines/README.md)
+record the operational checks, deliverable verdicts, invalid retention probe, and observed summarization failures.
 
 Manual baseline reports live under `samples/Codexplorer.Automation/baselines/`. Their recorded commit must include both TG-013
 and this implementation. Baselines come from real provider calls after committing the implementation; credentials stay in local
@@ -475,7 +475,7 @@ Example:
 {
   "Codexplorer": {
     "Model": {
-      "Name": "deepseek/deepseek-v4.1-flash",
+      "Name": "qwen/qwen3.7-flash",
       "MaxOutputTokens": 8192,
       "Temperature": 0.0
     },

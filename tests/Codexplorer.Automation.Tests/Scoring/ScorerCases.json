@@ -645,5 +645,110 @@
       "passed": true,
       "reason": null
     }
+  },
+  {
+    "name": "bat-070245-qwen-final-manifest",
+    "why": "The text explicitly identifies Cargo.toml as the root build manifest.",
+    "source": "sharkdp/bat run 20261009-070245-treatment; qwen/qwen3.7-flash; clean operational trial at 4ccd4f30e1879427ade9a68262abec17f4c8f76b; .artifacts/reports/benchmark/20261009-070245-treatment/baseline-bat-docs/capture/final-answer.md; sha256:cd984dbac128fafe1948dd5778762bd25bb713dc5774dd5bd57c13065a97cd6e",
+    "check": {
+      "id": "bat-070245-qwen-final-manifest",
+      "kind": "contains",
+      "anyOf": [
+        "Cargo.toml"
+      ]
+    },
+    "textFile": "bat-070245-qwen-final.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-070245-qwen-final-setting",
+    "why": "The text explicitly names rust-version; this label checks the setting name rather than the claimed numeric value.",
+    "source": "sharkdp/bat run 20261009-070245-treatment; qwen/qwen3.7-flash; clean operational trial at 4ccd4f30e1879427ade9a68262abec17f4c8f76b; .artifacts/reports/benchmark/20261009-070245-treatment/baseline-bat-docs/capture/final-answer.md; sha256:cd984dbac128fafe1948dd5778762bd25bb713dc5774dd5bd57c13065a97cd6e",
+    "check": {
+      "id": "bat-070245-qwen-final-setting",
+      "kind": "contains",
+      "anyOf": [
+        "rust-version"
+      ]
+    },
+    "textFile": "bat-070245-qwen-final.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-070245-qwen-final-test-command",
+    "why": "The text explicitly gives cargo test as the primary test command.",
+    "source": "sharkdp/bat run 20261009-070245-treatment; qwen/qwen3.7-flash; clean operational trial at 4ccd4f30e1879427ade9a68262abec17f4c8f76b; .artifacts/reports/benchmark/20261009-070245-treatment/baseline-bat-docs/capture/final-answer.md; sha256:cd984dbac128fafe1948dd5778762bd25bb713dc5774dd5bd57c13065a97cd6e",
+    "check": {
+      "id": "bat-070245-qwen-final-test-command",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ]
+    },
+    "textFile": "bat-070245-qwen-final.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-070245-qwen-notes-manifest",
+    "why": "The text explicitly identifies Cargo.toml as the root build manifest.",
+    "source": "sharkdp/bat run 20261009-070245-treatment; qwen/qwen3.7-flash; clean operational trial at 4ccd4f30e1879427ade9a68262abec17f4c8f76b; .artifacts/reports/benchmark/20261009-070245-treatment/baseline-bat-docs/artifacts/baseline.md; sha256:4cd708df67cb3e28e85be0f98146a285cc05c88f9cbb2b5f6a0bdc310b85d293",
+    "check": {
+      "id": "bat-070245-qwen-notes-manifest",
+      "kind": "contains",
+      "anyOf": [
+        "Cargo.toml"
+      ],
+      "artifact": "baseline.md"
+    },
+    "textFile": "bat-070245-qwen-notes.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-070245-qwen-notes-setting",
+    "why": "The text explicitly names rust-version; this label checks the setting name rather than the claimed numeric value.",
+    "source": "sharkdp/bat run 20261009-070245-treatment; qwen/qwen3.7-flash; clean operational trial at 4ccd4f30e1879427ade9a68262abec17f4c8f76b; .artifacts/reports/benchmark/20261009-070245-treatment/baseline-bat-docs/artifacts/baseline.md; sha256:4cd708df67cb3e28e85be0f98146a285cc05c88f9cbb2b5f6a0bdc310b85d293",
+    "check": {
+      "id": "bat-070245-qwen-notes-setting",
+      "kind": "contains",
+      "anyOf": [
+        "rust-version"
+      ],
+      "artifact": "baseline.md"
+    },
+    "textFile": "bat-070245-qwen-notes.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-070245-qwen-notes-test-command",
+    "why": "The text explicitly gives cargo test as the primary test command.",
+    "source": "sharkdp/bat run 20261009-070245-treatment; qwen/qwen3.7-flash; clean operational trial at 4ccd4f30e1879427ade9a68262abec17f4c8f76b; .artifacts/reports/benchmark/20261009-070245-treatment/baseline-bat-docs/artifacts/baseline.md; sha256:4cd708df67cb3e28e85be0f98146a285cc05c88f9cbb2b5f6a0bdc310b85d293",
+    "check": {
+      "id": "bat-070245-qwen-notes-test-command",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ],
+      "artifact": "baseline.md"
+    },
+    "textFile": "bat-070245-qwen-notes.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
   }
 ]
