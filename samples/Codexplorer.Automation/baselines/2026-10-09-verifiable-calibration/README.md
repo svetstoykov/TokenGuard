@@ -104,3 +104,38 @@ are expected to be invalid because its opening instructions survive.
 Model-provider metadata retrieved during calibration advertises a one-million-token context window. Its price tiers increase
 above 32,000 and 256,000 prompt tokens, so the cheapest input rate is insufficient to budget the control arm. Use recorded
 provider input/output usage and the applicable tiers; distinguish estimates from actual provider-reported charges.
+
+## Interrupted full-control attempt
+
+[`control-interrupted.json`](control-interrupted.json) preserves run `20261009-095752-control`, launched concurrently
+with the full treatment on clean commit `289a9a1`. The frozen manifest SHA-256 is
+`94d7112a080e076f0baaf806b66782b917b1940cb03761300e863ef136defb01`. Both attempts used the same
+12/48/64 call allowances and 4/8/8 wrap-up windows described above.
+
+The binary task's fifteenth provider call failed with HTTP 429 at 2026-10-09 10:14:06 UTC before a final answer.
+The runner continued, but this control could no longer support a complete measured comparison. It was interrupted
+during the clone task; the tenth task was unrun. The original partial report is retained byte-for-byte: seven of nine
+evaluated tasks completed their protocol, 21 of 27 evaluated checks passed, and two calls have missing input/output
+usage. Report validation rejects its incomplete control coverage. It recorded no compaction, strategy runs, or
+summarizer calls. This diagnostic is excluded from the baseline pair; control is retried sequentially after treatment
+with the unchanged manifest, model, and settings.
+
+The concurrent treatment, run `20261009-095752-treatment`, also received HTTP 429 on the binary task's thirty-fifth
+call at 2026-10-09 10:25:29 UTC. It was interrupted during emergency-task reads.
+[`treatment-interrupted.json`](treatment-interrupted.json) preserves that original partial diagnostic. It evaluated eight
+tasks, with the last two unrun; provider usage is incomplete. The preprocessor task had already exhausted its 48-call
+allowance without a final answer, so its probe is invalid with `noAnswer`. That budget outcome is separate from the later
+provider failure. Neither interrupted report is used for measured reduction. Both arms are retried one at a time using
+the frozen settings; the API key still had spend-limit headroom when the rate-limit failures were investigated.
+
+The first sequential treatment retry, `20261009-110334-treatment`, also received HTTP 429, on the sixth
+thread-selection call (captured timestamp 2026-10-09 11:10:42 UTC). It was interrupted during encoding exploration.
+[`treatment-retry-interrupted.json`](treatment-retry-interrupted.json) preserves its original partial report.
+This shows that sequential execution alone does not eliminate the provider failures. The successful full control
+remains separate; no failed-task answer or usage is substituted into a baseline report.
+
+A diagnostic request using the failed thread-selection call's prepared messages and tool schemas succeeded with
+the same Qwen slug and an 8,192-token output cap, via Alibaba (generation `gen-1791544559-jvnvPjyL5E60WuQrauZT`). It reported
+13,875 input and 237 output tokens. The captured tool arguments all parse as valid JSON.
+This supports treating that failure as transient provider behavior; the diagnostic answer and usage are excluded
+from the benchmark. A new full treatment attempt uses the unchanged corpus and effective settings.

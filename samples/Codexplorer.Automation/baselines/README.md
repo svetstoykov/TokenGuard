@@ -1,5 +1,13 @@
 # Manual run baselines
 
+The [full pinned-corpus baseline](2026-10-09-verifiable-baseline.md) records ten tasks in both arms:
+[control](2026-10-09-verifiable-control.json) and [treatment](2026-10-09-verifiable-treatment.json).
+Control passes 31/31 declared checks; treatment passes 21/31 and uses 74.1924% less agent input. Treatment has one
+failed task with complete measurements and only one valid retention probe. The notes explain the incomplete
+deliverables, formatting requirements, probe denominator, and why the usage difference does not establish equivalent work.
+The [calibration evidence](2026-10-09-verifiable-calibration/README.md) preserves real-answer labels, no-tools responses,
+probe pilots, and interrupted attempts. The remainder below records the earlier one-task model trial.
+
 [`2026-10-07-bat-treatment.json`](2026-10-07-bat-treatment.json) is the actual schema-3 OpenRouter treatment report for
 [`report-baseline.json`](../src/tasks/report-baseline.json). The existing filename now contains the **2026-10-09** run,
 replacing the historical schema-2 baseline.

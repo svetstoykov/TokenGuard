@@ -437,15 +437,16 @@ rates fail. Informational fields cannot have limits: `checksTotal`, `checksPasse
 `deliverableCompletedTaskCount`, `probeCount`, `passedProbeCount`, `canaryPresentCount`. There are no default thresholds.
 Use `probePassRate` limits between the same arm's valid-probe populations.
 
-The committed treatment baseline is a real schema-3 Qwen run. Its [baseline notes](../Codexplorer.Automation/baselines/README.md)
-record the operational checks, deliverable verdicts, invalid retention probe, and observed summarization failures.
+The [full pinned-corpus baseline](../Codexplorer.Automation/baselines/2026-10-09-verifiable-baseline.md) records real
+schema-3 Qwen treatment and control runs, deliverable checks, probe eligibility, measured input usage, and observed
+failures. The [baseline index](../Codexplorer.Automation/baselines/README.md) also retains the earlier one-task model trial.
 
 Manual baseline reports live under `samples/Codexplorer.Automation/baselines/`. Their recorded commit must include both TG-013
 and this implementation. Baselines come from real provider calls after committing the implementation; credentials stay in local
 configuration or the environment. Deterministic sample tests live in `tests/Codexplorer.Automation.Tests`; live runs remain manual.
 
-The [treatment baseline](../Codexplorer.Automation/baselines/README.md) records a successful real run of
-`report-baseline.json`, including its implementation commit, effective settings, and measurement checks.
+The [baseline index](../Codexplorer.Automation/baselines/README.md) links the full pinned corpus and the successful
+one-task `report-baseline.json` trial, including their implementation commits, effective settings, and measurement checks.
 
 ## Configuration
 
