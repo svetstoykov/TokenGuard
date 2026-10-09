@@ -170,7 +170,10 @@ dotnet run
 
 Shipped batch workflow:
 
-1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty queued tasks with task ID, title, `repositoryUrl`, initial prompt, and size class.
+1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty repository-survey tasks.
+   `verifiable-corpus.json` in the same directory defines ten pinned tasks (three Small, four Medium, three Large),
+   with 31 deliverable checks and four retention probes, including one requiring emergency truncation.
+   Select a corpus with `CodexplorerAutomation:ManifestPath`.
 2. Runner creates one run folder, loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
 3. Each shipped task tells Codexplorer not to modify repository source files and to write its deliverables with the artifact tools.
 4. Each task's session writes only into its own session directory inside the run folder. Nothing is written into the cloned repository.
@@ -280,6 +283,17 @@ An eligible probe passes when the code matches anywhere in the final answer, oth
 `canaryPresent` remains informational for invalid probes, including full-context controls. Probe pass rate is a regression signal,
 not a general claim about instruction retention, and opening survival can make a short run's probe invalid.
 
+The verifiable corpus checks a concrete fact in each final answer and records supporting facts in `evidence.md`.
+Its Medium probes request one findings-only progress reply after recording facts so a runner continuation can begin a new
+tool loop. The opening user message is protected during its active loop; making that loop longer or lowering its token budget
+alone cannot remove that protection. The emergency probe requests an isolated `file_tree` call on `pkg/cmd/api` before batching
+large source reads, giving truncation an older exchange to drop. Eligibility still depends on the last completed prepare.
+
+Before recording this corpus's baseline, measure the model's guess rate with one no-tools answer per prompt and review real
+correct-answer specimens for every check. Freeze the manifest before recording both arms: prompt and check edits change its
+SHA-256 and require new compatible reports. Large source reads accumulate in the control arm, so use recorded provider usage
+to assess cost rather than assuming each call adds only a few thousand tokens.
+
 ### Run reports and comparison
 
 Every manifest run writes UTF-8 schema-version-3 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
@@ -294,7 +308,8 @@ dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.c
 ```
 
 Configure the absolute child executable path and provider credentials as described above. The checked-in `report-baseline.json`
-contains one documentation survey task for a short manual baseline; `initial-corpus.json` contains the full twenty-task corpus.
+contains one documentation survey task for a short manual baseline; `initial-corpus.json` contains twenty repository-survey
+tasks, and `verifiable-corpus.json` contains ten pinned, checked tasks. Use the latter path for both arms of a verifiable-corpus baseline.
 To identify a checkout when automatic Git discovery cannot find TokenGuard, set `CodexplorerAutomation:RepositoryPath`.
 Run metadata records the commit and dirty flag at run start, UTC timestamps, effective model and budget settings, generation caps,
 TokenGuard log level, arm, and the SHA-256 hash of the immutable manifest bytes executed. Inline tasks use deterministic JSON
