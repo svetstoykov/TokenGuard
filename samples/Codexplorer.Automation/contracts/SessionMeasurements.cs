@@ -40,6 +40,12 @@ internal sealed record SessionMeasurements
     /// </summary>
     public long MessagesDropped { get; init; } = 0;
 
+    /// <summary>Gets the messages masked according to the compaction meter; defaults to zero.</summary>
+    public long MessagesMasked { get; init; } = 0;
+
+    /// <summary>Gets the messages summarized according to the compaction meter; defaults to zero.</summary>
+    public long MessagesSummarized { get; init; } = 0;
+
     /// <summary>
     ///     Gets the emergency truncation operations.
     /// </summary>

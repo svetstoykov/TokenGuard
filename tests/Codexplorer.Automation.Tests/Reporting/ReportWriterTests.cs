@@ -27,7 +27,7 @@ public sealed class ReportWriterTests
             var json = await File.ReadAllTextAsync(Path.Combine(directory, "run-report.json"));
             var report = JsonSerializer.Deserialize<RunReport>(json, ReportJson.Options)!;
             report.Totals.Metrics.ProviderInputTokens.Should().Be(200);
-            json.Should().Contain("\"schemaVersion\": 2");
+            json.Should().Contain("\"schemaVersion\": 3");
             json.Should().NotContain("initialPrompt").And.NotContain("apiKey").And.NotContain("repositoryUrl").And.NotContain("answerText");
             Directory.GetFiles(directory).Should().HaveCount(1);
         }
@@ -39,4 +39,29 @@ public sealed class ReportWriterTests
             }
         }
     }
+    /// <summary>Verifies schema-3 verdict writing excludes scoring inputs while retaining nullable fields.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task WriteAsync_QualityResultsExcludeExpectedValuesPatternsAndCodes()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "tg-scored-report-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var report = ReportFixture.Scored([new CheckResult { Id = "fact", Passed = true, Reason = null }],
+                new ProbeResult { Requires = null, Status = "passed", Reason = null, CanaryPresent = true });
+            await new JsonRunReportWriter().WriteAsync(report, directory);
+            var json = await File.ReadAllTextAsync(Path.Combine(directory, "run-report.json"));
+            json.Should().Contain("\"checks\":").And.Contain("\"canaryPresent\": true").And.Contain("\"reason\": null");
+            json.Should().NotContain("\"anyOf\"").And.NotContain("\"noneOf\"").And.NotContain("\"pattern\"")
+                .And.NotContain("\"canary\"").And.NotContain("\"finalAnswer\"");
+            var written = JsonSerializer.Deserialize<RunReport>(json, ReportJson.Options)!;
+            ReportValidator.Validate(written).Should().BeEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
 }

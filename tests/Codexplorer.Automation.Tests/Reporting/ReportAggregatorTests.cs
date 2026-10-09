@@ -1,3 +1,4 @@
+using Codexplorer.Automation.Scoring;
 using Codexplorer.Automation.Reporting;
 using Codexplorer.Measurements;
 using FluentAssertions;
@@ -21,7 +22,8 @@ public sealed class ReportAggregatorTests
             Complete = true,
             PrepareRecords = Enumerable.Range(1, 20).Select(index => new PrepareMeasurement
             {
-                Index = index, Turn = index + 3, Status = "completed", Outcome = "Ready", TokensBefore = 120, TokensAfter = index
+                Index = index, Turn = index + 3, Status = "completed", OpeningMessagePresent = true,
+                Outcome = "Ready", TokensBefore = 120, TokensAfter = index
             }).Append(new PrepareMeasurement { Index = 21 }).ToArray(),
             ProviderCalls = Enumerable.Range(1, 20).Select(index => new ProviderCallMeasurement
             {
@@ -29,7 +31,9 @@ public sealed class ReportAggregatorTests
             }).Append(new ProviderCallMeasurement { PrepareIndex = 21, TranscriptIndex = 21, Status = "cancelled" }).ToArray()
         };
 
-        var result = new ReportAggregator().CreateTask("task", "small", "reply_received", true, 24, measurements, [], 0, null);
+        var result = new ReportAggregator().CreateTask(
+            "task", "small", "reply_received", true, 24, measurements, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
 
         result.Metrics.EstimatorPairedTurnCount.Should().Be(20);
         result.Metrics.EstimatorSignedMean.Should().BeApproximately(0.895, 0.000001);
@@ -47,12 +51,17 @@ public sealed class ReportAggregatorTests
     {
         var measurements = new SessionMeasurements
         {
-            PrepareRecords = [new PrepareMeasurement { Index = 1, Status = "completed", Outcome = "Ready", TokensBefore = 0, TokensAfter = 0 }],
+            PrepareRecords = [new PrepareMeasurement
+            {
+                Index = 1, Status = "completed", OpeningMessagePresent = true, Outcome = "Ready", TokensBefore = 0, TokensAfter = 0,
+            }],
             ProviderCalls = [new ProviderCallMeasurement { PrepareIndex = 1, TranscriptIndex = 1, Status = "failed" }],
             SummarizerCalls = 1
         };
 
-        var result = new ReportAggregator().CreateTask("task", "small", "failed", false, 1, measurements, [], 1, null);
+        var result = new ReportAggregator().CreateTask(
+            "task", "small", "failed", false, 1, measurements, [], 1, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
 
         result.Metrics.ProviderInputTokens.Should().BeNull();
         result.Metrics.ProviderMissingInputUsageCalls.Should().Be(1);
@@ -76,7 +85,9 @@ public sealed class ReportAggregatorTests
             ProviderCalls = [task.ProviderCalls[0] with { TranscriptIndex = 0 }]
         };
         var aggregator = new ReportAggregator();
-        var replacement = aggregator.CreateTask("task", "small", "reply_received", true, 24, measurements, [], 0, null);
+        var replacement = aggregator.CreateTask(
+            "task", "small", "reply_received", true, 24, measurements, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
         var updated = aggregator.CreateReport(report.Run, [replacement], [], false);
 
         ReportValidator.Validate(updated).Should().BeEmpty();
@@ -114,7 +125,9 @@ public sealed class ReportAggregatorTests
             ProviderCalls = [template.ProviderCalls[0], template.ProviderCalls[0] with { PrepareIndex = 2, TranscriptIndex = 2 }]
         };
 
-        var result = new ReportAggregator().CreateTask("task", "small", "reply_received", true, 24, measurements, [], 0, null);
+        var result = new ReportAggregator().CreateTask(
+            "task", "small", "reply_received", true, 24, measurements, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
 
         result.TokenGuardTranscriptOffset.Should().BeNull();
         result.ProviderCalls.Select(call => call.PrepareIndex).Should().Equal(1, 2);
@@ -148,6 +161,9 @@ public sealed class ReportAggregatorTests
         var result = new ReportAggregator().CreateReport(report.Run, [], [], false);
 
         result.Totals.ProtocolCompletionRate.Should().BeNull();
+        result.Totals.DeliverableCompletionRate.Should().BeNull();
+        result.Totals.ProbePassRate.Should().BeNull();
+        result.Totals.Metrics.CheckPassRate.Should().BeNull();
         result.Totals.Metrics.EstimatedPromptTokenReduction.Should().BeNull();
         result.Totals.Metrics.EstimatorPairedTurnCount.Should().Be(0);
         result.Totals.Metrics.ProviderInputTokens.Should().Be(0);
@@ -167,7 +183,9 @@ public sealed class ReportAggregatorTests
                 task.ProviderCalls[0] with { PrepareIndex = 3, TranscriptIndex = 3, Status = "cancelled" }]
         };
 
-        var result = new ReportAggregator().CreateTask("task", "small", "turn_budget_reached", false, 2, measurements, [], 0, null);
+        var result = new ReportAggregator().CreateTask(
+            "task", "small", "turn_budget_reached", false, 2, measurements, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
 
         result.Metrics.ModelCallsMade.Should().Be(3);
         result.Metrics.CompletedModelTurns.Should().Be(1);
@@ -187,8 +205,53 @@ public sealed class ReportAggregatorTests
             PrepareRecords = [template.PrepareRecords[0] with { StrategyRuns = 1 }]
         };
 
-        var result = new ReportAggregator().CreateTask("task", "small", "reply_received", true, 24, measurements, [], 0, null);
+        var result = new ReportAggregator().CreateTask(
+            "task", "small", "reply_received", true, 24, measurements, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
 
         result.Metrics.TokensReclaimed.Should().Be(-50);
     }
+    /// <summary>Verifies check weighting, evaluated-task denominators and invalid probe exclusion.</summary>
+    [Fact]
+    public void CreateReport_QualityRatesUsePopulationsInsteadOfTaskAverages()
+    {
+        var first = ReportFixture.Scored([new CheckResult { Id = "one", Passed = true, Reason = null }],
+            new ProbeResult { Requires = null, Status = "passed", Reason = null, CanaryPresent = true });
+        var second = ReportFixture.Scored(Enumerable.Range(1, 3).Select(index =>
+            new CheckResult { Id = "fact" + index, Passed = false, Reason = "notFound" }).ToArray(),
+            new ProbeResult { Requires = null, Status = "invalid", Reason = "instructionNotCompacted", CanaryPresent = true }, opening: true);
+        var unevaluated = ReportFixture.Create(taskId: "third");
+        var tasks = new[] { first.Tasks[0], second.Tasks[0] with { TaskId = "second" }, unevaluated.Tasks[0] };
+
+        var report = new ReportAggregator().CreateReport(first.Run, tasks, [], false);
+
+        report.Totals.Metrics.ChecksTotal.Should().Be(4);
+        report.Totals.Metrics.ChecksPassed.Should().Be(1);
+        report.Totals.Metrics.CheckPassRate.Should().Be(0.25);
+        report.Totals.EvaluatedTaskCount.Should().Be(2);
+        report.Totals.DeliverableCompletedTaskCount.Should().Be(1);
+        report.Totals.DeliverableCompletionRate.Should().Be(0.5);
+        report.Totals.ProbeCount.Should().Be(2);
+        report.Totals.InvalidProbeCount.Should().Be(1);
+        report.Totals.PassedProbeCount.Should().Be(1);
+        report.Totals.ProbePassRate.Should().Be(1);
+        report.Totals.CanaryPresentCount.Should().Be(2);
+        report.Totals.Metrics.MessagesMasked.Should().Be(4);
+        report.Totals.Metrics.MessagesSummarized.Should().Be(6);
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
+    /// <summary>Verifies failed started tasks still count their deliverables and all-invalid probes have no rate.</summary>
+    [Fact]
+    public void CreateReport_FailedTaskCountsChecksAndInvalidProbe()
+    {
+        var report = ReportFixture.Scored([new CheckResult { Id = "fact", Passed = false, Reason = "noAnswer" }],
+            new ProbeResult { Requires = null, Status = "invalid", Reason = "noAnswer", CanaryPresent = false }, protocol: false);
+        report.Totals.EvaluatedTaskCount.Should().Be(1);
+        report.Totals.DeliverableCompletionRate.Should().Be(0);
+        report.Totals.ProbePassRate.Should().BeNull();
+        report.Tasks.Single().DeliverableCompletion.Should().Be("incomplete");
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
 }

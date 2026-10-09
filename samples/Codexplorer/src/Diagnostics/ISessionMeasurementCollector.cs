@@ -36,9 +36,10 @@ internal interface ISessionMeasurementCollector
     /// <param name="logEvent">The event emitted by Serilog.</param>
     void ObserveSummary(LogEvent logEvent);
 
-    /// <summary>Records an error reported by a completed prepare.</summary>
+    /// <summary>Records opening-message evidence and any summarization error from a completed prepare.</summary>
     /// <param name="hasSummarizationError">Whether the prepare reported a summarization error.</param>
-    void ObservePrepareResult(bool hasSummarizationError);
+    /// <param name="openingMessagePresent">Whether the unchanged opening user message remains in the prepared context.</param>
+    void ObservePrepareResult(bool hasSummarizationError, bool openingMessagePresent);
 
     /// <summary>Records the beginning of a provider attempt.</summary>
     /// <param name="transcriptIndex">The transcript index of the attempt.</param>

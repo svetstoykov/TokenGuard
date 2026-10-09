@@ -1,4 +1,5 @@
 using Codexplorer.Automation.Client;
+using Codexplorer.Automation.Scoring;
 using Codexplorer.Automation.Runner;
 using Codexplorer.Automation.Reporting;
 using Microsoft.Extensions.Configuration;
@@ -40,6 +41,7 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IAutomationProtocolTransport, ProcessAutomationProtocolTransport>();
         services.TryAddSingleton<ICodexplorerAutomationClient, CodexplorerAutomationClient>();
+        services.TryAddSingleton<IAnswerScorer, AnswerScorer>();
         services.TryAddSingleton<IAutomationTaskManifestLoader, AutomationTaskManifestLoader>();
         services.TryAddSingleton<IRunnerHelperAi, OpenRouterRunnerHelperAi>();
         services.TryAddSingleton<IRepositoryIdentityReader, GitRepositoryIdentityReader>();

@@ -137,6 +137,7 @@ internal static class ComparisonCommand
             output.WriteLine($"task {id} deliverableCompletion: baseline={previous.DeliverableCompletion} candidate={current.DeliverableCompletion}");
             output.WriteLine($"task {id} measurementsComplete: baseline={previous.MeasurementsComplete} candidate={current.MeasurementsComplete}");
             output.WriteLine($"task {id} summaryCrossCheck: baseline={previous.SummaryCrossCheck} candidate={current.SummaryCrossCheck}");
+            PrintScoring(output, id, previous, current);
         }
 
         output.WriteLine("Baseline-only tasks: " + string.Join(", ", baselineTasks.Keys.Except(candidateTasks.Keys).Order(StringComparer.Ordinal)));
@@ -159,7 +160,9 @@ internal static class ComparisonCommand
         var failedLimit = false;
         foreach (var (metric, limit) in limits)
         {
-            if (metric is "estimatorSignedMean" or "estimatorSignedP95" || !baselineMetrics.TryGetValue(metric, out var previous)
+            if (metric is "estimatorSignedMean" or "estimatorSignedP95" or "checksTotal" or "checksPassed" or "evaluatedTaskCount"
+                or "deliverableCompletedTaskCount" or "probeCount" or "passedProbeCount" or "canaryPresentCount"
+                || !baselineMetrics.TryGetValue(metric, out var previous)
                 || !candidateMetrics.TryGetValue(metric, out var current))
             {
                 output.WriteLine($"Unknown or informational metric cannot have a regression limit: {metric}.");
@@ -175,6 +178,7 @@ internal static class ComparisonCommand
             }
 
             var regression = metric is "protocolCompletionRate" or "estimatedPromptTokenReduction"
+                or "checkPassRate" or "deliverableCompletionRate" or "probePassRate"
                 ? previous.Value - current.Value : current.Value - previous.Value;
             if (regression > limit)
             {
@@ -244,7 +248,11 @@ internal static class ComparisonCommand
             throw new JsonException();
         }
 
-        foreach (var property in type.GetProperties().Where(property => property.SetMethod is not null))
+        var properties = type.GetProperties().Where(property => property.SetMethod is not null).ToArray();
+        var names = type.GetProperties().Select(property => JsonNamingPolicy.CamelCase.ConvertName(property.Name)).ToHashSet(StringComparer.Ordinal);
+        if (element.EnumerateObject().Any(property => !names.Contains(property.Name)))
+            throw new JsonException();
+        foreach (var property in properties)
         {
             if (!element.TryGetProperty(JsonNamingPolicy.CamelCase.ConvertName(property.Name), out var value))
             {
@@ -291,7 +299,13 @@ internal static class ComparisonCommand
         var previousTasks = baseline.Tasks.ToDictionary(task => task.TaskId, StringComparer.Ordinal);
         foreach (var task in candidate.Tasks.Where(task => previousTasks.ContainsKey(task.TaskId)))
         {
-            if (task.ModelCallBudget != previousTasks[task.TaskId].ModelCallBudget)
+            var previous = previousTasks[task.TaskId];
+            if (!previous.Checks.Select(check => check.Id).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                .SetEquals(task.Checks.Select(check => check.Id)))
+                mismatches.Add("taskChecks." + task.TaskId);
+            if ((previous.Probe is null) != (task.Probe is null) || previous.Probe?.Requires != task.Probe?.Requires)
+                mismatches.Add("taskProbe." + task.TaskId);
+            if (task.ModelCallBudget != previous.ModelCallBudget)
             {
                 mismatches.Add("taskBudget." + task.TaskId);
             }
@@ -336,6 +350,14 @@ internal static class ComparisonCommand
         metrics.Add("taskCount", report.Totals.TaskCount);
         metrics.Add("protocolCompletedTaskCount", report.Totals.ProtocolCompletedTaskCount);
         metrics.Add("protocolCompletionRate", report.Totals.ProtocolCompletionRate);
+        metrics.Add("evaluatedTaskCount", report.Totals.EvaluatedTaskCount);
+        metrics.Add("deliverableCompletedTaskCount", report.Totals.DeliverableCompletedTaskCount);
+        metrics.Add("deliverableCompletionRate", report.Totals.DeliverableCompletionRate);
+        metrics.Add("probeCount", report.Totals.ProbeCount);
+        metrics.Add("invalidProbeCount", report.Totals.InvalidProbeCount);
+        metrics.Add("passedProbeCount", report.Totals.PassedProbeCount);
+        metrics.Add("probePassRate", report.Totals.ProbePassRate);
+        metrics.Add("canaryPresentCount", report.Totals.CanaryPresentCount);
         return metrics;
     }
 
@@ -345,6 +367,34 @@ internal static class ComparisonCommand
         metrics.Add("modelCallBudget", task.ModelCallBudget);
         metrics.Add("tokenGuardTranscriptOffset", task.TokenGuardTranscriptOffset);
         return metrics;
+    }
+
+    private static void PrintScoring(TextWriter output, string id, TaskReport baseline, TaskReport candidate)
+    {
+        static string ProbeText(ProbeResult? probe) => probe is null ? "none"
+            : $"{probe.Status}({probe.Reason ?? "none"}) CanaryPresent={probe.CanaryPresent}";
+        static string CheckText(CheckResult? check) => check is null ? "missing" : check.Passed ? "pass" : $"fail({check.Reason})";
+        static string Counts(TaskReport task) =>
+            $"masked={task.Metrics.MessagesMasked} summarized={task.Metrics.MessagesSummarized} dropped={task.Metrics.MessagesDropped}";
+        output.WriteLine($"task {id} probe: baseline={ProbeText(baseline.Probe)} candidate={ProbeText(candidate.Probe)}");
+        if (baseline.Probe?.Status == "failed")
+            output.WriteLine($"task {id} failed baseline probe: {Counts(baseline)}");
+        if (candidate.Probe?.Status == "failed")
+            output.WriteLine($"task {id} failed candidate probe: {Counts(candidate)}");
+        var previous = baseline.Checks.ToDictionary(check => check.Id, StringComparer.OrdinalIgnoreCase);
+        var current = candidate.Checks.ToDictionary(check => check.Id, StringComparer.OrdinalIgnoreCase);
+        foreach (var checkId in previous.Keys.Union(current.Keys, StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            var left = previous.GetValueOrDefault(checkId);
+            var right = current.GetValueOrDefault(checkId);
+            if (left is not null && right is not null && left.Passed == right.Passed && left.Reason == right.Reason)
+                continue;
+            output.WriteLine($"task {id} check {checkId}: baseline={CheckText(left)} candidate={CheckText(right)}");
+            if (left?.Passed == false)
+                output.WriteLine($"task {id} failed baseline check {checkId}: {Counts(baseline)}");
+            if (right?.Passed == false)
+                output.WriteLine($"task {id} failed candidate check {checkId}: {Counts(candidate)}");
+        }
     }
 
     private static void PrintMetrics(TextWriter output, string label, IReadOnlyDictionary<string, double?> baseline,
@@ -413,7 +463,7 @@ internal static class ComparisonCommand
         return limits.TryAdd(value[..separator], limit);
     }
 
-    /// <summary>Recognizes distribution counters defined by report schema version 2.</summary>
+    /// <summary>Recognizes distribution counters defined by report schema version 3.</summary>
     /// <param name="metric">The full distribution metric name. Cannot be <see langword="null" />.</param>
     /// <returns>Whether the metric names a known prepare outcome or health signal.</returns>
     private static bool IsKnownDistributionMetric(string metric) => metric is
@@ -432,10 +482,16 @@ internal static class ComparisonCommand
         output.WriteLine("Absent known prepare outcomes and health signals count as zero; unknown names are rejected.");
         output.WriteLine("Increases regress token/count metrics and estimatorAbsoluteMean/P95; decreases regress protocolCompletionRate "
             + "and estimatedPromptTokenReduction. Signed estimator statistics accept no limits.");
+        output.WriteLine("Decreases regress checkPassRate, deliverableCompletionRate, probePassRate; "
+            + "increases regress invalidProbeCount, messagesMasked, messagesSummarized.");
+        output.WriteLine("Informational exclusions: checksTotal, checksPassed, evaluatedTaskCount, deliverableCompletedTaskCount, "
+            + "probeCount, passedProbeCount, canaryPresentCount; signed estimator statistics.");
+        output.WriteLine("Unavailable limited rates fail. Compare probePassRate only between the same arm's valid-probe populations.");
         output.WriteLine("Metrics: " + string.Join(", ", typeof(ReportMetrics).GetProperties()
             .Where(property => property.PropertyType == typeof(long) || property.PropertyType == typeof(long?)
                 || property.PropertyType == typeof(double?) && property.Name is not ("EstimatorSignedMean" or "EstimatorSignedP95"))
             .Select(property => JsonNamingPolicy.CamelCase.ConvertName(property.Name)))
-            + ", taskCount, protocolCompletedTaskCount, protocolCompletionRate, prepareOutcomeCounts.<name>, healthSignalCounts.<name>.");
+            + ", taskCount, protocolCompletedTaskCount, protocolCompletionRate, deliverableCompletionRate, probePassRate, invalidProbeCount, "
+            + "prepareOutcomeCounts.<name>, healthSignalCounts.<name>.");
     }
 }

@@ -1,0 +1,649 @@
+[
+  {
+    "name": "markdown-pass",
+    "why": "Removing backticks and asterisks leaves the exact path.",
+    "source": "constructed",
+    "check": {
+      "id": "markdown-pass",
+      "kind": "contains",
+      "anyOf": [
+        "src/main.rs"
+      ]
+    },
+    "text": "**src/ma`in.rs`**",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "markdown-near-miss",
+    "why": "Cleaning cannot remove the adjacent letter suffix.",
+    "source": "constructed",
+    "check": {
+      "id": "markdown-near-miss",
+      "kind": "contains",
+      "anyOf": [
+        "src/main.rs"
+      ]
+    },
+    "text": "**src/main.rsx**",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "slash-pass",
+    "why": "Backslashes normalize to forward slashes.",
+    "source": "constructed",
+    "check": {
+      "id": "slash-pass",
+      "kind": "contains",
+      "anyOf": [
+        "src/main.rs"
+      ]
+    },
+    "text": "src\\main.rs",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "slash-near-miss",
+    "why": "Slash cleaning cannot remove the letter suffix.",
+    "source": "constructed",
+    "check": {
+      "id": "slash-near-miss",
+      "kind": "contains",
+      "anyOf": [
+        "src/main.rs"
+      ]
+    },
+    "text": "src\\main.rsx",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "whitespace-pass",
+    "why": "The whitespace run collapses to one space.",
+    "source": "constructed",
+    "check": {
+      "id": "whitespace-pass",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ]
+    },
+    "text": "cargo\n\t test",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "whitespace-near-miss",
+    "why": "Whitespace cleaning does not stem a plural.",
+    "source": "constructed",
+    "check": {
+      "id": "whitespace-near-miss",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ]
+    },
+    "text": "cargo\ntests",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "case-pass",
+    "why": "Literal comparison ignores ordinal case.",
+    "source": "constructed",
+    "check": {
+      "id": "case-pass",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ]
+    },
+    "text": "CARGO TEST",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "case-near-miss",
+    "why": "Ignoring case does not remove a letter suffix.",
+    "source": "constructed",
+    "check": {
+      "id": "case-near-miss",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ]
+    },
+    "text": "CARGO TESTING",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "left-letter-pass",
+    "why": "A digit beside a letter endpoint is allowed.",
+    "source": "constructed",
+    "check": {
+      "id": "left-letter-pass",
+      "kind": "contains",
+      "anyOf": [
+        "Parse"
+      ]
+    },
+    "text": "1Parse",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "left-letter-near-miss",
+    "why": "A BMP letter before the letter endpoint splits a letter run.",
+    "source": "constructed",
+    "check": {
+      "id": "left-letter-near-miss",
+      "kind": "contains",
+      "anyOf": [
+        "Parse"
+      ]
+    },
+    "text": "éParse",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "right-letter-pass",
+    "why": "A digit after a letter endpoint is allowed.",
+    "source": "constructed",
+    "check": {
+      "id": "right-letter-pass",
+      "kind": "contains",
+      "anyOf": [
+        "Parse"
+      ]
+    },
+    "text": "Parse1",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "right-letter-near-miss",
+    "why": "A BMP letter after the letter endpoint splits a letter run.",
+    "source": "constructed",
+    "check": {
+      "id": "right-letter-near-miss",
+      "kind": "contains",
+      "anyOf": [
+        "Parse"
+      ]
+    },
+    "text": "Parseé",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "left-digit-pass",
+    "why": "A letter beside a digit endpoint is allowed.",
+    "source": "constructed",
+    "check": {
+      "id": "left-digit-pass",
+      "kind": "contains",
+      "anyOf": [
+        "30"
+      ]
+    },
+    "text": "v30",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "left-digit-near-miss",
+    "why": "A BMP digit before the digit endpoint splits a digit run.",
+    "source": "constructed",
+    "check": {
+      "id": "left-digit-near-miss",
+      "kind": "contains",
+      "anyOf": [
+        "30"
+      ]
+    },
+    "text": "٣30",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "right-digit-pass",
+    "why": "A letter after a digit endpoint is allowed.",
+    "source": "constructed",
+    "check": {
+      "id": "right-digit-pass",
+      "kind": "contains",
+      "anyOf": [
+        "30"
+      ]
+    },
+    "text": "30s",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "right-digit-near-miss",
+    "why": "A BMP digit after the digit endpoint splits a digit run.",
+    "source": "constructed",
+    "check": {
+      "id": "right-digit-near-miss",
+      "kind": "contains",
+      "anyOf": [
+        "30"
+      ]
+    },
+    "text": "30٣",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "later-occurrence",
+    "why": "A later occurrence can pass after an invalid first digit boundary.",
+    "source": "constructed",
+    "check": {
+      "id": "later-occurrence",
+      "kind": "contains",
+      "anyOf": [
+        "30"
+      ]
+    },
+    "text": "300 then 30",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "overlapping-occurrence",
+    "why": "The overlapping later occurrence has valid punctuation boundaries.",
+    "source": "constructed",
+    "check": {
+      "id": "overlapping-occurrence",
+      "kind": "contains",
+      "anyOf": [
+        "a-a"
+      ]
+    },
+    "text": "xa-a-a",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "decimal-gap",
+    "why": "The literal digit rule permits a decimal suffix after punctuation.",
+    "source": "constructed",
+    "check": {
+      "id": "decimal-gap",
+      "kind": "contains",
+      "anyOf": [
+        "30"
+      ]
+    },
+    "text": "30.5",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "quote-gap",
+    "why": "Curly quotes are not converted to straight quotes.",
+    "source": "constructed",
+    "check": {
+      "id": "quote-gap",
+      "kind": "contains",
+      "anyOf": [
+        "\"correct\""
+      ]
+    },
+    "text": "‘correct’",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "underscore-gap",
+    "why": "Underscores are not whitespace.",
+    "source": "constructed",
+    "check": {
+      "id": "underscore-gap",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ]
+    },
+    "text": "cargo_test",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "guard-pass",
+    "why": "The positive value appears without the forbidden value.",
+    "source": "constructed",
+    "check": {
+      "id": "guard-pass",
+      "kind": "contains",
+      "anyOf": [
+        "right"
+      ],
+      "noneOf": [
+        "wrong"
+      ]
+    },
+    "text": "right",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "guard-near-miss",
+    "why": "A positive match with a forbidden match fails.",
+    "source": "constructed",
+    "check": {
+      "id": "guard-near-miss",
+      "kind": "contains",
+      "anyOf": [
+        "right"
+      ],
+      "noneOf": [
+        "wrong"
+      ]
+    },
+    "text": "right wrong",
+    "expected": {
+      "passed": false,
+      "reason": "forbiddenValuePresent"
+    }
+  },
+  {
+    "name": "positive-precedence",
+    "why": "A missing positive match takes precedence over the forbidden guard.",
+    "source": "constructed",
+    "check": {
+      "id": "positive-precedence",
+      "kind": "contains",
+      "anyOf": [
+        "right"
+      ],
+      "noneOf": [
+        "wrong"
+      ]
+    },
+    "text": "wrong",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "no-answer-precedence",
+    "why": "Whitespace answers are unavailable before positive or guard matching.",
+    "source": "constructed",
+    "check": {
+      "id": "no-answer-precedence",
+      "kind": "contains",
+      "anyOf": [
+        "right"
+      ],
+      "noneOf": [
+        "wrong"
+      ]
+    },
+    "text": " ",
+    "expected": {
+      "passed": false,
+      "reason": "noAnswer"
+    }
+  },
+  {
+    "name": "bat-123200-final-manifest",
+    "why": "The text explicitly names Cargo.toml.",
+    "source": "sharkdp/bat run 20261008-123200-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123200-treatment/baseline-bat-docs/capture/final-answer.md; sha256:eb9834f01cc7fcc53c1a8344a19efc8d80e3d73f18980b053db4218238de5df3",
+    "check": {
+      "id": "bat-123200-final-manifest",
+      "kind": "contains",
+      "anyOf": [
+        "Cargo.toml"
+      ]
+    },
+    "textFile": "bat-123200-final.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123200-final-setting",
+    "why": "The text names the rust-version setting; this label makes no claim about its numeric value.",
+    "source": "sharkdp/bat run 20261008-123200-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123200-treatment/baseline-bat-docs/capture/final-answer.md; sha256:eb9834f01cc7fcc53c1a8344a19efc8d80e3d73f18980b053db4218238de5df3",
+    "check": {
+      "id": "bat-123200-final-setting",
+      "kind": "contains",
+      "anyOf": [
+        "rust-version"
+      ]
+    },
+    "textFile": "bat-123200-final.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123200-final-test-command",
+    "why": "The first final answer lists test suites but never states cargo test.",
+    "source": "sharkdp/bat run 20261008-123200-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123200-treatment/baseline-bat-docs/capture/final-answer.md; sha256:eb9834f01cc7fcc53c1a8344a19efc8d80e3d73f18980b053db4218238de5df3",
+    "check": {
+      "id": "bat-123200-final-test-command",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ]
+    },
+    "textFile": "bat-123200-final.md",
+    "expected": {
+      "passed": false,
+      "reason": "notFound"
+    }
+  },
+  {
+    "name": "bat-123200-notes-manifest",
+    "why": "The text explicitly names Cargo.toml.",
+    "source": "sharkdp/bat run 20261008-123200-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123200-treatment/baseline-bat-docs/artifacts/baseline.md; sha256:9450ec8a669408f19a871dee2c1c9dcbcee147206bf93e065ef31dfdb29818e7",
+    "check": {
+      "id": "bat-123200-notes-manifest",
+      "kind": "contains",
+      "anyOf": [
+        "Cargo.toml"
+      ],
+      "artifact": "baseline.md"
+    },
+    "textFile": "bat-123200-notes.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123200-notes-setting",
+    "why": "The text names the rust-version setting; this label makes no claim about its numeric value.",
+    "source": "sharkdp/bat run 20261008-123200-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123200-treatment/baseline-bat-docs/artifacts/baseline.md; sha256:9450ec8a669408f19a871dee2c1c9dcbcee147206bf93e065ef31dfdb29818e7",
+    "check": {
+      "id": "bat-123200-notes-setting",
+      "kind": "contains",
+      "anyOf": [
+        "rust-version"
+      ],
+      "artifact": "baseline.md"
+    },
+    "textFile": "bat-123200-notes.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123200-notes-test-command",
+    "why": "The text explicitly names cargo test.",
+    "source": "sharkdp/bat run 20261008-123200-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123200-treatment/baseline-bat-docs/artifacts/baseline.md; sha256:9450ec8a669408f19a871dee2c1c9dcbcee147206bf93e065ef31dfdb29818e7",
+    "check": {
+      "id": "bat-123200-notes-test-command",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ],
+      "artifact": "baseline.md"
+    },
+    "textFile": "bat-123200-notes.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123522-final-manifest",
+    "why": "The text explicitly names Cargo.toml.",
+    "source": "sharkdp/bat run 20261008-123522-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123522-treatment/baseline-bat-docs/capture/final-answer.md; sha256:32893475cbd34a3460a3a01ab14a3c1b84d283c5dcf7838de05b715095e063e7",
+    "check": {
+      "id": "bat-123522-final-manifest",
+      "kind": "contains",
+      "anyOf": [
+        "Cargo.toml"
+      ]
+    },
+    "textFile": "bat-123522-final.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123522-final-setting",
+    "why": "The text names the rust-version setting; this label makes no claim about its numeric value.",
+    "source": "sharkdp/bat run 20261008-123522-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123522-treatment/baseline-bat-docs/capture/final-answer.md; sha256:32893475cbd34a3460a3a01ab14a3c1b84d283c5dcf7838de05b715095e063e7",
+    "check": {
+      "id": "bat-123522-final-setting",
+      "kind": "contains",
+      "anyOf": [
+        "rust-version"
+      ]
+    },
+    "textFile": "bat-123522-final.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123522-final-test-command",
+    "why": "The text explicitly names cargo test.",
+    "source": "sharkdp/bat run 20261008-123522-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123522-treatment/baseline-bat-docs/capture/final-answer.md; sha256:32893475cbd34a3460a3a01ab14a3c1b84d283c5dcf7838de05b715095e063e7",
+    "check": {
+      "id": "bat-123522-final-test-command",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ]
+    },
+    "textFile": "bat-123522-final.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123522-notes-manifest",
+    "why": "The text explicitly names Cargo.toml.",
+    "source": "sharkdp/bat run 20261008-123522-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123522-treatment/baseline-bat-docs/artifacts/baseline.md; sha256:e47b2776af275d9ce0ed95b1bdf844b11bd8ba7319ba6221be74d7df533696fe",
+    "check": {
+      "id": "bat-123522-notes-manifest",
+      "kind": "contains",
+      "anyOf": [
+        "Cargo.toml"
+      ],
+      "artifact": "baseline.md"
+    },
+    "textFile": "bat-123522-notes.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123522-notes-setting",
+    "why": "The text names the rust-version setting; this label makes no claim about its numeric value.",
+    "source": "sharkdp/bat run 20261008-123522-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123522-treatment/baseline-bat-docs/artifacts/baseline.md; sha256:e47b2776af275d9ce0ed95b1bdf844b11bd8ba7319ba6221be74d7df533696fe",
+    "check": {
+      "id": "bat-123522-notes-setting",
+      "kind": "contains",
+      "anyOf": [
+        "rust-version"
+      ],
+      "artifact": "baseline.md"
+    },
+    "textFile": "bat-123522-notes.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  },
+  {
+    "name": "bat-123522-notes-test-command",
+    "why": "The text explicitly names cargo test.",
+    "source": "sharkdp/bat run 20261008-123522-treatment; deepseek/deepseek-v4.1-flash; .artifacts/reports/benchmark/20261008-123522-treatment/baseline-bat-docs/artifacts/baseline.md; sha256:e47b2776af275d9ce0ed95b1bdf844b11bd8ba7319ba6221be74d7df533696fe",
+    "check": {
+      "id": "bat-123522-notes-test-command",
+      "kind": "contains",
+      "anyOf": [
+        "cargo test"
+      ],
+      "artifact": "baseline.md"
+    },
+    "textFile": "bat-123522-notes.md",
+    "expected": {
+      "passed": true,
+      "reason": null
+    }
+  }
+]

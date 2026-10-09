@@ -25,6 +25,9 @@ internal sealed record PrepareMeasurement
     /// </summary>
     public string Status { get; init; } = "incomplete";
 
+    /// <summary>Gets whether the unchanged opening message survived, or null for an incomplete prepare.</summary>
+    public bool? OpeningMessagePresent { get; init; } = null;
+
     /// <summary>
     ///     Gets the completed prepare outcome.
     /// </summary>

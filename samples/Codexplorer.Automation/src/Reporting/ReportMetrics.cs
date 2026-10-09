@@ -6,6 +6,22 @@ namespace Codexplorer.Automation.Reporting;
 /// <remarks>Nullable usage totals require usage for every attempted call. Run peak tokens use the maximum; additive counters use sums.</remarks>
 internal sealed record ReportMetrics
 {
+    /// <summary>Gets the check population.</summary>
+    public required long ChecksTotal { get; init; }
+
+    /// <summary>Gets the passed check count.</summary>
+    public required long ChecksPassed { get; init; }
+
+    /// <summary>Gets the passed fraction, or null for no checks.</summary>
+    public required double? CheckPassRate { get; init; }
+
+    /// <summary>Gets the independently measured masked count.</summary>
+    public required long MessagesMasked { get; init; }
+
+    /// <summary>Gets the independently measured summarized count.</summary>
+    public required long MessagesSummarized { get; init; }
+
+
     /// <summary>
     ///     Gets the number of completed provider calls.
     /// </summary>

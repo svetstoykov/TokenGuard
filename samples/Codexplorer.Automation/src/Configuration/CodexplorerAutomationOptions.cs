@@ -68,6 +68,12 @@ internal sealed record AutomationTaskDefinition
     public RunnerTaskSize TaskSize { get; init; } = RunnerTaskSize.Medium;
 
     public string? InitialPrompt { get; init; }
+
+    /// <summary>Gets optional deliverable checks in declaration order.</summary>
+    public IReadOnlyList<AutomationCheckDefinition>? Checks { get; init; }
+
+    /// <summary>Gets the optional opening-instruction retention probe.</summary>
+    public AutomationProbeDefinition? Probe { get; init; }
 }
 
 internal sealed record AutomationTaskManifest

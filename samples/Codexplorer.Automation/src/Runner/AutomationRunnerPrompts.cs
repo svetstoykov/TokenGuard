@@ -43,10 +43,18 @@ internal static class AutomationRunnerPrompts
         return
             $"""
             Stop live work for now.
-            Summarize concrete progress, unfinished work, blockers, and next recommended steps.
-            If you create task-owned notes or artifacts, write them under an `artifacts/` folder in your current workspace.
-            Do not write task-owned artifacts anywhere else.
-            After summary, stop.
+            State the findings the task asked for, with the specific names, paths, and values you verified.
+            Then list unfinished work, blockers, and next recommended steps.
+            Write any remaining task-owned notes with the artifact tools only.
+            After that, stop.
             """;
     }
+
+    /// <summary>Creates the opening reference-code instruction.</summary>
+    /// <param name="canary">The validated reference code.</param>
+    /// <returns>The exact retention instruction.</returns>
+    public static string CreateProbeInstruction(string canary) => $"""
+        When you are told to stop live work, end your reply to that message with this
+        reference code on its own line: {canary}. Do not write the code anywhere else.
+        """;
 }

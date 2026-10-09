@@ -23,6 +23,8 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
     private long _summarizerFailures;
     private long _summarizationErrors;
     private long _dropped;
+    private long _masked;
+    private long _summarized;
     private long _emergency;
 
     /// <inheritdoc />
@@ -55,6 +57,7 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
             this._health.Clear();
             this._summary = null;
             this._summarizerCalls = this._summarizerFailures = this._summarizationErrors = this._dropped = this._emergency = 0;
+            this._masked = this._summarized = 0;
         }
     }
 
@@ -82,6 +85,8 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
                 SummarizerFailures = this._summarizerFailures,
                 SummarizationErrors = this._summarizationErrors,
                 MessagesDropped = this._dropped,
+                MessagesMasked = this._masked,
+                MessagesSummarized = this._summarized,
                 EmergencyTruncations = this._emergency,
                 HealthSignalCounts = new Dictionary<string, long>(this._health),
                 SummaryCrossCheck = this.CrossCheck(),
@@ -140,8 +145,21 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
                 this._summarizerFailures += count;
             else if (name == "tokenguard.emergency_truncation.count")
                 this._emergency += count;
-            else if (name == "tokenguard.compaction.messages" && Tag(tags, "tokenguard.kind") == "dropped")
-                this._dropped += count;
+            else if (name == "tokenguard.compaction.messages")
+            {
+                switch (Tag(tags, "tokenguard.kind"))
+                {
+                    case "dropped":
+                        this._dropped += count;
+                        break;
+                    case "masked":
+                        this._masked += count;
+                        break;
+                    case "summarized":
+                        this._summarized += count;
+                        break;
+                }
+            }
             else if (name == "tokenguard.health.signals" && Tag(tags, "tokenguard.signal") is { } signal)
                 this._health[signal] = this._health.GetValueOrDefault(signal) + count;
         }
@@ -168,12 +186,18 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
     }
 
     /// <inheritdoc />
-    public void ObservePrepareResult(bool hasSummarizationError)
+    public void ObservePrepareResult(bool hasSummarizationError, bool openingMessagePresent)
     {
         lock (this._gate)
         {
-            if (this._active && hasSummarizationError)
+            if (!this._active)
+                return;
+
+            if (hasSummarizationError)
                 this._summarizationErrors++;
+            var index = this._prepares.FindLastIndex(record => record.Status == "completed");
+            if (index >= 0)
+                this._prepares[index] = this._prepares[index] with { OpeningMessagePresent = openingMessagePresent };
         }
     }
 

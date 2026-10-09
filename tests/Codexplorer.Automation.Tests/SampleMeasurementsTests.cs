@@ -16,7 +16,6 @@ using sample::Codexplorer.Diagnostics;
 namespace Codexplorer.Automation.Tests;
 
 
-
 /// <summary>Verifies collection through the real telemetry and structured logging boundaries.</summary>
 [Collection("Sample telemetry")]
 public sealed class SampleMeasurementsTests
@@ -102,7 +101,7 @@ public sealed class SampleMeasurementsTests
         context.AddUserMessage(new string('y', 800));
 
         var result = await context.PrepareAsync();
-        fixture.Collector.ObservePrepareResult(result.SummarizationError is not null);
+        fixture.Collector.ObservePrepareResult(result.SummarizationError is not null, false);
         context.Dispose();
         fixture.Collector.End();
         var snapshot = fixture.Collector.Snapshot();
@@ -161,10 +160,22 @@ public sealed class SampleMeasurementsTests
 
         collector.ObserveMeasurement("tokenguard.compaction.messages", 3, [new("tokenguard.kind", "dropped")]);
         collector.ObserveMeasurement("tokenguard.compaction.messages", 10, [new("tokenguard.kind", "masked")]);
+        collector.ObserveMeasurement("tokenguard.compaction.messages", 4, [new("tokenguard.kind", "summarized")]);
+        collector.ObserveMeasurement("tokenguard.compaction.messages", 99, [new("tokenguard.kind", "unknown")]);
         collector.ObserveMeasurement("tokenguard.health.signals", 1, [new("tokenguard.signal", "RepeatedCompaction")]);
 
         collector.Snapshot().MessagesDropped.Should().Be(3);
-        collector.Snapshot().HealthSignalCounts["RepeatedCompaction"].Should().Be(1);
+        collector.Snapshot().MessagesMasked.Should().Be(10);
+        collector.Snapshot().MessagesSummarized.Should().Be(4);
+        var previous = collector.Snapshot();
+        collector.End();
+        collector.ObserveMeasurement("tokenguard.compaction.messages", 99, [new("tokenguard.kind", "masked")]);
+        collector.Snapshot().MessagesMasked.Should().Be(10);
+        collector.Begin(null);
+        collector.Snapshot().MessagesMasked.Should().Be(0);
+        collector.Snapshot().MessagesSummarized.Should().Be(0);
+        previous.MessagesMasked.Should().Be(10);
+        previous.HealthSignalCounts["RepeatedCompaction"].Should().Be(1);
     }
 
     /// <summary>Verifies cumulative snapshots retain missing provider usage and independent values.</summary>

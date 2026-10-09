@@ -1,4 +1,5 @@
 using Codexplorer.Automation.Configuration;
+using Codexplorer.Automation.Scoring;
 using Codexplorer.Measurements;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -57,10 +58,7 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
             request.MaxTurns);
 
         var completion = (await this._chatClient.CompleteChatAsync(
-                [
-                    new SystemChatMessage(HelperSystemPrompt),
-                    new UserChatMessage(CreateUserPrompt(request))
-                ],
+                CreateMessages(request),
                 new ChatCompletionOptions
                 {
                     MaxOutputTokenCount = this._options.MaxOutputTokens,
@@ -85,6 +83,22 @@ internal sealed class OpenRouterRunnerHelperAi : IRunnerHelperAi
             InputTokens = completion.Usage?.InputTokenCount,
             OutputTokens = completion.Usage?.OutputTokenCount
         });
+    }
+
+    /// <summary>Composes the exact outgoing messages and removes a declared code from both complete prompts.</summary>
+    /// <param name="request">The original helper request with an optional probe code.</param>
+    /// <returns>The typed model messages.</returns>
+    internal static IReadOnlyList<ChatMessage> CreateMessages(RunnerHelperAiRequest request)
+    {
+        var system = HelperSystemPrompt;
+        var user = CreateUserPrompt(request);
+        if (request.ProbeCanary is { } canary)
+        {
+            var normalized = TextNormalizer.Normalize(canary);
+            system = TextNormalizer.Normalize(system).Replace(normalized, "[...]", StringComparison.OrdinalIgnoreCase);
+            user = TextNormalizer.Normalize(user).Replace(normalized, "[...]", StringComparison.OrdinalIgnoreCase);
+        }
+        return [new SystemChatMessage(system), new UserChatMessage(user)];
     }
 
     private static string CreateUserPrompt(RunnerHelperAiRequest request)

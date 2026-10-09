@@ -1,6 +1,12 @@
 extern alias sample;
 
 using System.Text.Json;
+using System.Diagnostics;
+using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Enums;
+using TokenGuard.Core.Models;
+using TokenGuard.Core.Models.Content;
+using sample::Codexplorer.Diagnostics;
 using System.Threading.Channels;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -48,7 +54,7 @@ public sealed class SampleSessionTests
 
         result.Should().BeOfType<AgentExchangeTurnBudgetReached>().Which.ModelTurnsCompleted.Should().Be(1);
         measurements.ProviderCalls.Should().ContainSingle().Which.Status.Should().Be("completed");
-        measurements.PrepareRecords.Should().ContainSingle();
+        measurements.PrepareRecords.Should().ContainSingle().Which.OpeningMessagePresent.Should().BeTrue();
         measurements.ProviderCalls[0].PrepareIndex.Should().Be(measurements.PrepareRecords[0].Index);
         measurements.ProviderCalls[0].TranscriptIndex.Should().Be(0);
     }
@@ -288,6 +294,149 @@ public sealed class SampleSessionTests
         measurements.GetProperty("complete").GetBoolean().Should().BeTrue();
         measurements.GetProperty("summaryCrossCheck").GetString().Should().Be("matched");
         measurements.GetProperty("providerCalls")[0].GetProperty("status").GetString().Should().Be("cancelled");
+    }
+
+    /// <summary>Verifies the full retained opening text is compared against typed prepared user messages.</summary>
+    /// <param name="mode">The replacement mode.</param>
+    /// <param name="expected">Whether the full opening survives the second prepare.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("unchanged", true)]
+    [InlineData("summary", false)]
+    [InlineData("dropped", false)]
+    [InlineData("normalized", false)]
+    [InlineData("wrongRole", false)]
+    [InlineData("multipleSegments", false)]
+    public async Task Prepare_TracksOriginalOpeningAcrossContinuation(string mode, bool expected)
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(null);
+        var context = new PreparedContext(fixture.Collector, mode);
+        var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion()));
+        await using var session = new ExplorerSession(SampleWorkspaceManager.Workspace, context, new SampleSessionLogger(),
+            SampleSessionDirectory, Task.CompletedTask, new SampleToolRegistry(), new Lazy<ChatClient>(() => provider), [],
+            new AgentOptions { MaxTurns = 5 }, new ModelOptions(), collector: fixture.Collector);
+        await session.SubmitAsync("opening **ABC123**", CancellationToken.None);
+        var previous = fixture.Collector.Snapshot();
+
+        await session.SubmitAsync("continue", CancellationToken.None);
+
+        previous.PrepareRecords.Single().OpeningMessagePresent.Should().BeTrue();
+        fixture.Collector.Snapshot().PrepareRecords.Last().OpeningMessagePresent.Should().Be(expected);
+        previous.PrepareRecords.Single().OpeningMessagePresent.Should().BeTrue();
+    }
+
+    /// <summary>Verifies returned failure outcomes retain opening evidence and throwing prepares retain null.</summary>
+    /// <param name="mode">The completed or throwing outcome.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("CannotCompact")]
+    [InlineData("CompactionInsufficient")]
+    [InlineData("throw")]
+    [InlineData("cancel")]
+    public async Task Prepare_RecordsEvidenceOnlyForReturnedResults(string mode)
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(null);
+        var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion()));
+        await using var session = new ExplorerSession(SampleWorkspaceManager.Workspace, new PreparedContext(fixture.Collector, mode),
+            new SampleSessionLogger(), SampleSessionDirectory, Task.CompletedTask, new SampleToolRegistry(), new Lazy<ChatClient>(() => provider), [],
+            new AgentOptions { MaxTurns = 5 }, new ModelOptions(), collector: fixture.Collector);
+
+        await session.SubmitAsync("opening", CancellationToken.None);
+
+        var record = fixture.Collector.Snapshot().PrepareRecords.Single();
+        record.OpeningMessagePresent.Should().Be(mode is "throw" or "cancel" ? null : true);
+        record.Status.Should().Be(mode is "throw" or "cancel" ? "incomplete" : "completed");
+    }
+
+    /// <summary>Verifies nullable opening evidence and independent counters cross the sample/runner JSON boundary.</summary>
+    /// <param name="opening">The opening evidence.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    [InlineData(null)]
+    public void Measurements_WireRoundTripPreservesNewEvidence(bool? opening)
+    {
+        var measurements = new SessionMeasurements
+        {
+            MessagesMasked = 2, MessagesSummarized = 3,
+            PrepareRecords = [new PrepareMeasurement { Index = 1, OpeningMessagePresent = opening }],
+        };
+        var json = JsonSerializer.Serialize(measurements, AutomationProtocolJson.SerializerOptions);
+        var restored = JsonSerializer.Deserialize<Codexplorer.Measurements.SessionMeasurements>(json,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        restored.MessagesMasked.Should().Be(2);
+        restored.MessagesSummarized.Should().Be(3);
+        restored.PrepareRecords.Single().OpeningMessagePresent.Should().Be(opening);
+    }
+
+    private sealed class PreparedContext(SessionMeasurementCollector collector, string mode) : IConversationContext
+    {
+        private readonly List<ContextMessage> _history = [];
+        private string? _opening;
+        private int _prepares;
+
+        /// <inheritdoc />
+        public IReadOnlyList<ContextMessage> History => this._history;
+
+        /// <inheritdoc />
+        public void AddUserMessage(string text)
+        {
+            this._opening ??= text;
+            this._history.Add(ContextMessage.FromText(MessageRole.User, text));
+        }
+
+        /// <inheritdoc />
+        public Task<PrepareResult> PrepareAsync(CancellationToken cancellationToken = default)
+        {
+            var activity = new Activity("tokenguard.prepare");
+            this._prepares++;
+            if (mode is "throw" or "cancel")
+            {
+                collector.ObserveActivity(activity);
+                return Task.FromException<PrepareResult>(mode == "cancel" ? new OperationCanceledException() : new InvalidOperationException());
+            }
+            var outcome = Enum.TryParse<PrepareOutcome>(mode, out var parsed) ? parsed : PrepareOutcome.Ready;
+            activity.SetTag("tokenguard.outcome", outcome.ToString());
+            activity.SetTag("tokenguard.tokens.before", 10);
+            activity.SetTag("tokenguard.tokens.after", 10);
+            collector.ObserveActivity(activity);
+            var opening = ContextMessage.FromText(MessageRole.User, this._opening!);
+            IReadOnlyList<ContextMessage> messages = this._prepares == 1 || mode == "unchanged" ? [opening] : mode switch
+            {
+                "dropped" => [this._history.Last()],
+                "normalized" => [ContextMessage.FromText(MessageRole.User, this._opening!.Replace("*", ""))],
+                "wrongRole" => [opening with { Role = MessageRole.Model }],
+                "multipleSegments" => [opening with { Segments = [new TextContent(this._opening!), new TextContent("extra")] }],
+                _ => [ContextMessage.FromText(MessageRole.User, "summary ABC123"), this._history.Last()],
+            };
+            return Task.FromResult(new PrepareResult(messages, outcome, 10, 10, 0));
+        }
+
+        /// <inheritdoc />
+        public void RecordModelResponse(IEnumerable<ContentSegment> content, int? providerInputTokens = null)
+        {
+        }
+
+        /// <inheritdoc />
+        public void RecordToolResult(string toolCallId, string toolName, string content)
+        {
+        }
+
+        /// <inheritdoc />
+        public void SetSystemPrompt(string text) => throw new NotSupportedException();
+
+        /// <inheritdoc />
+        public void AddPinnedMessage(MessageRole role, string text) => throw new NotSupportedException();
+
+        /// <inheritdoc />
+        public void AddPinnedMessage(MessageRole role, IEnumerable<ContentSegment> content) => throw new NotSupportedException();
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+        }
     }
 
     private static SessionDirectory SampleSessionDirectory => new(Path.Combine(Path.GetTempPath(), "sample-test-session"));

@@ -1,3 +1,4 @@
+using Codexplorer.Automation.Scoring;
 using System.Text.Json;
 using Codexplorer.Automation;
 using Codexplorer.Automation.Client;
@@ -79,6 +80,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies an exhausted call allowance stops without helper work.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_NoCallsRemain_StopsWithoutAskingHelper()
     {
@@ -159,9 +161,9 @@ public sealed class AutomationRunnerTests : IDisposable
             var reportPath = Path.Combine(directory, "run-report.json");
             await File.WriteAllTextAsync(reportPath, "existing report");
             var options = Options.Create(new CodexplorerAutomationOptions { ManifestPath = manifestPath, OutputDirectory = directory });
-            var manifest = new AutomationTaskManifestLoader(options, NullLogger<AutomationTaskManifestLoader>.Instance);
+            var manifest = new AutomationTaskManifestLoader(options, NullLogger<AutomationTaskManifestLoader>.Instance, new AnswerScorer());
             var runner = new AutomationRunner(new FakeTransport(), new FakeClient(), manifest, new FakeHelper(), new FakeIdentity(),
-                new ReportAggregator(), new JsonRunReportWriter(), options, NullLogger<AutomationRunner>.Instance);
+                new ReportAggregator(), new JsonRunReportWriter(), options, NullLogger<AutomationRunner>.Instance, new AnswerScorer());
 
             var run = () => runner.RunAsync(CancellationToken.None);
 
@@ -189,7 +191,7 @@ public sealed class AutomationRunnerTests : IDisposable
             var options = Options.Create(new CodexplorerAutomationOptions { OutputDirectory = directory, RepositoryPath = directory });
             var runner = new AutomationRunner(new FakeTransport(), new FakeClient(), new FakeManifest([]), new FakeHelper(),
                 new GitRepositoryIdentityReader(), new ReportAggregator(), new JsonRunReportWriter(), options,
-                NullLogger<AutomationRunner>.Instance);
+                NullLogger<AutomationRunner>.Instance, new AnswerScorer());
 
             var run = () => runner.RunAsync(CancellationToken.None);
 
@@ -203,6 +205,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies the wrap-up window takes priority over a helper question.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_QuestionWithinWrapUpWindow_SendsWrapUpAndCompletesProtocol()
     {
@@ -221,6 +224,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies cumulative snapshots replace prior call counts.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_CumulativeSnapshots_UsesLatestCallCountForWrapUp()
     {
@@ -241,6 +245,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies a task failure allows later tasks to execute.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_TaskFailure_ContinuesWithLaterTask()
     {
@@ -255,6 +260,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies cancellation during opening preserves the active task and unrun IDs.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_CancelledWhileOpening_PreservesStartedTaskAndRemainingIds()
     {
@@ -276,6 +282,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies a protocol cancellation during opening records a cancelled task.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_CancelledOpeningReturnsProtocolError_ClassifiesTaskAsCancelled()
     {
@@ -293,6 +300,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies cancellation preserves the terminal provider-attempt snapshot.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_CancellationReturnsTerminalSnapshot_PreservesCancelledAttempt()
     {
@@ -320,6 +328,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies an empty helper response retains its reported usage.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_EmptyHelperResponse_RecordsUsageBeforeFailing()
     {
@@ -337,6 +346,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies fatal transport failure retains the active task and stops later tasks.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_FatalTransportAfterSnapshot_RetainsActiveTaskAndStopsRun()
     {
@@ -355,6 +365,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies a failed disposal cross-check marks the task failed.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_SummaryCrossCheckFailsOnDisposal_FailsTask()
     {
@@ -373,6 +384,7 @@ public sealed class AutomationRunnerTests : IDisposable
 
     /// <summary>Verifies a close failure after wrap-up produces a consistent partial report.</summary>
     /// <param name="cancelled">Whether cleanup fails because cancellation was requested.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -405,6 +417,7 @@ public sealed class AutomationRunnerTests : IDisposable
     }
 
     /// <summary>Verifies report-writing failure returns a nonzero exit code.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
     public async Task RunAsync_WriterFailure_ReturnsNonzero()
     {
@@ -467,7 +480,7 @@ public sealed class AutomationRunnerTests : IDisposable
         await fixture.Runner.RunAsync(CancellationToken.None);
 
         var report = fixture.Writer.Report!;
-        report.SchemaVersion.Should().Be(2);
+        report.SchemaVersion.Should().Be(3);
         report.Run.RunId.Should().Be("20261008-141502-treatment");
         report.Run.CaptureEnabled.Should().BeTrue();
         var task = report.Tasks.Single();
@@ -531,8 +544,10 @@ public sealed class AutomationRunnerTests : IDisposable
             Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false))
         };
         var runner = new AutomationRunner(new FakeTransport(), client,
-            new AutomationTaskManifestLoader(options, NullLogger<AutomationTaskManifestLoader>.Instance), new FakeHelper(), new FakeIdentity(),
-            new ReportAggregator(), new JsonRunReportWriter(), options, NullLogger<AutomationRunner>.Instance, new FixedTimeProvider());
+            new AutomationTaskManifestLoader(options, NullLogger<AutomationTaskManifestLoader>.Instance, new AnswerScorer()),
+            new FakeHelper(), new FakeIdentity(),
+            new ReportAggregator(), new JsonRunReportWriter(), options, NullLogger<AutomationRunner>.Instance, new AnswerScorer(),
+            new FixedTimeProvider());
 
         await runner.RunAsync(CancellationToken.None);
 
@@ -541,6 +556,145 @@ public sealed class AutomationRunnerTests : IDisposable
         var report = JsonSerializer.Deserialize<RunReport>(json, ReportJson.Options)!;
         report.Run.ManifestPath.Should().Be(Path.Combine("..", "manifest.json"));
         json.Should().NotContain(this._outputDirectory);
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
+    /// <summary>Verifies scoring uses only the cleaned-up protocol-complete reply even without capture.</summary>
+    /// <param name="terminal">The finalization scenario.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("complete")]
+    [InlineData("blank")]
+    [InlineData("budget")]
+    [InlineData("closeFailed")]
+    [InlineData("early")]
+    public async Task RunAsync_ScoresOnlyFinalReplyAndPreservesEarlyRepetition(string terminal)
+    {
+        var checks = new[] { new AutomationCheckDefinition { Id = "fact", Kind = "contains", AnyOf = ["verified"] } };
+        var probe = new AutomationProbeDefinition { Canary = "ABC123" };
+        var fixture = new Fixture("treatment", [], this._outputDirectory, capture: false, checks, probe);
+        var messages = new List<string>();
+        fixture.Client.Submit = (request, _) =>
+        {
+            messages.Add(request.Message);
+            var first = messages.Count == 1;
+            return Task.FromResult(Response(first ? "max_turns_reached" : terminal == "budget" ? "turn_budget_reached" : "reply_received",
+                Snapshot(first ? 2 : 3)) with { AssistantText = first ? "verified" + (terminal == "early" ? " ABC123" : "")
+                    : terminal == "blank" ? " " : "verified ABC123" });
+        };
+        var completed = Snapshot(3, complete: true);
+        completed = completed with
+        {
+            PrepareRecords = completed.PrepareRecords.Select(record => record with { OpeningMessagePresent = false }).ToArray(),
+        };
+        fixture.Client.Close = (_, _) => Task.FromResult(
+            new CloseSessionResponse("session", terminal == "closeFailed" ? "failed" : "closed", completed));
+
+        var exit = await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var report = fixture.Writer.Report!;
+        var task = report.Tasks.Single();
+        messages[0].Should().Be("initial\n\n" + AutomationRunnerPrompts.CreateProbeInstruction("ABC123"));
+        messages[1].Should().Be("""
+            Stop live work for now.
+            State the findings the task asked for, with the specific names, paths, and values you verified.
+            Then list unfinished work, blockers, and next recommended steps.
+            Write any remaining task-owned notes with the artifact tools only.
+            After that, stop.
+            """);
+        var available = terminal is "complete" or "early";
+        task.Checks.Single().Passed.Should().Be(available);
+        task.Checks.Single().Reason.Should().Be(available ? null : "noAnswer");
+        task.Probe!.Reason.Should().Be(terminal == "early" ? "canaryRepeated" : available ? null : "noAnswer");
+        task.Probe.CanaryPresent.Should().Be(available);
+        task.ProtocolCompletion.Should().Be(terminal is not ("budget" or "closeFailed"));
+        exit.Should().Be(terminal is "budget" or "closeFailed" ? 1 : 0);
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
+    /// <summary>Verifies artifact reads and availability remain independent of protocol completion.</summary>
+    /// <param name="scenario">The artifact scenario.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("nested")]
+    [InlineData("case")]
+    [InlineData("empty")]
+    [InlineData("missing")]
+    [InlineData("unreadable")]
+    public async Task RunAsync_ArtifactsScoreOnFailedTaskWithoutCapture(string scenario)
+    {
+        var check = new AutomationCheckDefinition { Id = "notes", Kind = "contains", Artifact = "nested/notes.md", AnyOf = ["verified"] };
+        var fixture = new Fixture("treatment", [], this._outputDirectory, false, [check]);
+        string? blockedDirectory = null;
+        fixture.Client.Open = (request, _) =>
+        {
+            var root = Path.Combine(request.SessionDirectory!, "artifacts", "nested");
+            Directory.CreateDirectory(root);
+            var path = Path.Combine(root, scenario == "case" ? "NOTES.md" : "notes.md");
+            if (scenario == "unreadable")
+                File.CreateSymbolicLink(path, Path.Combine(root, "absent"));
+            else if (scenario != "missing")
+                File.WriteAllText(path, scenario == "empty" ? "" : "verified");
+            if (scenario == "inventoryFailure")
+            {
+                blockedDirectory = Path.Combine(root, "blocked");
+                Directory.CreateDirectory(blockedDirectory);
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(blockedDirectory, UnixFileMode.None);
+            }
+            return Task.FromResult(new OpenSessionResponse("session",
+                new AutomationWorkspace("name", "owner/repo", "/workspace", DateTime.UnixEpoch, 0), "session.log"));
+        };
+        fixture.Client.Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1)) with { AssistantText = "intermediate" });
+
+        try
+        {
+            await fixture.Runner.RunAsync(CancellationToken.None);
+        }
+        finally
+        {
+            if (blockedDirectory is not null && !OperatingSystem.IsWindows())
+                File.SetUnixFileMode(blockedDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        var result = fixture.Writer.Report!.Tasks.Single().Checks.Single();
+        result.Passed.Should().Be(scenario is "nested" or "case");
+        result.Reason.Should().Be(scenario is "nested" or "case" ? null : scenario == "empty" ? "notFound" : "artifactMissing");
+        ReportValidator.Validate(fixture.Writer.Report).Should().BeEmpty();
+    }
+
+    /// <summary>Verifies an inaccessible inventory leaves artifact checks unavailable and preserves reporting.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [UnixFact]
+    public Task RunAsync_ArtifactInventoryAccessFailure_PreservesReport() =>
+        this.RunAsync_ArtifactsScoreOnFailedTaskWithoutCapture("inventoryFailure");
+
+    /// <summary>Verifies case collisions without relying on a case-sensitive filesystem.</summary>
+    /// <param name="requested">The requested name.</param>
+    /// <param name="expected">The selected name, or null when ambiguous.</param>
+    [Theory]
+    [InlineData("notes.md", "notes.md")]
+    [InlineData("Notes.md", null)]
+    [InlineData("absent", null)]
+    public void SelectArtifactPath_ExactMatchWinsAndAmbiguousFallbackIsMissing(string requested, string? expected) =>
+        AutomationRunner.SelectArtifactPath(requested, ["notes.md", "NOTES.md"]).Should().Be(expected);
+
+    /// <summary>Verifies a task that starts but cannot open still reports every declared result.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_OpenFailure_ScoresEveryDeclaredCheckAndProbe()
+    {
+        var fixture = new Fixture("treatment", ["first", "second"], this._outputDirectory, false,
+            [new AutomationCheckDefinition { Id = "fact", Kind = "contains", AnyOf = ["verified"] }],
+            new AutomationProbeDefinition { Canary = "ABC123" });
+        fixture.Client.Open = (_, _) => throw new CodexplorerAutomationTransportException("unavailable");
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var report = fixture.Writer.Report!;
+        report.Tasks.Should().ContainSingle().Which.Checks.Single().Reason.Should().Be("noAnswer");
+        report.Tasks.Single().Probe!.Reason.Should().Be("noAnswer");
+        report.UnrunTaskIds.Should().Equal("second");
         ReportValidator.Validate(report).Should().BeEmpty();
     }
 
@@ -557,7 +711,7 @@ public sealed class AutomationRunnerTests : IDisposable
         ModelCallBudget = 3, Complete = complete, SummaryCrossCheck = complete ? "matched" : "pending",
         PrepareRecords = Enumerable.Range(1, calls).Select(index => new PrepareMeasurement
         {
-            Index = index, Turn = index, Status = "completed", Outcome = "Ready", TokensBefore = 10, TokensAfter = 10
+            Index = index, Turn = index, Status = "completed", OpeningMessagePresent = true, Outcome = "Ready", TokensBefore = 10, TokensAfter = 10
         }).ToArray(),
         ProviderCalls = Enumerable.Range(1, calls).Select(index => new ProviderCallMeasurement
         {
@@ -572,7 +726,10 @@ public sealed class AutomationRunnerTests : IDisposable
         /// <param name="ids">The task IDs, or empty to use a single default task.</param>
         /// <param name="outputDirectory">The directory that receives the run folder.</param>
         /// <param name="capture">Whether sessions capture their model calls.</param>
-        public Fixture(string arm, string[] ids, string outputDirectory, bool capture = true)
+        /// <param name="checks">The optional deliverable checks.</param>
+        /// <param name="probe">The optional retention probe.</param>
+        public Fixture(string arm, string[] ids, string outputDirectory, bool capture = true,
+            IReadOnlyList<AutomationCheckDefinition>? checks = null, AutomationProbeDefinition? probe = null)
         {
             var budget = new TurnBudgetProfile { MaxTurns = 3, WrapUpWindow = 1 };
             var options = Options.Create(new CodexplorerAutomationOptions
@@ -585,11 +742,12 @@ public sealed class AutomationRunnerTests : IDisposable
                 Tasks = (ids.Length == 0 ? new[] { "task" } : ids).Select(id => new AutomationTaskDefinition
                 {
                     TaskId = id, Title = "Task", RepositoryUrl = "https://github.com/example/repo",
-                    InitialPrompt = "initial"
+                    InitialPrompt = "initial", Checks = checks, Probe = probe
                 }).ToArray()
             });
             this.Runner = new AutomationRunner(new FakeTransport(), this.Client, new FakeManifest(options.Value.Tasks), this.Helper,
-                new FakeIdentity(), new ReportAggregator(), this.Writer, options, NullLogger<AutomationRunner>.Instance, new FixedTimeProvider());
+                new FakeIdentity(), new ReportAggregator(), this.Writer, options, NullLogger<AutomationRunner>.Instance, new AnswerScorer(),
+                new FixedTimeProvider());
         }
 
         /// <summary>Gets the configurable protocol boundary.</summary>
@@ -600,6 +758,16 @@ public sealed class AutomationRunnerTests : IDisposable
         public FakeWriter Writer { get; } = new();
         /// <summary>Gets the runner under test.</summary>
         public AutomationRunner Runner { get; }
+    }
+
+    private sealed class UnixFactAttribute : FactAttribute
+    {
+        /// <summary>Initializes a new instance of the <see cref="UnixFactAttribute" /> class.</summary>
+        public UnixFactAttribute()
+        {
+            if (OperatingSystem.IsWindows())
+                this.Skip = "Inventory access-error simulation requires Unix directory permissions.";
+        }
     }
 
     private sealed class FixedTimeProvider : TimeProvider
