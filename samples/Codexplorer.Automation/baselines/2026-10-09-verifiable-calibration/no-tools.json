@@ -1,0 +1,729 @@
+{
+  "schemaVersion": 1,
+  "kind": "no-tools-calibration",
+  "manifestSha256": "94d7112a080e076f0baaf806b66782b917b1940cb03761300e863ef136defb01",
+  "model": "qwen/qwen3.7-flash",
+  "maxOutputTokens": 8192,
+  "temperature": "provider default (omitted)",
+  "tools": "omitted",
+  "requestsPerUnchangedPrompt": 1,
+  "systemPromptSha256": "723dacbefee2450431efa0277e6da592512a88749708d1651d819a3e024b474a",
+  "calibrationInstruction": "This is a single-response no-tools calibration. No tools, repository contents, or artifact filesystem are available. Answer the repository-specific factual questions from your existing knowledge in this response. Identify facts you do not know rather than inventing verification or claiming to have read files. Put any findings and requested labeled numeric facts in the answer itself; artifact-writing and continued-exploration instructions cannot be executed here. You are now told to stop live work and provide your answer.",
+  "method": "Repository URL and pinned commit provided as identity only; unchanged initial prompt and optional opening probe instruction; no source, schemas, or prior answers supplied.",
+  "scoring": "The shipped .NET AnswerScorer.EvaluateCheck evaluated every check against the response text, including artifact-target checks. This measures textual guesses; it is not deliverable scoring or repository verification.",
+  "checksPassed": 1,
+  "checksTotal": 31,
+  "textMatchRate": 0.03225806451612903,
+  "completeTaskMatches": 0,
+  "providerCostUsd": 0.0032849339999999998,
+  "tasks": [
+    {
+      "taskId": "bat-theme-defaults",
+      "repositoryUrl": "https://github.com/sharkdp/bat",
+      "repositoryCommit": "25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3",
+      "promptSha256": "048804ae194887c67d4f394351863a33a96a76c6c41542fc2cd50f88a235b600",
+      "requestSha256": "84518ec47c8a570b5de6a1e74ece36c02580d87e084ab22e671b0246e2b7ff16",
+      "runId": "20261009-085905-no-tools",
+      "startedAtUtc": "2026-10-09T08:59:05.699789+00:00",
+      "endedAtUtc": "2026-10-09T09:00:00.912142+00:00",
+      "generationId": "gen-1791536345-fI3OUveozIrNNeZQJM81",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/bat-theme-defaults.md",
+      "answerSha256": "54b4c6a9eec1ce222dc2bb2bf618665c4e2ff32a903266b9ce5eb9f471cac14e",
+      "usage": {
+        "prompt_tokens": 2424,
+        "completion_tokens": 3790,
+        "total_tokens": 6214,
+        "cost": 0.00056542,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00056542,
+          "upstream_inference_prompt_cost": 7.272e-05,
+          "upstream_inference_completions_cost": 0.0004927
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 3171,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "theme-source",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "default-function",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "light-theme",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    },
+    {
+      "taskId": "bat-pager-precedence",
+      "repositoryUrl": "https://github.com/sharkdp/bat",
+      "repositoryCommit": "25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3",
+      "promptSha256": "c12f70c66bcd11c556ede54dfb24c71d30c2b66b3ae6e1d44d85f61c8844f89f",
+      "requestSha256": "66d9eb0f451575a55e6fb49a1379b074410b7e5b851d88536e2ed424263dd1b3",
+      "runId": "20261009-085905-no-tools",
+      "startedAtUtc": "2026-10-09T08:59:05.700141+00:00",
+      "endedAtUtc": "2026-10-09T09:00:02.118349+00:00",
+      "generationId": "gen-1791536345-yyXEvUd7PLkAVZqXWm0J",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/bat-pager-precedence.md",
+      "answerSha256": "660a39d587a24522df489d550d3a92b159be992a6d3bef384d75d5c1d8dd5d55",
+      "usage": {
+        "prompt_tokens": 2428,
+        "completion_tokens": 3846,
+        "total_tokens": 6274,
+        "cost": 0.000520596,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 2176,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.000520596,
+          "upstream_inference_prompt_cost": 2.0616e-05,
+          "upstream_inference_completions_cost": 0.00049998
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 2674,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "pager-source",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "selection-function",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "environment-variant",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    },
+    {
+      "taskId": "bat-asset-loading",
+      "repositoryUrl": "https://github.com/sharkdp/bat",
+      "repositoryCommit": "25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3",
+      "promptSha256": "c3d807e421e3ca475c95d3cc8bd528b5fc87070f729d926c3d71deb3f9285004",
+      "requestSha256": "44312cdf54a16af1ee8ec66c5e4f64e3ccfb5b243f68c98c6ec279cad4ab7f1c",
+      "runId": "20261009-085905-no-tools",
+      "startedAtUtc": "2026-10-09T09:00:00.917897+00:00",
+      "endedAtUtc": "2026-10-09T09:00:03.813710+00:00",
+      "generationId": "gen-1791536401-4HvaADP4uW3xqXUVzNHx",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/bat-asset-loading.md",
+      "answerSha256": "2b18c79e48aa2ec6b7eca4aed9509ac26bcc67885aa9ee813f33edb674e8ca46",
+      "usage": {
+        "prompt_tokens": 2424,
+        "completion_tokens": 153,
+        "total_tokens": 2577,
+        "cost": 4.0386e-05,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 2176,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 4.0386e-05,
+          "upstream_inference_prompt_cost": 2.0496e-05,
+          "upstream_inference_completions_cost": 1.989e-05
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 128,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "asset-source",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "cached-theme-file",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "integrated-theme-helper",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    },
+    {
+      "taskId": "rg-thread-selection",
+      "repositoryUrl": "https://github.com/BurntSushi/ripgrep",
+      "repositoryCommit": "4649aa9700619f94cf9c66876e9549d83420e16c",
+      "promptSha256": "b89e38269811473b0e25d4805245998a578e8d7f29cbe8e0e455758406d6daff",
+      "requestSha256": "9c1abff1fc03191dd76ad46d8017182957eaada071a782f8436ccf26b23ae928",
+      "runId": "20261009-085905-no-tools",
+      "startedAtUtc": "2026-10-09T09:00:02.118730+00:00",
+      "endedAtUtc": "2026-10-09T09:00:07.350954+00:00",
+      "generationId": "gen-1791536402-OFyecJc3drAhCMtHcGBc",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/rg-thread-selection.md",
+      "answerSha256": "83d718ed65f72f65492aac89fa054e1676fd4b32dac2a9fd76c804cc3aea9c83",
+      "usage": {
+        "prompt_tokens": 2470,
+        "completion_tokens": 325,
+        "total_tokens": 2795,
+        "cost": 0.00011635,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00011635,
+          "upstream_inference_prompt_cost": 7.41e-05,
+          "upstream_inference_completions_cost": 4.225e-05
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 245,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "thread-source",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "automatic-cap",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "sorted-count",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    },
+    {
+      "taskId": "rg-encoding-disable",
+      "repositoryUrl": "https://github.com/BurntSushi/ripgrep",
+      "repositoryCommit": "4649aa9700619f94cf9c66876e9549d83420e16c",
+      "promptSha256": "a58a9efa8851586f9b1c31aa278299ccd3f4558c98cc8b940963f3d405f6d982",
+      "requestSha256": "989c8471f0c4ff3983ff206d2bb16193856614c589151bf68e0a0614d333fd3e",
+      "runId": "20261009-085905-no-tools",
+      "startedAtUtc": "2026-10-09T09:00:03.814212+00:00",
+      "endedAtUtc": "2026-10-09T09:01:02.462255+00:00",
+      "generationId": "gen-1791536403-c2C41qo36x4527spEQNV",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/rg-encoding-disable.md",
+      "answerSha256": "6e2bb885d9b5695af50c1e6f1a84c8755a37125576886482e42574fe716cbd78",
+      "usage": {
+        "prompt_tokens": 2445,
+        "completion_tokens": 3726,
+        "total_tokens": 6171,
+        "cost": 0.000505506,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 2176,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.000505506,
+          "upstream_inference_prompt_cost": 2.1126e-05,
+          "upstream_inference_completions_cost": 0.00048438
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 2729,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "encoding-source",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "disabled-mode",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "encoding-regression",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    },
+    {
+      "taskId": "rg-preprocessor-retention",
+      "repositoryUrl": "https://github.com/BurntSushi/ripgrep",
+      "repositoryCommit": "4649aa9700619f94cf9c66876e9549d83420e16c",
+      "promptSha256": "26079c3b6a6ca0f12923354e2620f3ddff4611d848d85f39ed1acb55d83fe314",
+      "requestSha256": "325028765aaabb70cb982259ca581aa47126bc5658d5fcc3cd570fe6b1e51e57",
+      "runId": "20261009-085905-no-tools",
+      "startedAtUtc": "2026-10-09T09:00:07.351960+00:00",
+      "endedAtUtc": "2026-10-09T09:01:11.637108+00:00",
+      "generationId": "gen-1791536407-e56J2zzXYp57HpAQwYIO",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/rg-preprocessor-retention.md",
+      "answerSha256": "4cb7ab02d481fa934157a1acd5d6f767457bfc1a36a893b1a8a40f6f4f6b75dc",
+      "usage": {
+        "prompt_tokens": 2629,
+        "completion_tokens": 4188,
+        "total_tokens": 6817,
+        "cost": 0.000571086,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 2176,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.000571086,
+          "upstream_inference_prompt_cost": 2.6646e-05,
+          "upstream_inference_completions_cost": 0.00054444
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 3176,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "worker-source",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "dispatch-predicate",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "id": "glob-builder",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    },
+    {
+      "taskId": "rg-binary-retention",
+      "repositoryUrl": "https://github.com/BurntSushi/ripgrep",
+      "repositoryCommit": "4649aa9700619f94cf9c66876e9549d83420e16c",
+      "promptSha256": "d2206a836bc6164f14beeeebd9acbe0d4332f5d729bf645b8c0c8c634882bd1b",
+      "requestSha256": "8ae9bd5396564f7eae1dee8b044930afb89b43dd3fd70f3a06fc8e7f337f6237",
+      "runId": "20261009-094729-no-tools",
+      "startedAtUtc": "2026-10-09T09:47:29.295374+00:00",
+      "endedAtUtc": "2026-10-09T09:48:28.034443+00:00",
+      "generationId": "gen-1791539249-ziWdTJQlTAQ9E78tRlrU",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/rg-binary-retention.md",
+      "answerSha256": "9852f5d155b6ce4c2c99ec7bb3c1697b441613d9f1563cb71c083f09a9353593",
+      "usage": {
+        "prompt_tokens": 2731,
+        "completion_tokens": 3697,
+        "total_tokens": 6428,
+        "cost": 0.00056254,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00056254,
+          "upstream_inference_prompt_cost": 8.193e-05,
+          "upstream_inference_completions_cost": 0.00048061
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 2339,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "binary-source",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "text-mode",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "quit-constructor",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    },
+    {
+      "taskId": "gh-api-emergency-retention",
+      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryCommit": "b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a",
+      "promptSha256": "9518539eed1117268b2917d63d89527bdecd2ab004e00e0352c273a0c3c1e61a",
+      "requestSha256": "e18ef49dff64b1b8a78c2e6e8f79ec7d88807daeac4e0d5c781c3f122f92de20",
+      "runId": "20261009-091837-no-tools",
+      "startedAtUtc": "2026-10-09T09:18:37.078322+00:00",
+      "endedAtUtc": "2026-10-09T09:18:43.397082+00:00",
+      "generationId": "gen-1791537517-1Wa7Q4QgwPRDrvA3MvRV",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/gh-api-emergency-retention.md",
+      "answerSha256": "94864e12a920ee3fb32d3a337bbb2d79a3548df57cfd5a19731e5d4e2c89f030",
+      "usage": {
+        "prompt_tokens": 2895,
+        "completion_tokens": 442,
+        "total_tokens": 3337,
+        "cost": 0.00014431,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00014431,
+          "upstream_inference_prompt_cost": 8.685e-05,
+          "upstream_inference_completions_cost": 5.746e-05
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 430,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "end-cursor-helper",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "next-page-helper",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "rest-page-size",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    },
+    {
+      "taskId": "gh-clone-retention",
+      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryCommit": "b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a",
+      "promptSha256": "3e37340de0c0b1cb4921490acb68294fdbc61a586108fbfd0841906cce96d4c5",
+      "requestSha256": "0fc0087b35713152e99910e25ae23bbd832ab65ce43c0ea09f068f01fd01fca2",
+      "runId": "20261009-085905-no-tools",
+      "startedAtUtc": "2026-10-09T09:01:11.639595+00:00",
+      "endedAtUtc": "2026-10-09T09:01:18.118164+00:00",
+      "generationId": "gen-1791536471-WRK7JHC8ma4W42rsrSV3",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/gh-clone-retention.md",
+      "answerSha256": "d27bc6bf54a069ef322ac5e2aadf1d1053cf7fdffacfc6bbbe8d99e763a79dab",
+      "usage": {
+        "prompt_tokens": 2604,
+        "completion_tokens": 425,
+        "total_tokens": 3029,
+        "cost": 0.00013337,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00013337,
+          "upstream_inference_prompt_cost": 7.812e-05,
+          "upstream_inference_completions_cost": 5.525e-05
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 411,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "clone-source",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "url-cleanup",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "base-remote-method",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    },
+    {
+      "taskId": "gh-list-pagination",
+      "repositoryUrl": "https://github.com/cli/cli",
+      "repositoryCommit": "b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a",
+      "promptSha256": "49a77e20ee1bf6bed426c0900df2566e756a8b77cb891a2d82c381354da27900",
+      "requestSha256": "03ddabf1a2f1b3642dc65306092d288f4fe625100906e5703d01559903ae01bb",
+      "runId": "20261009-085905-no-tools",
+      "startedAtUtc": "2026-10-09T09:01:18.118657+00:00",
+      "endedAtUtc": "2026-10-09T09:01:24.389535+00:00",
+      "generationId": "gen-1791536478-LG7SmAluRLIGy3NzdB18",
+      "returnedModel": "qwen/qwen3.7-flash",
+      "provider": "Alibaba",
+      "finishReason": "stop",
+      "toolCallsReturned": 0,
+      "answerFile": "no-tools/gh-list-pagination.md",
+      "answerSha256": "1dce3089839257733f6d1fd7eefd322e8f922baa0644c74476206350dba1c73a",
+      "usage": {
+        "prompt_tokens": 2489,
+        "completion_tokens": 390,
+        "total_tokens": 2879,
+        "cost": 0.00012537,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00012537,
+          "upstream_inference_prompt_cost": 7.467e-05,
+          "upstream_inference_completions_cost": 5.07e-05
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 329,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "checks": [
+        {
+          "id": "search-cap-field",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "pr-list-source",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "default-list-limit",
+          "passed": false,
+          "reason": "notFound"
+        },
+        {
+          "id": "search-result-ceiling",
+          "passed": false,
+          "reason": "notFound"
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "One sample per unchanged prompt; no statistical estimate of memorization.",
+    "Four selected responses contain simulated tool syntax and one contains only the reference code; those five do not attempt the factual answer.",
+    "Several substantive responses falsely claim repository verification. They are preserved verbatim and remain unverified.",
+    "A matching symbol name can appear with invented surrounding paths and modules; a textual hit is not a correct explanation.",
+    "Each modified emergency/binary prompt was measured once; four superseded responses are retained separately."
+  ],
+  "supersededResponses": [
+    {
+      "taskId": "rg-binary-retention",
+      "runId": "20261009-085905-no-tools",
+      "promptSha256": "e247fe2104d0503f9735803cf5409da4960dc747f0fc8958d7e781532ad217ec",
+      "generationId": "gen-1791536462-cNl04uzh8RfvXWrq0HKz",
+      "answerFile": "no-tools/rg-binary-retention-superseded-20261009-085905-no-tools.md",
+      "answerSha256": "806cb0c7fd5503767e70f65327fb6d4fee466f3004f78efc17211cfadaf11118",
+      "usage": {
+        "prompt_tokens": 2624,
+        "completion_tokens": 500,
+        "total_tokens": 3124,
+        "cost": 0.00014372,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00014372,
+          "upstream_inference_prompt_cost": 7.872e-05,
+          "upstream_inference_completions_cost": 6.5e-05
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 433,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "taskId": "gh-api-emergency-retention",
+      "runId": "20261009-085905-no-tools",
+      "promptSha256": "d9257ab2ea780c0785d1f3b66041d935737d5d556ea745ed1a96f7a3ce7db7f3",
+      "generationId": "gen-1791536469-3zKlwPNOHcaxdxnO4PtD",
+      "answerFile": "no-tools/gh-api-emergency-retention-superseded-20261009-085905-no-tools.md",
+      "answerSha256": "30b0e6907b7039e55c2d8a0a13f66683caf3bc4e69e4aabf575076bca7600ba1",
+      "usage": {
+        "prompt_tokens": 2698,
+        "completion_tokens": 4029,
+        "total_tokens": 6727,
+        "cost": 0.00060471,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00060471,
+          "upstream_inference_prompt_cost": 8.094e-05,
+          "upstream_inference_completions_cost": 0.00052377
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 3004,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "taskId": "gh-api-emergency-retention",
+      "runId": "20261009-090500-no-tools",
+      "promptSha256": "7834dc72eb42e088552fab6982f80653162779dfc3d26651ecc9475a52383950",
+      "generationId": "gen-1791536700-a1LAP2P9CVQ1mDepAsWS",
+      "answerFile": "no-tools/gh-api-emergency-retention-superseded-20261009-090500-no-tools.md",
+      "answerSha256": "b4c8c4d11d5997e3ac13de68b8e233da027b299da91329e2f740af31f5301364",
+      "usage": {
+        "prompt_tokens": 2759,
+        "completion_tokens": 136,
+        "total_tokens": 2895,
+        "cost": 0.00010045,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00010045,
+          "upstream_inference_prompt_cost": 8.277e-05,
+          "upstream_inference_completions_cost": 1.768e-05
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 122,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "taskId": "gh-api-emergency-retention",
+      "runId": "20261009-090938-no-tools",
+      "promptSha256": "3e592a389e2b0ac917abee9b5269960472d4b6f8bc0c425b8920bb0f4ab45931",
+      "generationId": "gen-1791536978-9yBZ9KO28xdXE4XDH3jh",
+      "answerFile": "no-tools/gh-api-emergency-retention-superseded-20261009-090938-no-tools.md",
+      "answerSha256": "1963b5c8c6b52fd87353567b3f75f5da8db4175dc715f6dd49024d59becfe825",
+      "usage": {
+        "prompt_tokens": 2832,
+        "completion_tokens": 424,
+        "total_tokens": 3256,
+        "cost": 0.00014008,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00014008,
+          "upstream_inference_prompt_cost": 8.496e-05,
+          "upstream_inference_completions_cost": 5.512e-05
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 413,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    }
+  ]
+}

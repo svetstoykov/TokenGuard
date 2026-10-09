@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 3,
+  "run": {
+    "runId": "20261009-090105-treatment",
+    "captureEnabled": true,
+    "commitSha": "f667ccc77c96ae79713bbd73980b783c2020e108",
+    "repositoryDirty": false,
+    "startedAtUtc": "2026-10-09T09:01:05.016357+00:00",
+    "endedAtUtc": "2026-10-09T09:01:14.599426+00:00",
+    "effectiveSettings": {
+      "agentModel": "qwen/qwen3.7-flash",
+      "summarizerModel": "qwen/qwen3.7-flash",
+      "maxOutputTokens": 8192,
+      "contextWindowTokens": 20000,
+      "softThresholdRatio": 0.8,
+      "hardThresholdRatio": 1,
+      "windowSize": 10,
+      "summarizationEnabled": true,
+      "summaryWindowSize": 5,
+      "minSummaryTokens": 2048,
+      "maxSummaryTokens": 4096,
+      "exchangeMaxTurns": 50,
+      "tokenGuardLogLevel": "Information"
+    },
+    "helperModel": "qwen/qwen3.7-flash",
+    "helperMaxOutputTokens": 512,
+    "helperTemperature": 0,
+    "turnBudgets": {
+      "small": {
+        "maxTurns": 30,
+        "wrapUpWindow": 4,
+        "wrapUpTriggerTurns": 26
+      },
+      "medium": {
+        "maxTurns": 50,
+        "wrapUpWindow": 8,
+        "wrapUpTriggerTurns": 42
+      },
+      "large": {
+        "maxTurns": 30,
+        "wrapUpWindow": 4,
+        "wrapUpTriggerTurns": 26
+      }
+    },
+    "arm": "treatment",
+    "manifestPath": "../../emergency-pilot.json",
+    "manifestSha256": "641330956c13c3a41d955a47156baa13a3902066d9c38d045c9a8435e7c1a5d0",
+    "manifestProvenance": "file"
+  },
+  "tasks": [
+    {
+      "checks": [
+        {
+          "id": "end-cursor-helper",
+          "passed": false,
+          "reason": "noAnswer"
+        },
+        {
+          "id": "next-page-helper",
+          "passed": false,
+          "reason": "artifactMissing"
+        },
+        {
+          "id": "rest-page-size",
+          "passed": false,
+          "reason": "artifactMissing"
+        }
+      ],
+      "probe": {
+        "requires": "dropped",
+        "status": "invalid",
+        "reason": "noAnswer",
+        "canaryPresent": false
+      },
+      "taskId": "gh-api-emergency-retention",
+      "size": "large",
+      "repositoryCommit": "b4ab34371dabfa8569f9cd7df4aec1d307ce4a8a",
+      "outcome": "budget_exceeded",
+      "protocolCompletion": false,
+      "deliverableCompletion": "incomplete",
+      "modelCallBudget": 30,
+      "measurementsComplete": true,
+      "summaryCrossCheck": "matched",
+      "sessionId": "session_f947b03fff8344a0a86b7aee8c0bf648",
+      "sessionDirectory": "gh-api-emergency-retention",
+      "artifactsAtStart": [],
+      "artifactsAtEnd": [],
+      "tokenGuardTranscriptOffset": 1,
+      "prepareRecords": [
+        {
+          "index": 1,
+          "conversationId": "0d798ec04c7d4543bfb4d13ba1233c30",
+          "turn": 1,
+          "status": "completed",
+          "openingMessagePresent": true,
+          "outcome": "Ready",
+          "tokensBefore": 2742,
+          "tokensAfter": 2742,
+          "messagesCompacted": 0,
+          "strategyRuns": 0
+        },
+        {
+          "index": 2,
+          "conversationId": "0d798ec04c7d4543bfb4d13ba1233c30",
+          "turn": 2,
+          "status": "completed",
+          "openingMessagePresent": true,
+          "outcome": "CannotCompact",
+          "tokensBefore": 41061,
+          "tokensAfter": 41061,
+          "messagesCompacted": 0,
+          "strategyRuns": 1
+        }
+      ],
+      "providerCalls": [
+        {
+          "transcriptIndex": 0,
+          "prepareIndex": 1,
+          "status": "completed",
+          "inputTokens": 4430,
+          "outputTokens": 323
+        }
+      ],
+      "summarizerResponses": [],
+      "helperResponses": [],
+      "metrics": {
+        "checksTotal": 3,
+        "checksPassed": 0,
+        "checkPassRate": 0,
+        "messagesMasked": 0,
+        "messagesSummarized": 0,
+        "completedModelTurns": 1,
+        "modelCallsMade": 1,
+        "budgetOvershoot": 0,
+        "prepareCalls": 2,
+        "completedPrepareCalls": 2,
+        "strategyRuns": 1,
+        "tokensBefore": 43803,
+        "tokensAfter": 43803,
+        "tokensReclaimed": 0,
+        "peakPreparedTokens": 41061,
+        "providerInputTokens": 4430,
+        "providerOutputTokens": 323,
+        "providerMissingInputUsageCalls": 0,
+        "providerMissingOutputUsageCalls": 0,
+        "messagesCompacted": 0,
+        "messagesDropped": 0,
+        "summarizationErrors": 0,
+        "summarizerCalls": 0,
+        "summarizerFailures": 0,
+        "summarizerInputTokens": 0,
+        "summarizerOutputTokens": 0,
+        "summarizerMissingInputUsageCalls": 0,
+        "summarizerMissingOutputUsageCalls": 0,
+        "helperCalls": 0,
+        "helperInputTokens": 0,
+        "helperOutputTokens": 0,
+        "helperMissingInputUsageCalls": 0,
+        "helperMissingOutputUsageCalls": 0,
+        "emergencyTruncations": 0,
+        "estimatedPromptTokenReduction": 0,
+        "estimatorPairedTurnCount": 1,
+        "estimatorSignedMean": 0.381038374717833,
+        "estimatorSignedP95": 0.381038374717833,
+        "estimatorAbsoluteMean": 0.381038374717833,
+        "estimatorAbsoluteP95": 0.381038374717833,
+        "prepareOutcomeCounts": {
+          "CannotCompact": 1,
+          "Ready": 1
+        },
+        "healthSignalCounts": {
+          "EstimatorDrift": 1,
+          "LowCompactionYield": 1
+        }
+      }
+    }
+  ],
+  "totals": {
+    "evaluatedTaskCount": 1,
+    "deliverableCompletedTaskCount": 0,
+    "deliverableCompletionRate": 0,
+    "probeCount": 1,
+    "invalidProbeCount": 1,
+    "passedProbeCount": 0,
+    "probePassRate": null,
+    "canaryPresentCount": 0,
+    "taskCount": 1,
+    "protocolCompletedTaskCount": 0,
+    "protocolCompletionRate": 0,
+    "metrics": {
+      "checksTotal": 3,
+      "checksPassed": 0,
+      "checkPassRate": 0,
+      "messagesMasked": 0,
+      "messagesSummarized": 0,
+      "completedModelTurns": 1,
+      "modelCallsMade": 1,
+      "budgetOvershoot": 0,
+      "prepareCalls": 2,
+      "completedPrepareCalls": 2,
+      "strategyRuns": 1,
+      "tokensBefore": 43803,
+      "tokensAfter": 43803,
+      "tokensReclaimed": 0,
+      "peakPreparedTokens": 41061,
+      "providerInputTokens": 4430,
+      "providerOutputTokens": 323,
+      "providerMissingInputUsageCalls": 0,
+      "providerMissingOutputUsageCalls": 0,
+      "messagesCompacted": 0,
+      "messagesDropped": 0,
+      "summarizationErrors": 0,
+      "summarizerCalls": 0,
+      "summarizerFailures": 0,
+      "summarizerInputTokens": 0,
+      "summarizerOutputTokens": 0,
+      "summarizerMissingInputUsageCalls": 0,
+      "summarizerMissingOutputUsageCalls": 0,
+      "helperCalls": 0,
+      "helperInputTokens": 0,
+      "helperOutputTokens": 0,
+      "helperMissingInputUsageCalls": 0,
+      "helperMissingOutputUsageCalls": 0,
+      "emergencyTruncations": 0,
+      "estimatedPromptTokenReduction": 0,
+      "estimatorPairedTurnCount": 1,
+      "estimatorSignedMean": 0.381038374717833,
+      "estimatorSignedP95": 0.381038374717833,
+      "estimatorAbsoluteMean": 0.381038374717833,
+      "estimatorAbsoluteP95": 0.381038374717833,
+      "prepareOutcomeCounts": {
+        "CannotCompact": 1,
+        "Ready": 1
+      },
+      "healthSignalCounts": {
+        "EstimatorDrift": 1,
+        "LowCompactionYield": 1
+      }
+    }
+  },
+  "partial": false,
+  "unrunTaskIds": [],
+  "validation": {
+    "isValid": true,
+    "errors": []
+  },
+  "estimatorErrorUnit": "ratio: (providerInput - tokensAfter) / providerInput; positive means underestimation"
+}

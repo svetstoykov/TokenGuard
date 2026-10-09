@@ -172,6 +172,8 @@ public sealed class VerifiableCorpusTests
     [InlineData("bat-theme-defaults", "default-function", "theme::default_theme", true)]
     [InlineData("bat-theme-defaults", "default-function", "HighlightingAssets::default_theme", false)]
     [InlineData("rg-preprocessor-retention", "glob-builder", "flags::hiargs::preprocessor_globs", true)]
+    [InlineData("rg-preprocessor-retention", "glob-builder", "rg::flags::hiargs::preprocessor_globs", true)]
+    [InlineData("rg-preprocessor-retention", "glob-builder", "rg::flags::hiargs::preprocessor_globs_extra", false)]
     [InlineData("rg-preprocessor-retention", "glob-builder", "SearchWorkerBuilder::preprocessor_globs", false)]
     [InlineData("rg-preprocessor-retention", "glob-builder", "preprocessor_globs: Override", false)]
     public void EvaluateCheck_SymbolFact_MatchesIntendedDeclaration(string taskId, string checkId, string text, bool passed)

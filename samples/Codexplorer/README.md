@@ -286,8 +286,10 @@ not a general claim about instruction retention, and opening survival can make a
 The verifiable corpus checks a concrete fact in each final answer and records supporting facts in `evidence.md`.
 Its Medium probes request one findings-only progress reply after recording facts so a runner continuation can begin a new
 tool loop. The opening user message is protected during its active loop; making that loop longer or lowering its token budget
-alone cannot remove that protection. The emergency probe requests an isolated `file_tree` call on `pkg/cmd/api` before batching
-large source reads, giving truncation an older exchange to drop. Eligibility still depends on the last completed prepare.
+alone cannot remove that protection. The emergency probe requests an isolated `file_tree` call on `pkg/cmd/api`, then six
+separate source ranges in one uninterrupted loop. One tool call per response keeps the newest exchange small enough to fit
+the budget while giving truncation older exchanges to drop. After recording its facts, it requests a findings-only progress
+reply before further source exploration. Eligibility still depends on the last completed prepare.
 
 Before recording this corpus's baseline, measure the model's guess rate with one no-tools answer per prompt and review real
 correct-answer specimens for every check. Freeze the manifest before recording both arms: prompt and check edits change its
