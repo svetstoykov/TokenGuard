@@ -154,7 +154,9 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 
         try
         {
-            workspace = await this._workspaceManager.CloneAsync(openSessionPayload.RepositoryUrl!, ct: ct).ConfigureAwait(false);
+            var commitSha = string.IsNullOrWhiteSpace(openSessionPayload.RepositoryCommit) ? null : openSessionPayload.RepositoryCommit;
+            workspace = await this._workspaceManager.CloneAsync(openSessionPayload.RepositoryUrl!, commitSha: commitSha, ct: ct)
+                .ConfigureAwait(false);
         }
         catch (ArgumentException ex)
         {
@@ -511,7 +513,8 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         string SessionDirectory);
 
     private sealed record OpenSessionPayload(
-        string? WorkspacePath, string? RepositoryUrl, int? ModelCallBudget, int? WrapUpWindow, string? SessionDirectory, bool Capture = false);
+        string? WorkspacePath, string? RepositoryUrl, int? ModelCallBudget, int? WrapUpWindow, string? SessionDirectory, bool Capture = false,
+        string? RepositoryCommit = null);
 
     private sealed record AutomationWorkspaceResult(
         string Name,

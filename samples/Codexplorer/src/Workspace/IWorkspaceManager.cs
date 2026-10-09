@@ -17,9 +17,13 @@ public interface IWorkspaceManager
     /// <see langword="true"/> to delete any existing destination folder and clone again; otherwise an
     /// existing tracked workspace is returned unchanged.
     /// </param>
+    /// <param name="commitSha">
+    /// The full commit SHA the workspace must be checked out at, or <see langword="null"/> to use the default
+    /// branch. An existing workspace whose head is another commit is deleted and cloned again.
+    /// </param>
     /// <param name="ct">The cancellation token for the clone operation.</param>
     /// <returns>The tracked <see cref="Workspace"/> entry for the cloned repository.</returns>
-    Task<Workspace> CloneAsync(string githubUrl, bool forceReclone = false, CancellationToken ct = default);
+    Task<Workspace> CloneAsync(string githubUrl, bool forceReclone = false, string? commitSha = null, CancellationToken ct = default);
 
     /// <summary>
     /// Lists tracked workspaces already present under the configured workspace root.
