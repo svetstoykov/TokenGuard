@@ -24,10 +24,14 @@ internal sealed class SampleSessionLogger : ISessionLogger
     /// <inheritdoc />
     public IAsyncEnumerable<SessionEvent> Events => Channel.CreateUnbounded<SessionEvent>().Reader.ReadAllAsync();
 
+    /// <summary>Gets the events appended so far, in order.</summary>
+    public List<SessionEvent> Appended { get; } = [];
+
     /// <inheritdoc />
     public Task AppendAsync(SessionEvent evt, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        this.Appended.Add(evt);
         return Task.CompletedTask;
     }
 

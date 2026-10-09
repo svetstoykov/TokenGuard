@@ -122,7 +122,7 @@ be fetched, `open_session` fails with `clone_failed` and a message naming the re
 
 If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
 
-`submit` returns one stable `outcome` value per exchange: `reply_received`, `budget_exceeded`, `max_turns_reached`, `turn_budget_reached`, `cancelled`, or `failed`. Every response includes the active `sessionId`, `modelTurnsCompleted`, `logFilePath`, whether the session is still open, and any assistant text or partial text that was available for that exchange.
+`submit` returns one stable `outcome` value per exchange: `reply_received`, `budget_exceeded`, `max_turns_reached`, `turn_budget_reached`, `empty_model_reply`, `cancelled`, or `failed`. A reply with no text and no tool call is retried once; the provider call that returned it is recorded with status `failed` and its token usage, and a second empty reply in a row ends the exchange as `empty_model_reply` with the session still open. Every response includes the active `sessionId`, `modelTurnsCompleted`, `logFilePath`, whether the session is still open, and any assistant text or partial text that was available for that exchange.
 
 ### Automation runner
 

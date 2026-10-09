@@ -132,6 +132,7 @@ internal sealed class ExplorerSession : IExplorerSession
         var callsAtExchangeStart = this._modelCalls;
         var tokensAtExchangeStart = this._totalTokens;
         string? lastAssistantTextThisExchange = null;
+        var previousReplyWasEmpty = false;
 
         try
         {
@@ -211,7 +212,6 @@ internal sealed class ExplorerSession : IExplorerSession
                 try
                 {
                     completion = (await chatClient.CompleteChatAsync(messages, completionOptions, ct).ConfigureAwait(false)).Value;
-                    this._collector?.ProviderFinished("completed", completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount);
                 }
                 catch (Exception exception)
                 {
@@ -242,7 +242,16 @@ internal sealed class ExplorerSession : IExplorerSession
                     .Select(call => new SessionToolCall(call.Id, call.FunctionName, call.FunctionArguments.ToString()))
                     .ToArray();
 
-                this._totalTurns++;
+                // A reply with no text and no tool call cannot be recorded in the conversation, so the call counts as failed.
+                var replyIsEmpty = toolCalls.Length == 0 && string.IsNullOrWhiteSpace(assistantText);
+                var callStatus = replyIsEmpty ? "failed" : "completed";
+                this._collector?.ProviderFinished(callStatus, completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount);
+
+                if (!replyIsEmpty)
+                {
+                    this._totalTurns++;
+                }
+
                 this._totalTokens += completion.Usage?.TotalTokenCount ?? 0;
 
                 if (this._capture is not null)
@@ -251,7 +260,7 @@ internal sealed class ExplorerSession : IExplorerSession
                         assistantText, toolCalls, completion.FinishReason.ToString(), completion.Usage?.InputTokenCount,
                         completion.Usage?.OutputTokenCount, completion.Usage?.TotalTokenCount);
                     await this._capture.WriteExchangeAsync(
-                        globalTurnIndex, prepareResult.Messages, "completed", capturedResponse, CancellationToken.None).ConfigureAwait(false);
+                        globalTurnIndex, prepareResult.Messages, callStatus, capturedResponse, CancellationToken.None).ConfigureAwait(false);
                 }
 
                 await this._sessionLogger.AppendAsync(
@@ -266,6 +275,25 @@ internal sealed class ExplorerSession : IExplorerSession
                         CancellationToken.None)
                     .ConfigureAwait(false);
 
+                if (replyIsEmpty)
+                {
+                    if (!previousReplyWasEmpty)
+                    {
+                        previousReplyWasEmpty = true;
+                        await this._sessionLogger.AppendAsync(new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex,
+                            "EmptyModelReplyRetry", "The model returned no text and no tool call. Retrying once."), CancellationToken.None)
+                            .ConfigureAwait(false);
+                        continue;
+                    }
+
+                    await this._sessionLogger.AppendAsync(new ExchangeOutcomeEvent(DateTime.UtcNow, currentExchangeIndex,
+                        "EmptyModelReply", "The model returned no text and no tool call twice in a row."), CancellationToken.None)
+                        .ConfigureAwait(false);
+                    return new AgentExchangeEmptyReply(
+                        lastAssistantTextThisExchange ?? this._lastAssistantText, this._totalTurns - turnsAtExchangeStart);
+                }
+
+                previousReplyWasEmpty = false;
                 this._conversationContext.RecordModelResponse(completion.ResponseSegments(), completion.InputTokens());
 
                 if (toolCalls.Length == 0)

@@ -256,7 +256,7 @@ internal sealed class AutomationRunner
                     return;
                 }
 
-                if (response.Outcome is "failed" or "cancelled" or "budget_exceeded" or "turn_budget_reached")
+                if (response.Outcome is "failed" or "cancelled" or "budget_exceeded" or "turn_budget_reached" or "empty_model_reply")
                 {
                     return;
                 }
