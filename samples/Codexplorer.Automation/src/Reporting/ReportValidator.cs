@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Codexplorer.Automation.Scoring;
 
 namespace Codexplorer.Automation.Reporting;
 
@@ -16,9 +17,9 @@ internal static class ReportValidator
     public static IReadOnlyList<string> Validate(RunReport report)
     {
         var errors = new List<string>();
-        if (report.SchemaVersion != 2)
+        if (report.SchemaVersion != 3)
         {
-            errors.Add("Unsupported report schema version; expected 2.");
+            errors.Add("Unsupported report schema version; expected 3.");
             return errors;
         }
 
@@ -29,7 +30,8 @@ internal static class ReportValidator
         }
 
         errors.AddRange(GetCollectionErrors(report.Run, report.Tasks, report.UnrunTaskIds));
-        if (report.Totals.ProtocolCompletionRate is double rate && !double.IsFinite(rate)
+        if (new[] { report.Totals.ProtocolCompletionRate, report.Totals.DeliverableCompletionRate, report.Totals.ProbePassRate }
+                .Any(value => value.HasValue && !double.IsFinite(value.Value))
             || report.Totals.Metrics is null || HasNonfiniteMetric(report.Totals.Metrics))
         {
             errors.Add("Report totals contain missing or nonfinite metrics.");
@@ -41,7 +43,7 @@ internal static class ReportValidator
         {
             if (task is null || task.Metrics is null || task.PrepareRecords is null || task.ProviderCalls is null
                 || task.HelperResponses is null || task.SummarizerResponses is null || task.ArtifactsAtStart is null
-                || task.ArtifactsAtEnd is null)
+                || task.ArtifactsAtEnd is null || task.Checks is null)
             {
                 errors.Add("Task contains a null required section.");
                 return errors;
@@ -55,7 +57,8 @@ internal static class ReportValidator
 
             var expected = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
                 ReportAggregator.ToMeasurements(task), task.HelperResponses, task.Metrics.HelperCalls,
-                new TaskSessionRecord(task.SessionId, task.SessionDirectory, task.ArtifactsAtStart, task.ArtifactsAtEnd))
+                new TaskSessionRecord(task.SessionId, task.SessionDirectory, task.ArtifactsAtStart, task.ArtifactsAtEnd),
+                new AnswerScoringResult { Checks = task.Checks, Probe = task.Probe })
                 with { RepositoryCommit = task.RepositoryCommit };
             if (!JsonElement.DeepEquals(JsonSerializer.SerializeToElement(task, ReportJson.Options),
                 JsonSerializer.SerializeToElement(expected, ReportJson.Options)))
@@ -182,13 +185,16 @@ internal static class ReportValidator
 
     private static void ValidateTask(TaskReport task, List<string> errors)
     {
+        ValidateScoring(task, errors);
+
         if (HasNonfiniteMetric(task.Metrics))
         {
             errors.Add($"Task '{task.TaskId}' contains nonfinite metrics.");
         }
 
         if (string.IsNullOrWhiteSpace(task.Size) || string.IsNullOrWhiteSpace(task.Outcome) || task.ModelCallBudget <= 0
-            || task.DeliverableCompletion != "notEvaluated" || task.SummaryCrossCheck is not ("pending" or "matched" or "mismatched" or "unavailable")
+            || task.DeliverableCompletion is not ("notEvaluated" or "complete" or "incomplete")
+            || task.SummaryCrossCheck is not ("pending" or "matched" or "mismatched" or "unavailable")
             || (task.ProtocolCompletion && task.Outcome != "reply_received"))
         {
             errors.Add($"Task '{task.TaskId}' has invalid task metadata.");
@@ -204,9 +210,10 @@ internal static class ReportValidator
         if (task.PrepareRecords.Any(prepare => prepare is null || prepare.Index <= 0 || prepare.Status is not ("completed" or "incomplete")
             || prepare.MessagesCompacted < 0 || prepare.StrategyRuns < 0
             || (prepare.Status == "completed" && (string.IsNullOrWhiteSpace(prepare.Outcome) || prepare.TokensBefore is null
-                || prepare.TokensAfter is null || prepare.TokensBefore < 0 || prepare.TokensAfter < 0))
+                || prepare.TokensAfter is null || prepare.OpeningMessagePresent is null || prepare.TokensBefore < 0 || prepare.TokensAfter < 0))
             || (prepare.Status == "incomplete"
-                && (prepare.Outcome is not null || prepare.TokensBefore is not null || prepare.TokensAfter is not null)))
+                && (prepare.Outcome is not null || prepare.TokensBefore is not null || prepare.TokensAfter is not null
+                    || prepare.OpeningMessagePresent is not null)))
             || task.PrepareRecords.Select(prepare => prepare.Index).Distinct().Count() != task.PrepareRecords.Count)
         {
             errors.Add($"Task '{task.TaskId}' has invalid prepare records.");
@@ -224,12 +231,50 @@ internal static class ReportValidator
             || task.HelperResponses.Any(usage => usage is null || usage.InputTokens < 0 || usage.OutputTokens < 0)
             || task.Metrics.SummarizerCalls < task.SummarizerResponses.Count || task.Metrics.HelperCalls < task.HelperResponses.Count
             || task.Metrics.SummarizerFailures < 0 || task.Metrics.SummarizerFailures > task.Metrics.SummarizerCalls
+            || task.Metrics.MessagesMasked < 0 || task.Metrics.MessagesSummarized < 0
             || task.Metrics.MessagesDropped < 0 || task.Metrics.SummarizationErrors < 0 || task.Metrics.EmergencyTruncations < 0
             || task.Metrics.HealthSignalCounts is null
             || task.Metrics.HealthSignalCounts.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || pair.Value < 0))
         {
             errors.Add($"Task '{task.TaskId}' has invalid usage or counter measurements.");
         }
+    }
+
+    /// <summary>Checks recorded verdict contracts and shared eligibility without reconstructing excluded answer text.</summary>
+    /// <param name="task">The task with non-null required collections.</param>
+    /// <param name="errors">The destination for observable inconsistencies.</param>
+    private static void ValidateScoring(TaskReport task, List<string> errors)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var check in task.Checks)
+        {
+            if (check is null || string.IsNullOrWhiteSpace(check.Id) || !char.IsAsciiLetterOrDigit(check.Id[0])
+                || !check.Id.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_') || !ids.Add(check.Id)
+                || (check.Passed ? check.Reason is not null
+                    : check.Reason is not ("noAnswer" or "artifactMissing" or "notFound" or "forbiddenValuePresent")))
+                errors.Add($"Task '{task.TaskId}' has invalid check results.");
+        }
+        if (task.Probe is not { } probe)
+            return;
+        if (probe.Requires is not (null or "masked" or "summarized" or "dropped"))
+            errors.Add($"Task '{task.TaskId}' has invalid probe requires.");
+        var eligibility = task.PrepareRecords.Any(record => record is null) ? "instructionNotCompacted"
+            : ProbeValidity.GetInvalidReason(probe.Requires, ReportAggregator.ToMeasurements(task));
+        var valid = probe.Status switch
+        {
+            "passed" => task.ProtocolCompletion && eligibility is null && probe.Reason is null && probe.CanaryPresent,
+            "failed" => task.ProtocolCompletion && eligibility is null && probe.Reason == "canaryMissing" && !probe.CanaryPresent,
+            "invalid" => probe.Reason switch
+            {
+                "noAnswer" => !probe.CanaryPresent,
+                "canaryRepeated" => task.ProtocolCompletion,
+                "instructionNotCompacted" or "requiredKindAbsent" => task.ProtocolCompletion && probe.Reason == eligibility,
+                _ => false,
+            },
+            _ => false,
+        };
+        if (!valid || (!task.ProtocolCompletion && (probe.Status != "invalid" || probe.Reason != "noAnswer" || probe.CanaryPresent)))
+            errors.Add($"Task '{task.TaskId}' has an inconsistent probe verdict.");
     }
 
     /// <summary>

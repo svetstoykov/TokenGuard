@@ -1,51 +1,83 @@
 # Manual run baselines
 
-[`2026-10-07-bat-treatment.json`](2026-10-07-bat-treatment.json) is a real OpenRouter treatment run of the checked-in
-[`report-baseline.json`](../src/tasks/report-baseline.json) manifest, recorded as report schema version 2. It replaces the
-schema version 1 report of 2026-10-07 under the same file name. The run, `20261008-123200-treatment`, ran from
-2026-10-08 12:32:00 UTC to 12:34:50 UTC on clean commit `6345681f8d194b5a6200a302f738a3d90af6c478`, which includes the
-session directory, the artifact tools, model-call capture, and report schema version 2. The runner exited with code zero.
+[`2026-10-07-bat-treatment.json`](2026-10-07-bat-treatment.json) is the actual schema-3 OpenRouter treatment report for
+[`report-baseline.json`](../src/tasks/report-baseline.json). The existing filename now contains the **2026-10-09** run,
+replacing the historical schema-2 baseline.
 
-The single `baseline-bat-docs` task received an in-budget wrap-up reply. Deliverable completion remains `notEvaluated`.
-Measurements are complete, the disposal summary cross-check matched, and report validation succeeded.
+Run `20261009-070245-treatment` started at 2026-10-09 07:02:45.982016 UTC and ended at 07:12:03.943874 UTC on clean
+TokenGuard commit `4ccd4f30e1879427ade9a68262abec17f4c8f76b`. The manifest was unpinned; its SHA-256 was
+`1a13b81ad88b82243014dc8ab01ca1317ecb37926fca45ab2b95b5fd9eb122a6`.
+
+## Operational gate and settings
+
+The runner exited zero. The single `baseline-bat-docs` task completed its protocol with an in-budget wrap-up reply.
+Measurements were complete, the disposal summary cross-check matched, and schema-3 report validation succeeded.
+Offline self-comparison with `--limit modelCallsMade=0` exited zero. All six required operational gate conditions held,
+so the authorized Qwen default switch was applied; no DeepSeek fallback was run.
+
+Agent, summarizer, and configured helper models were all `qwen/qwen3.7-flash`. Agent/summarizer output cap was 8,192 tokens.
+Context settings were 20,000 tokens, soft threshold 0.8, hard threshold 1.0, and protected window 10. Summarization was
+enabled with window 5, minimum summary budget 2,048 tokens, and maximum summary output 4,096 tokens. The helper cap was
+512 tokens with temperature zero; no helper calls were needed. The exchange cap was 50, task allowance 30 calls, and
+wrap-up window four calls. TokenGuard logging was `Information`. The run used rebuilt Release executables and a fresh
+workspace under ignored `.artifacts/answer-scorer-workspace.*`.
+
+## Deliverable checks and probe
+
+| Check | Target | Passed | Reason |
+| --- | --- | --- | --- |
+| `build-manifest` | Final answer | true | null |
+| `minimum-rust-setting` | Final answer | true | null |
+| `notes-test-command` | `baseline.md` | true | null |
+
+Three of three checks passed: check pass rate **1.0**. One task was evaluated and completed its deliverables:
+deliverable completion rate **1.0**. These checks verify the declared names/command under deterministic text matching;
+they do not independently certify every factual claim in the generated texts.
+
+The retention probe was **invalid / `canaryRepeated`**, with `canaryPresent=true`. The code appeared in a pre-wrap-up
+assistant reply, which takes precedence over compaction eligibility. The last completed prepare showed
+`openingMessagePresent=false`; early repetition invalidates the probe even though the final answer includes the code.
+There was one probe, one invalid probe, zero passed probes, and one canary-present probe. The valid-probe denominator
+was zero, so probe pass rate is **null**.
+
+Both selected specimens were present and nonempty: the final answer was 3,682 UTF-8 bytes and `baseline.md` was 5,650 bytes.
+The artifact inventory started empty and ended with `baseline.md`. Both texts were read, screened for credentials/private
+paths, and copied without redaction or rewriting into the scorer's recorded fixtures. Six independently reviewed labels
+check the manifest, setting name, and test command in each text; provenance and exact byte hashes are in
+[ScorerCases.json](../../../tests/Codexplorer.Automation.Tests/Scoring/ScorerCases.json).
+
+## Observed measurements and limitations
 
 | Measurement | Value |
 | --- | ---: |
-| Agent calls / allowance | 30 / 30 |
+| Agent calls / allowance | 27 / 30 |
 | Budget overshoot | 0 |
-| Provider input / output tokens | 465,437 / 9,350 |
-| Completed strategy runs | 28 |
-| Summarizer calls | 3 |
-| Summarizer input / output tokens | 29,369 / 5,400 |
-| Estimator paired turns | 30 |
-| Estimated prompt token reduction | 67.8290% |
+| Provider input / output tokens | 352,875 / 11,353 |
+| Completed strategy runs | 25 |
+| Masked / summarized / dropped messages | 220 / 354 / 264 |
+| Summarizer calls / failures | 12 / 3 |
+| Summarizer input / output tokens | 44,892 / 28,509 |
+| Summarization errors | 3 |
+| Emergency truncations | 10 |
+| Compacted / insufficient / ready prepares | 22 / 3 / 2 |
+| Estimator paired turns | 27 |
+| Estimated prompt token reduction | 85.1790% |
+| Peak prepared tokens | 26,791 |
 
-Agent and summarizer used `deepseek/deepseek-v4.1-flash` with an 8,192 output-token cap. Context settings were
-20,000 tokens, soft threshold 0.8, hard threshold 1.0, and protected window 10. Summarization used window 5 and
-at least 2,048 tokens of available summary budget and a 4,096-token summary cap. The helper used the same model with
-a 512-token cap and temperature zero; no helper calls
-were needed. The exchange cap was 50, the task budget 30, and the wrap-up window 4. TokenGuard logging was `Information`.
-These are the settings of the 2026-10-07 run. The manifest hash differs because the task prompt now names the artifact tools.
+The report also records five estimator-drift signals, one repeated-compaction signal, and one repeated-over-budget signal.
+The operational gate passed despite three summarizer failures and over-budget prepares; those measurements are retained
+without adjustment. This single treatment run has no compatible control arm, so estimated before/after prepare reduction
+is not a measured provider-input reduction or evidence of general instruction retention. The twenty-task initial corpus
+was not run or changed, and the separate unfinished-artifact corpus finding remains open.
 
-What the run showed about the session directory:
+## Reproduction and report paths
 
-| Check | Result |
-| --- | --- |
-| The clone contains no `.codexplorer/` folder | Held |
-| The agent's file is in the task's `artifacts/` folder | `baseline.md`, 8,338 bytes; `artifactsAtStart` is empty |
-| `capture/exchanges.jsonl` has one line per agent call | 30 lines for 30 calls |
-| The agent found what it wrote under the same path | It created `baseline.md` at call 27 and `list_artifacts` returned it at call 28. It did not call `read_artifact` |
-| The report validates as schema version 2 and contains no absolute path | Held |
+Follow the [sample run and comparison instructions](../../Codexplorer/README.md#run-reports-and-comparison), using the
+effective settings above. The original report is
+`.artifacts/reports/benchmark/20261009-070245-treatment/run-report.json`. Its printed run folder has the same run ID.
+The report is copied byte-for-byte, preserving its actual provenance, verdicts, manifest hash, and relative paths.
 
-This is one treatment run. Its estimated reduction comes from before/after prepare counts; a measured provider input
-reduction requires a compatible valid control report. No conclusion about equivalent work or answer quality is implied.
-
-Follow the [sample run and comparison instructions](../../Codexplorer/README.md#run-reports-and-comparison) to reproduce
-the run, using the effective settings recorded above. The original run used Release executables, an absolute manifest path,
-and the default output directory, so its run folder was `.artifacts/reports/benchmark/20261008-123200-treatment`. It set
-`Codexplorer__Workspace__RootDirectory` to an empty `.artifacts/tg007b-baseline-workspace` directory.
-
-Every path in the report is relative to that run folder: the manifest path points back into the checkout and the session
-directory is the task ID. The run folder itself, with its transcript, artifacts, and capture files, stays local and is not
-part of this directory. Credentials, provider responses, tool contents, notes, and private logs are excluded from this directory.
-The report passed schema validation and an offline self-comparison with `--limit modelCallsMade=0`.
+Every path in the report is relative to that original run folder: the manifest path points back into the checkout and the
+session directory is the task ID. The surrounding workspace/run folders, transcripts, exchange capture, helper inputs,
+credentials, and private logs remain local and ignored. Only the allowlisted report and reviewed public text fixtures
+are versioned. The committed baseline also passed offline self-comparison with `--limit modelCallsMade=0`.

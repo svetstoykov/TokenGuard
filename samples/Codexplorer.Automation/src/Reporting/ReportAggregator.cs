@@ -1,4 +1,5 @@
 using Codexplorer.Measurements;
+using Codexplorer.Automation.Scoring;
 
 namespace Codexplorer.Automation.Reporting;
 
@@ -10,7 +11,8 @@ internal sealed class ReportAggregator : IReportAggregator
 {
     /// <inheritdoc />
     public TaskReport CreateTask(string taskId, string size, string outcome, bool protocolCompletion, int budget,
-        SessionMeasurements measurements, IReadOnlyList<UsageMeasurement> helperResponses, long helperCalls, TaskSessionRecord? session)
+        SessionMeasurements measurements, IReadOnlyList<UsageMeasurement> helperResponses, long helperCalls,
+        TaskSessionRecord? session, AnswerScoringResult scoring)
     {
         ArgumentNullException.ThrowIfNull(measurements);
         var prepares = measurements.PrepareRecords.ToArray();
@@ -22,7 +24,10 @@ internal sealed class ReportAggregator : IReportAggregator
         return new TaskReport
         {
             TaskId = taskId, Size = size, Outcome = outcome, ProtocolCompletion = protocolCompletion,
-            DeliverableCompletion = "notEvaluated", ModelCallBudget = budget, MeasurementsComplete = measurements.Complete,
+            Checks = scoring.Checks.ToArray(), Probe = scoring.Probe,
+            DeliverableCompletion = scoring.Checks.Count == 0 ? "notEvaluated"
+                : scoring.Checks.All(check => check.Passed) ? "complete" : "incomplete",
+            ModelCallBudget = budget, MeasurementsComplete = measurements.Complete,
             SummaryCrossCheck = measurements.SummaryCrossCheck, SessionId = session?.SessionId,
             SessionDirectory = session?.SessionDirectory, ArtifactsAtStart = session?.ArtifactsAtStart.ToArray() ?? [],
             ArtifactsAtEnd = session?.ArtifactsAtEnd.ToArray() ?? [],
@@ -30,7 +35,11 @@ internal sealed class ReportAggregator : IReportAggregator
             PrepareRecords = prepares, ProviderCalls = providers, SummarizerResponses = measurements.SummarizerResponses.ToArray(),
             HelperResponses = helperResponses.ToArray(),
             Metrics = CalculateMetrics(prepares, providers, measurements.SummarizerResponses, helperResponses, helperCalls, budget,
-                measurements, GetEstimatorErrors(prepares, providers))
+                measurements, GetEstimatorErrors(prepares, providers)) with
+            {
+                ChecksTotal = scoring.Checks.Count, ChecksPassed = scoring.Checks.Count(check => check.Passed),
+                CheckPassRate = scoring.Checks.Count == 0 ? null : (double)scoring.Checks.Count(check => check.Passed) / scoring.Checks.Count,
+            }
         };
     }
 
@@ -44,6 +53,8 @@ internal sealed class ReportAggregator : IReportAggregator
             SummarizerFailures = snapshots.Sum(snapshot => snapshot.SummarizerFailures),
             SummarizationErrors = snapshots.Sum(snapshot => snapshot.SummarizationErrors),
             MessagesDropped = snapshots.Sum(snapshot => snapshot.MessagesDropped),
+            MessagesMasked = snapshots.Sum(snapshot => snapshot.MessagesMasked),
+            MessagesSummarized = snapshots.Sum(snapshot => snapshot.MessagesSummarized),
             EmergencyTruncations = snapshots.Sum(snapshot => snapshot.EmergencyTruncations),
             HealthSignalCounts = MergeCounts(snapshots.Select(snapshot => snapshot.HealthSignalCounts))
         };
@@ -52,17 +63,30 @@ internal sealed class ReportAggregator : IReportAggregator
             tasks.SelectMany(task => task.HelperResponses).ToArray(), tasks.Sum(task => task.Metrics.HelperCalls), 0, merged,
             tasks.SelectMany(task => GetEstimatorErrors(task.PrepareRecords, task.ProviderCalls)).ToArray()) with
         {
-            BudgetOvershoot = tasks.Sum(task => task.Metrics.BudgetOvershoot)
+            BudgetOvershoot = tasks.Sum(task => task.Metrics.BudgetOvershoot),
+            ChecksTotal = tasks.Sum(task => task.Metrics.ChecksTotal), ChecksPassed = tasks.Sum(task => task.Metrics.ChecksPassed),
+            CheckPassRate = tasks.Sum(task => task.Metrics.ChecksTotal) == 0 ? null
+                : (double)tasks.Sum(task => task.Metrics.ChecksPassed) / tasks.Sum(task => task.Metrics.ChecksTotal),
         };
         var errors = ReportValidator.GetCollectionErrors(metadata, tasks, unrunTaskIds);
         return new RunReport
         {
-            SchemaVersion = 2, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
+            SchemaVersion = 3, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
             Partial = partial || unrunTaskIds.Count > 0 || tasks.Any(task => task.Outcome is "failed" or "cancelled"),
             Totals = new RunTotals
             {
                 TaskCount = tasks.Count, ProtocolCompletedTaskCount = tasks.Count(task => task.ProtocolCompletion),
                 ProtocolCompletionRate = tasks.Count == 0 ? null : (double)tasks.Count(task => task.ProtocolCompletion) / tasks.Count,
+                EvaluatedTaskCount = tasks.Count(task => task.Checks.Count > 0),
+                DeliverableCompletedTaskCount = tasks.Count(task => task.DeliverableCompletion == "complete"),
+                DeliverableCompletionRate = tasks.Count(task => task.Checks.Count > 0) == 0 ? null
+                    : (double)tasks.Count(task => task.DeliverableCompletion == "complete") / tasks.Count(task => task.Checks.Count > 0),
+                ProbeCount = tasks.Count(task => task.Probe is not null), InvalidProbeCount = tasks.Count(task => task.Probe?.Status == "invalid"),
+                PassedProbeCount = tasks.Count(task => task.Probe?.Status == "passed"),
+                CanaryPresentCount = tasks.Count(task => task.Probe?.CanaryPresent == true),
+                ProbePassRate = tasks.Count(task => task.Probe is { Status: "passed" or "failed" }) == 0 ? null
+                    : (double)tasks.Count(task => task.Probe?.Status == "passed")
+                        / tasks.Count(task => task.Probe is { Status: "passed" or "failed" }),
                 Metrics = metrics
             },
             Validation = new ReportValidation { IsValid = errors.Count == 0, Errors = errors }
@@ -79,6 +103,7 @@ internal sealed class ReportAggregator : IReportAggregator
         PrepareRecords = task.PrepareRecords, ProviderCalls = task.ProviderCalls, SummarizerResponses = task.SummarizerResponses,
         SummarizerCalls = task.Metrics.SummarizerCalls, SummarizerFailures = task.Metrics.SummarizerFailures,
         SummarizationErrors = task.Metrics.SummarizationErrors, MessagesDropped = task.Metrics.MessagesDropped,
+        MessagesMasked = task.Metrics.MessagesMasked, MessagesSummarized = task.Metrics.MessagesSummarized,
         EmergencyTruncations = task.Metrics.EmergencyTruncations, HealthSignalCounts = task.Metrics.HealthSignalCounts,
         SummaryCrossCheck = task.SummaryCrossCheck, Complete = task.MeasurementsComplete, ModelCallBudget = task.ModelCallBudget
     };
@@ -104,6 +129,8 @@ internal sealed class ReportAggregator : IReportAggregator
         var after = completed.Sum(prepare => prepare.TokensAfter ?? 0);
         return new ReportMetrics
         {
+            ChecksTotal = 0, ChecksPassed = 0, CheckPassRate = null,
+            MessagesMasked = measurements.MessagesMasked, MessagesSummarized = measurements.MessagesSummarized,
             CompletedModelTurns = providers.Count(call => call.Status == "completed"), ModelCallsMade = providers.Count,
             BudgetOvershoot = Math.Max(0, providers.Count - budget), PrepareCalls = prepares.Count, CompletedPrepareCalls = completed.Length,
             StrategyRuns = completed.Sum(prepare => prepare.StrategyRuns), TokensBefore = before, TokensAfter = after,

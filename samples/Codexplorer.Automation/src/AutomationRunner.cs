@@ -3,6 +3,8 @@ using Codexplorer.Automation.Configuration;
 using Codexplorer.Automation.Protocol;
 using Codexplorer.Automation.Reporting;
 using Codexplorer.Automation.Runner;
+using Codexplorer.Automation.Scoring;
+using System.Text;
 using Codexplorer.Measurements;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -18,6 +20,7 @@ internal sealed class AutomationRunner
     private readonly IRunnerHelperAi _helperAi;
     private readonly IRepositoryIdentityReader _repositoryIdentityReader;
     private readonly IReportAggregator _aggregator;
+    private readonly IAnswerScorer _scorer;
     private readonly IRunReportWriter _writer;
     private readonly CodexplorerAutomationOptions _options;
     private readonly ILogger<AutomationRunner> _logger;
@@ -30,6 +33,7 @@ internal sealed class AutomationRunner
     /// <param name="helperAi">The helper model boundary.</param>
     /// <param name="repositoryIdentityReader">The checkout identity reader.</param>
     /// <param name="aggregator">The measurement report aggregator.</param>
+    /// <param name="scorer">The deterministic answer scorer.</param>
     /// <param name="writer">The atomic report writer.</param>
     /// <param name="options">The runner configuration.</param>
     /// <param name="logger">The runner logger.</param>
@@ -37,7 +41,7 @@ internal sealed class AutomationRunner
     public AutomationRunner(
         IAutomationProtocolTransport transport, ICodexplorerAutomationClient client, IAutomationTaskManifestLoader taskManifestLoader,
         IRunnerHelperAi helperAi, IRepositoryIdentityReader repositoryIdentityReader, IReportAggregator aggregator, IRunReportWriter writer,
-        IOptions<CodexplorerAutomationOptions> options, ILogger<AutomationRunner> logger, TimeProvider? timeProvider = null)
+        IOptions<CodexplorerAutomationOptions> options, ILogger<AutomationRunner> logger, IAnswerScorer scorer, TimeProvider? timeProvider = null)
     {
         this._transport = transport;
         this._client = client;
@@ -45,6 +49,7 @@ internal sealed class AutomationRunner
         this._helperAi = helperAi;
         this._repositoryIdentityReader = repositoryIdentityReader;
         this._aggregator = aggregator;
+        this._scorer = scorer;
         this._writer = writer;
         this._options = options.Value;
         this._logger = logger;
@@ -198,6 +203,16 @@ internal sealed class AutomationRunner
         return exitCode;
     }
 
+    /// <summary>Selects an exact path or one unique case-insensitive fallback from an ordinal inventory.</summary>
+    /// <param name="requested">The manifest-relative path.</param>
+    /// <param name="inventory">The non-null available relative paths.</param>
+    /// <returns>The resolved path, or null for missing or ambiguous names.</returns>
+    internal static string? SelectArtifactPath(string requested, IEnumerable<string> inventory)
+    {
+        var matches = inventory.Where(path => string.Equals(path, requested, StringComparison.OrdinalIgnoreCase)).ToArray();
+        return matches.FirstOrDefault(path => path == requested) ?? (matches.Length == 1 ? matches[0] : null);
+    }
+
     private async Task ExecuteTaskAsync(TaskExecutionState state, CancellationToken ct)
     {
         var opened = await this._client.OpenSessionAsync(new OpenSessionRequest
@@ -210,18 +225,23 @@ internal sealed class AutomationRunner
             Capture = this._options.Capture
         }, ct).ConfigureAwait(false);
         state.SessionId = opened.SessionId;
-        state.ArtifactsAtStart = ListArtifacts(state.SessionDirectory).Select(file => file.Path).ToArray();
+        state.ArtifactsAtStart = this.ListArtifacts(state.SessionDirectory).Select(file => file.Path).ToArray();
         state.WorkspacePath = opened.Workspace.LocalPath;
         var sessionOpen = true;
         try
         {
             ct.ThrowIfCancellationRequested();
             var message = state.Task.InitialPrompt!;
+            if (state.Task.Probe is { } probe)
+                message += "\n\n" + AutomationRunnerPrompts.CreateProbeInstruction(probe.Canary!);
             while (true)
             {
                 var response = await this._client.SubmitAsync(new SubmitRequest(opened.SessionId, message), ct).ConfigureAwait(false);
                 sessionOpen = response.SessionOpen;
                 state.FinalAnswer = response.AssistantText;
+                if (!state.WrapUpSent && state.Task.Probe is { } probeDefinition && response.AssistantText is { } original)
+                    state.CanaryRepeated |= ValueMatcher.IsMatch(
+                        TextNormalizer.Normalize(original), TextNormalizer.Normalize(probeDefinition.Canary!));
                 state.Record(response);
                 state.Outcome = response.Outcome;
                 if (ct.IsCancellationRequested)
@@ -289,7 +309,8 @@ internal sealed class AutomationRunner
             state.HelperCalls++;
             var helper = await this._helperAi.AnswerAsync(new RunnerHelperAiRequest(
                 state.Task.TaskId!, state.Task.TaskSize, state.WorkspacePath!, state.Task.InitialPrompt!, response.RunnerQuestion!,
-                response.AssistantText, state.CallsConsumed, state.Budget.MaxTurns, state.Budget.WrapUpWindow, state.WrapUpSent), ct)
+                response.AssistantText, state.CallsConsumed, state.Budget.MaxTurns, state.Budget.WrapUpWindow, state.WrapUpSent,
+                state.Task.Probe?.Canary), ct)
                 .ConfigureAwait(false);
             state.HelperResponses.Add(helper.Usage);
             if (string.IsNullOrWhiteSpace(helper.Answer))
@@ -308,33 +329,66 @@ internal sealed class AutomationRunner
     private TaskReport CreateTaskReport(TaskExecutionState state)
     {
         this.WriteFinalAnswer(state);
+        var inventory = this.ListArtifacts(state.SessionDirectory);
+        var texts = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var requested in (state.Task.Checks ?? []).Select(check => check.Artifact).OfType<string>().Distinct(StringComparer.Ordinal))
+        {
+            var selected = SelectArtifactPath(requested, inventory.Select(file => file.Path));
+            if (selected is null)
+                continue;
+            try
+            {
+                texts[requested] = File.ReadAllText(Path.Combine(state.SessionDirectory, "artifacts", selected), Encoding.UTF8);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                this._logger.LogWarning("Artifact for task {TaskId} could not be read ({FailureType}).", state.Task.TaskId, ex.GetType().Name);
+            }
+        }
+        var scoring = this._scorer.Score(state.Task.Checks ?? [], state.Task.Probe, new ScoringInput
+        {
+            FinalAnswer = state.ProtocolCompletion && !string.IsNullOrWhiteSpace(state.FinalAnswer) ? state.FinalAnswer : null,
+            ArtifactTexts = texts, CanaryRepeated = state.CanaryRepeated, Measurements = state.Measurements,
+        });
         var report = this._aggregator.CreateTask(
             state.Task.TaskId!, state.Task.TaskSize.ToString().ToLowerInvariant(), state.Outcome, state.ProtocolCompletion, state.Budget.MaxTurns,
             state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionId is null ? null : new TaskSessionRecord(
-                state.SessionId, Path.GetFileName(state.SessionDirectory), state.ArtifactsAtStart, ListArtifacts(state.SessionDirectory)));
+                state.SessionId, Path.GetFileName(state.SessionDirectory), state.ArtifactsAtStart, inventory), scoring);
         return report with { RepositoryCommit = state.Task.RepositoryCommit };
     }
 
-    /// <summary>
-    ///     Lists the files in the <c>artifacts</c> folder of a session directory.
-    /// </summary>
+    /// <summary>Inventories artifacts while preserving finalization after enumeration or per-file failures.</summary>
     /// <param name="sessionDirectory">The absolute session directory.</param>
-    /// <returns>The files ordered by artifact-relative path, or an empty list when the folder is absent.</returns>
-    private static ArtifactFileReport[] ListArtifacts(string sessionDirectory)
+    /// <returns>The available files in ordinal path order.</returns>
+    private ArtifactFileReport[] ListArtifacts(string sessionDirectory)
     {
-        var artifactsDirectory = Path.Combine(sessionDirectory, "artifacts");
-        if (!Directory.Exists(artifactsDirectory))
+        var root = Path.Combine(sessionDirectory, "artifacts");
+        if (!Directory.Exists(root))
+            return [];
+        var files = new List<ArtifactFileReport>();
+        try
         {
+            foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    files.Add(new ArtifactFileReport
+                    {
+                        Path = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'), SizeBytes = new FileInfo(path).Length,
+                    });
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    this._logger.LogWarning("Artifact could not be inspected ({FailureType}).", ex.GetType().Name);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            this._logger.LogWarning("Artifact inventory could not be read ({FailureType}).", ex.GetType().Name);
             return [];
         }
-
-        return Directory.EnumerateFiles(artifactsDirectory, "*", SearchOption.AllDirectories)
-            .Select(file => new ArtifactFileReport
-            {
-                Path = Path.GetRelativePath(artifactsDirectory, file).Replace(Path.DirectorySeparatorChar, '/'),
-                SizeBytes = new FileInfo(file).Length
-            })
-            .OrderBy(file => file.Path, StringComparer.Ordinal).ToArray();
+        return files.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray();
     }
 
     /// <summary>
@@ -388,6 +442,8 @@ internal sealed class AutomationRunner
         public bool ProtocolCompletion { get; set; }
         /// <summary>Gets whether the wrap-up prompt was submitted.</summary>
         public bool WrapUpSent { get; set; }
+        /// <summary>Gets whether the original assistant text repeated the code before wrap-up.</summary>
+        public bool CanaryRepeated { get; set; }
         /// <summary>Gets the cumulative attempted model-call count.</summary>
         public int CallsConsumed { get; private set; }
         /// <summary>Gets the model calls still available.</summary>

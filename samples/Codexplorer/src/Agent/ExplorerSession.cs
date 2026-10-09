@@ -44,6 +44,7 @@ internal sealed class ExplorerSession : IExplorerSession
     private int _totalTurns;
     private int _totalTokens;
     private string? _lastAssistantText;
+    private string? _openingMessage;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ExplorerSession"/> class.
@@ -120,6 +121,7 @@ internal sealed class ExplorerSession : IExplorerSession
         var currentExchangeIndex = this._exchangeIndex;
         this._exchangeIndex++;
 
+        this._openingMessage ??= userMessage;
         this._conversationContext.AddUserMessage(userMessage);
         await this._sessionLogger.AppendAsync(
                 new UserPromptEvent(DateTime.UtcNow, currentExchangeIndex, userMessage),
@@ -157,7 +159,9 @@ internal sealed class ExplorerSession : IExplorerSession
 
                 var globalTurnIndex = this._modelCalls;
                 var prepareResult = await this._conversationContext.PrepareAsync(ct).ConfigureAwait(false);
-                this._collector?.ObservePrepareResult(prepareResult.SummarizationError is not null);
+                this._collector?.ObservePrepareResult(prepareResult.SummarizationError is not null,
+                    prepareResult.Messages.Any(message => message.Role == MessageRole.User && message.Segments.Count == 1
+                        && message.Segments[0] is TextContent text && string.Equals(text.Content, this._openingMessage, StringComparison.Ordinal)));
 
                 await this._sessionLogger.AppendAsync(
                         new PreparedContextEvent(DateTime.UtcNow, globalTurnIndex, prepareResult),

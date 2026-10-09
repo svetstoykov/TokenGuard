@@ -1,3 +1,4 @@
+using Codexplorer.Automation.Scoring;
 using System.Text.Json;
 using Codexplorer.Automation.Comparison;
 using Codexplorer.Automation.Reporting;
@@ -88,7 +89,8 @@ public sealed class ComparisonCommandTests
         var candidate = ReportFixture.Create(taskId: "candidate-only");
         var task = candidate.Tasks[0];
         var measured = new ReportAggregator().CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
-            ReportAggregator.ToMeasurements(task) with { HealthSignalCounts = new Dictionary<string, long> { ["warning"] = 2 } }, [], 0, null);
+            ReportAggregator.ToMeasurements(task) with { HealthSignalCounts = new Dictionary<string, long> { ["warning"] = 2 } }, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
         candidate = new ReportAggregator().CreateReport(candidate.Run, [measured], [], false);
 
         var result = await CompareAsync(baseline, candidate);
@@ -113,7 +115,8 @@ public sealed class ComparisonCommandTests
         var task = baseline.Tasks[0];
         var aggregator = new ReportAggregator();
         var measured = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
-            ReportAggregator.ToMeasurements(task) with { HealthSignalCounts = new Dictionary<string, long> { ["warning"] = 2 } }, [], 0, null);
+            ReportAggregator.ToMeasurements(task) with { HealthSignalCounts = new Dictionary<string, long> { ["warning"] = 2 } }, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
         var candidate = aggregator.CreateReport(baseline.Run, [measured], [], false);
 
         var result = await CompareAsync(baseline, candidate, ["--limit", $"healthSignalCounts.warning={threshold}"]);
@@ -134,7 +137,8 @@ public sealed class ComparisonCommandTests
         var task = candidate.Tasks[0];
         var aggregator = new ReportAggregator();
         var measured = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
-            ReportAggregator.ToMeasurements(task) with { HealthSignalCounts = new Dictionary<string, long> { ["warning"] = 2 } }, [], 0, null);
+            ReportAggregator.ToMeasurements(task) with { HealthSignalCounts = new Dictionary<string, long> { ["warning"] = 2 } }, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
         var baseline = aggregator.CreateReport(candidate.Run, [measured], [], false);
 
         var result = await CompareAsync(baseline, candidate, ["--limit", "healthSignalCounts.warning=0"]);
@@ -335,7 +339,8 @@ public sealed class ComparisonCommandTests
         var task = baseline.Tasks[0];
         var aggregator = new ReportAggregator();
         var unknown = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
-            ReportAggregator.ToMeasurements(task) with { ProviderCalls = [task.ProviderCalls[0] with { InputTokens = null }] }, [], 0, null);
+            ReportAggregator.ToMeasurements(task) with { ProviderCalls = [task.ProviderCalls[0] with { InputTokens = null }] }, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
         var candidate = aggregator.CreateReport(baseline.Run, [unknown], [], false);
 
         var result = await CompareAsync(baseline, candidate, ["--limit", "providerInputTokens=10"]);
@@ -398,11 +403,11 @@ public sealed class ComparisonCommandTests
     }
 
     /// <summary>
-    ///     Verifies that schema version 2 reports with session directories and artifact records compare successfully.
+    ///     Verifies that schema version 3 reports with session directories and artifact records compare successfully.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
-    public async Task RunAsync_VersionTwoReportsWithSessionFields_ComparesSuccessfully()
+    public async Task RunAsync_VersionThreeReportsWithSessionFields_ComparesSuccessfully()
     {
         var result = await CompareAsync(WithSession(ReportFixture.Create(inputTokens: 100)), WithSession(ReportFixture.Create(inputTokens: 130)));
 
@@ -420,7 +425,7 @@ public sealed class ComparisonCommandTests
         var result = await CompareAsync(ReportFixture.Create() with { SchemaVersion = 1 }, ReportFixture.Create());
 
         result.ExitCode.Should().Be(1);
-        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 2.");
+        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 3.");
     }
 
     /// <summary>
@@ -489,13 +494,189 @@ public sealed class ComparisonCommandTests
         }
     }
 
+    /// <summary>Verifies new rate/count limits reject regressions, accept equality and accept improvements.</summary>
+    /// <param name="metric">The metric under test.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("checkPassRate")]
+    [InlineData("deliverableCompletionRate")]
+    [InlineData("probePassRate")]
+    [InlineData("invalidProbeCount")]
+    [InlineData("messagesMasked")]
+    [InlineData("messagesSummarized")]
+    public async Task RunAsync_QualityLimitsUseSpecifiedDirection(string metric)
+    {
+        var good = QualityReport(true);
+        var bad = QualityReport(false);
+        if (metric == "invalidProbeCount")
+        {
+            bad = ReportFixture.Scored(bad.Tasks[0].Checks,
+                new ProbeResult { Requires = null, Status = "invalid", Reason = "canaryRepeated", CanaryPresent = true });
+        }
+        if (metric is "messagesMasked" or "messagesSummarized")
+        {
+            var task = good.Tasks[0];
+            var measurements = ReportAggregator.ToMeasurements(task) with { MessagesMasked = 10, MessagesSummarized = 11 };
+            var aggregator = new ReportAggregator();
+            var changed = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
+                measurements, [], 0, null, new AnswerScoringResult { Checks = task.Checks, Probe = task.Probe });
+            bad = aggregator.CreateReport(good.Run, [changed], [], false);
+        }
+        var options = new[] { "--limit", metric + "=0" };
+        (await CompareAsync(good, bad, options)).ExitCode.Should().Be(1);
+        (await CompareAsync(good, good, options)).ExitCode.Should().Be(0);
+        (await CompareAsync(bad, good, options)).ExitCode.Should().Be(0);
+        (await CompareAsync(good, bad, ["--limit", metric + "=100"])).ExitCode.Should().Be(0);
+    }
+
+    /// <summary>Verifies quality populations remain informational even when available.</summary>
+    /// <param name="metric">The excluded metric.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("checksTotal")]
+    [InlineData("checksPassed")]
+    [InlineData("evaluatedTaskCount")]
+    [InlineData("deliverableCompletedTaskCount")]
+    [InlineData("probeCount")]
+    [InlineData("passedProbeCount")]
+    [InlineData("canaryPresentCount")]
+    public async Task RunAsync_RejectsInformationalQualityLimits(string metric)
+    {
+        var report = QualityReport(true);
+        var result = await CompareAsync(report, report, ["--limit", metric + "=0"]);
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("informational metric");
+    }
+
+    /// <summary>Verifies unavailable rates fail a configured limit.</summary>
+    /// <param name="metric">The unavailable quality rate.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("checkPassRate")]
+    [InlineData("deliverableCompletionRate")]
+    [InlineData("probePassRate")]
+    public async Task RunAsync_UnavailableQualityRateFailsLimit(string metric)
+    {
+        var report = ReportFixture.Create();
+        var result = await CompareAsync(report, report, ["--limit", metric + "=0"]);
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("metric is unavailable: " + metric);
+    }
+
+    /// <summary>Verifies changed checks/probes and failed-side counts appear in comparison output.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_PrintsQualityVerdictsAndCounters()
+    {
+        var result = await CompareAsync(QualityReport(true), QualityReport(false));
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain("task task check fact: baseline=pass candidate=fail(notFound)");
+        result.Text.Should().Contain("candidate=failed(canaryMissing) CanaryPresent=False");
+        result.Text.Should().Contain("failed candidate probe: masked=2 summarized=3 dropped=4");
+        result.Text.Should().Contain("totals evaluatedTaskCount:").And.Contain("totals canaryPresentCount:");
+        var baseline = QualityReport(false);
+        var candidate = ReportFixture.Scored([baseline.Tasks[0].Checks[0] with { Reason = "forbiddenValuePresent" }], baseline.Tasks[0].Probe);
+        (await CompareAsync(baseline, candidate)).Text.Should().Contain("baseline=fail(notFound) candidate=fail(forbiddenValuePresent)");
+    }
+
+    /// <summary>Verifies missing checks/probes and different required kinds require the compatibility override.</summary>
+    /// <param name="change">The declaration change.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("check")]
+    [InlineData("probe")]
+    [InlineData("requires")]
+    public async Task RunAsync_DeclarationChangesRequireOverride(string change)
+    {
+        var baseline = QualityReport(true);
+        var candidate = ReportFixture.Scored(change == "check" ? [] : baseline.Tasks[0].Checks,
+            change == "probe" ? null : baseline.Tasks[0].Probe! with { Requires = change == "requires" ? "masked" : null });
+        (await CompareAsync(baseline, candidate)).ExitCode.Should().Be(1);
+        var overridden = await CompareAsync(baseline, candidate, ["--allow-incompatible"]);
+        overridden.ExitCode.Should().Be(0);
+        overridden.Text.Should().Contain("Compatibility override enabled");
+        if (change == "check")
+            overridden.Text.Should().Contain("baseline=pass candidate=missing");
+        if (change == "probe")
+            overridden.Text.Should().Contain("candidate=none");
+    }
+
+    /// <summary>Verifies help documents directions and exclusions.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_HelpExplainsQualityLimitContract()
+    {
+        using var output = new StringWriter();
+        (await ComparisonCommand.RunAsync(["--help"], output)).Should().Be(0);
+        output.ToString().Should().Contain("Decreases regress checkPassRate, deliverableCompletionRate, probePassRate");
+        output.ToString().Should().Contain("increases regress invalidProbeCount, messagesMasked, messagesSummarized");
+        output.ToString().Should().Contain("Informational exclusions: checksTotal, checksPassed, evaluatedTaskCount");
+    }
+
+    private static RunReport QualityReport(bool passed) => ReportFixture.Scored(
+        [new CheckResult { Id = "fact", Passed = passed, Reason = passed ? null : "notFound" }],
+        new ProbeResult { Requires = null, Status = passed ? "passed" : "failed", Reason = passed ? null : "canaryMissing", CanaryPresent = passed });
+
+    /// <summary>Verifies schema-3 check/probe fields are required and unknown/null/duplicate data is rejected.</summary>
+    /// <param name="corruption">The independent JSON corruption.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("missingChecks")]
+    [InlineData("missingProbe")]
+    [InlineData("nullChecks")]
+    [InlineData("nullCheck")]
+    [InlineData("missingReason")]
+    [InlineData("duplicateStatus")]
+    [InlineData("unknownField")]
+    public async Task RunAsync_RejectsMalformedQualityShape(string corruption)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(QualityReport(true), ReportJson.Options))!;
+        var task = node["tasks"]![0]!.AsObject();
+        switch (corruption)
+        {
+            case "missingChecks":
+                task.Remove("checks");
+                break;
+            case "missingProbe":
+                task.Remove("probe");
+                break;
+            case "nullChecks":
+                task["checks"] = null;
+                break;
+            case "nullCheck":
+                task["checks"]![0] = null;
+                break;
+            case "missingReason":
+                task["checks"]![0]!.AsObject().Remove("reason");
+                break;
+            case "unknownField":
+                task["probe"]!["canary"] = "SHOULD-NOT-BE-IN-REPORT";
+                break;
+        }
+        var json = node.ToJsonString();
+        if (corruption == "duplicateStatus")
+            json = json.Replace("\"status\":\"passed\"", "\"status\":\"passed\",\"status\":\"passed\"", StringComparison.Ordinal);
+        var path = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(path, json);
+            using var output = new StringWriter();
+            (await ComparisonCommand.RunAsync([path, path], output)).Should().Be(1);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static RunReport WithSession(RunReport report)
     {
         var task = report.Tasks[0];
         var aggregator = new ReportAggregator();
         var measured = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
             ReportAggregator.ToMeasurements(task), [], 0,
-            new TaskSessionRecord("session", task.TaskId, [], [new ArtifactFileReport { Path = "report.md", SizeBytes = 12 }]));
+            new TaskSessionRecord("session", task.TaskId, [], [new ArtifactFileReport { Path = "report.md", SizeBytes = 12 }]),
+            new AnswerScoringResult { Checks = [], Probe = null });
         return aggregator.CreateReport(report.Run, [measured], [], false);
     }
 

@@ -8,6 +8,13 @@ namespace Codexplorer.Automation.Reporting;
 /// <remarks>Paired records retain their individual turn mapping and contain only measurement values.</remarks>
 internal sealed record TaskReport
 {
+    /// <summary>Gets the ordered deliverable check results.</summary>
+    public required IReadOnlyList<CheckResult> Checks { get; init; }
+
+    /// <summary>Gets the optional retention probe result.</summary>
+    public required ProbeResult? Probe { get; init; }
+
+
     /// <summary>
     ///     Gets the manifest task identifier.
     /// </summary>
@@ -34,7 +41,7 @@ internal sealed record TaskReport
     public required bool ProtocolCompletion { get; init; }
 
     /// <summary>
-    ///     Gets the explicit <c>notEvaluated</c> deliverable status.
+    ///     Gets the notEvaluated, complete or incomplete deliverable status.
     /// </summary>
     public required string DeliverableCompletion { get; init; }
 

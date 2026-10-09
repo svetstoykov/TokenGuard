@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using Codexplorer.Automation.Scoring;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,8 +10,12 @@ namespace Codexplorer.Automation.Configuration;
 /// <summary>Loads validated manifest tasks and hashes the exact bytes once.</summary>
 internal sealed class AutomationTaskManifestLoader : IAutomationTaskManifestLoader
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    };
 
+    private readonly IAnswerScorer _scorer;
     private readonly Lock _sync = new();
     private AutomationManifestSnapshot? _snapshot;
     private readonly CodexplorerAutomationOptions _options;
@@ -17,13 +23,16 @@ internal sealed class AutomationTaskManifestLoader : IAutomationTaskManifestLoad
 
     /// <summary>Initializes a new instance of the <see cref="AutomationTaskManifestLoader" /> class.</summary>
     /// <param name="options">The runner configuration.</param>
+    /// <param name="scorer">The shared deterministic check evaluator.</param>
     /// <param name="logger">The manifest-load logger.</param>
     public AutomationTaskManifestLoader(
         IOptions<CodexplorerAutomationOptions> options,
-        ILogger<AutomationTaskManifestLoader> logger)
+        ILogger<AutomationTaskManifestLoader> logger, IAnswerScorer scorer)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(scorer);
+        this._scorer = scorer;
         this._options = options.Value;
         this._logger = logger;
     }
@@ -60,7 +69,7 @@ internal sealed class AutomationTaskManifestLoader : IAutomationTaskManifestLoad
                 var failure = ex switch
                 {
                     FileNotFoundException or DirectoryNotFoundException => $"Configured manifest path '{path}' does not exist.",
-                    JsonException => $"Configured manifest path '{path}' contains invalid JSON.",
+                    JsonException => $"Configured manifest path '{path}' contains invalid JSON: {ex.Message}",
                     _ => $"Configured manifest path '{path}' could not be read."
                 };
                 throw new OptionsValidationException(CodexplorerAutomationOptions.SectionName, typeof(AutomationTaskManifest), [failure]);
@@ -68,7 +77,7 @@ internal sealed class AutomationTaskManifestLoader : IAutomationTaskManifestLoad
 
             var configuredTasks = manifest.Tasks ?? [];
             var failures = new List<string>();
-            CodexplorerAutomationOptionsValidator.ValidateTasks(configuredTasks, this._options.ManifestPath, failures);
+            CodexplorerAutomationOptionsValidator.ValidateTasks(configuredTasks, this._options.ManifestPath, failures, this._scorer);
             if (failures.Count > 0)
             {
                 throw new OptionsValidationException(CodexplorerAutomationOptions.SectionName, typeof(AutomationTaskManifest), failures);

@@ -14,4 +14,8 @@
     <ProjectReference Include="../../samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj" />
     <ProjectReference Include="../../samples/Codexplorer/src/Codexplorer.csproj" Aliases="sample" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="Scoring/ScorerCases.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Scoring/Texts/**/*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

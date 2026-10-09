@@ -142,14 +142,17 @@ Then copy `samples/Codexplorer.Automation/src/appsettings.Development.example.js
     "CodexplorerExecutablePath": "/absolute/path/to/TokenGuard/samples/Codexplorer/src/bin/Debug/net10.0/Codexplorer",
     "ManifestPath": "./tasks/initial-corpus.json",
     "HelperAi": {
-      "ModelName": "deepseek/deepseek-v4.1-flash",
+      "ModelName": "qwen/qwen3.7-flash",
       "ApiKey": ""
     }
   }
 }
 ```
 
-Set `CodexplorerExecutablePath` to your local absolute path from previous build. Then provide helper credentials either in that ignored local file or through environment variable:
+Set `CodexplorerExecutablePath` to your local absolute path from the previous build. The helper automatically uses
+`Codexplorer:OpenRouter:ApiKey` from the sample's `appsettings.Development.json` beside that executable when no helper key
+or `OPENROUTER_API_KEY` is configured. Building the sample copies its local development file there, so one local key is enough.
+You can also provide separate helper credentials in the runner's ignored local file or through an environment variable:
 
 ```bash
 export OPENROUTER_API_KEY="your-openrouter-api-key"
@@ -227,9 +230,59 @@ contents on every run. A malformed SHA fails startup validation with a message n
 history, which counts toward `Workspace:MaxRepoSizeMB`. A task without `repositoryCommit` clones the default branch and reuses
 an existing clone as it is.
 
+### Deliverable checks and retention probes
+
+Tasks may supply `checks` and a separate `probe`; omission or null means no declaration, and empty checks are allowed.
+For example, add this to a task that asks for verified facts without stating their expected answers:
+
+```json
+"checks": [
+  { "id": "entry-file", "kind": "contains", "anyOf": ["cmd/gh/main.go"], "noneOf": ["cmd/main.go"] },
+  { "id": "timeout", "kind": "matches", "artifact": "notes.md", "pattern": "timeout.{0,20}\\b30\\s*(s|seconds)\\b" }
+],
+"probe": { "canary": "REF-7Q4X-M2", "requires": "dropped" }
+```
+
+Check IDs start with an ASCII letter/digit and contain only ASCII letters/digits, dot, hyphen or underscore; they are unique
+within a task ignoring case. Kinds are exactly `contains` or `matches`. `contains` requires nonempty `anyOf` and forbids `pattern`;
+`matches` requires a non-whitespace pattern and forbids `anyOf`. Either kind can use a nonempty `noneOf` guard. Literal entries
+must be nonempty and contain no backticks or asterisks. Null optional fields mean omission. Manifest unknown fields are rejected.
+Checks that pass on their own initial prompt are rejected even when targeting artifacts; guards participate in that decision.
+A forbidden value cannot match inside a positive alternative.
+
+An omitted/null `artifact` targets the protocol-complete wrap-up answer. An artifact path is relative to the session's `artifacts/`
+folder, uses forward slashes and has no leading slash, backslash, colon, empty segment, dot segment or parent segment.
+An exact case-sensitive filename wins; otherwise only a unique case-insensitive match is accepted. Missing, ambiguous or unreadable
+artifacts fail with `artifactMissing`; an existing empty artifact is still available. Scoring also works with capture disabled.
+Failed tasks retain artifact checks, but intermediate replies cannot serve as final answers.
+
+Text and literal values are cleaned in order: remove all backticks/asterisks, replace backslashes with slashes, collapse .NET
+whitespace to one space and trim. Matching ignores ordinal case and checks every occurrence. A letter endpoint cannot split a
+letter run, and a digit endpoint cannot split a digit run (including BMP Unicode letters/digits). Letter beside digit is allowed.
+Thus `Parse` fails on `ParseConfig`, `30` fails on `300` but matches `30s` and `30.5`, and a path may match with a line suffix.
+Use alternatives for plurals, rephrased facts, quote styles or Unicode dashes; cleaning performs no stemming or punctuation conversion.
+Use a pattern for exact numeric constraints. Patterns run unchanged against cleaned one-line text with forward-slash paths, using
+case-insensitive, culture-invariant .NET NonBacktracking and explicit infinite timeout. Unsupported constructs such as lookahead
+and backreferences are rejected at startup with the engine explanation.
+
+Check precedence is unavailable text (`noAnswer`/`artifactMissing`), missing positive (`notFound`), forbidden match
+(`forbiddenValuePresent`), then pass with null reason. A pattern can match an empty artifact; blank answers remain unavailable.
+
+A canary is 6–32 ASCII letters/digits/hyphens with alphanumeric ends and must not already match the task prompt.
+The runner appends its instruction only to the opening submit and asks for it when stopping live work. It removes every normalized
+code occurrence from both outgoing helper-model messages, including metadata, questions and repeated replies.
+The runner latches code repetition in any original reply before wrap-up; that invalidates the probe even if the final code is present.
+`requires` is optional/null or exactly `masked`, `summarized`, or `dropped`. Eligibility requires the greatest-index completed prepare
+to show the unchanged full opening user message is absent, then a nonzero counter for any required kind. Event counts alone cannot
+prove eligibility. No completed prepare, or surviving/unknown opening evidence, gives `instructionNotCompacted`; a missing kind
+gives `requiredKindAbsent`. No answer takes precedence (`noAnswer`), then early repetition (`canaryRepeated`), then eligibility.
+An eligible probe passes when the code matches anywhere in the final answer, otherwise fails with `canaryMissing`.
+`canaryPresent` remains informational for invalid probes, including full-context controls. Probe pass rate is a regression signal,
+not a general claim about instruction retention, and opening survival can make a short run's probe invalid.
+
 ### Run reports and comparison
 
-Every manifest run writes UTF-8 schema-version-2 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
+Every manifest run writes UTF-8 schema-version-3 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
 Manifest and checkout identity validation happen before the run folder is created, so a preflight error surfaces its diagnostics
 and leaves the output directory untouched.
 Run these commands from the TokenGuard repository root after building both sample projects:
@@ -247,7 +300,7 @@ Run metadata records the commit and dirty flag at run start, UTC timestamps, eff
 TokenGuard log level, arm, and the SHA-256 hash of the immutable manifest bytes executed. Inline tasks use deterministic JSON
 serialization with explicit inline provenance. Reports exclude prompts, answers, tool content, raw configuration, secrets, and exception messages.
 
-Schema version 2 adds these fields:
+Schema version 3 includes these location fields:
 
 | Where | Field | Meaning |
 | --- | --- | --- |
@@ -259,13 +312,30 @@ Schema version 2 adds these fields:
 | Task | `artifactsAtEnd` | File paths and sizes in `artifacts/` when the session closed |
 | Task | `repositoryCommit` | Optional. The commit SHA the manifest pins the task's repository to; `null` or absent for an unpinned task |
 
+Reports store each check's ID, passed flag and reason, and each probe's required kind, status, reason and `canaryPresent`.
+They exclude expected values, regexes and reference codes as well as answer text. All fields are emitted, including empty checks,
+null probes and null rates. Completed prepares carry `openingMessagePresent=true/false`; incomplete prepares carry null.
+`messagesMasked` and `messagesSummarized` are independent meter counters, alongside `messagesDropped`.
+
+| Population | Count/rate |
+| --- | --- |
+| Started-task checks | `checksTotal`, `checksPassed`, `checkPassRate` = passed / total |
+| Started tasks with checks | `evaluatedTaskCount`, `deliverableCompletedTaskCount`, `deliverableCompletionRate` = all-pass / evaluated |
+| Declared probes on started tasks | `probeCount`, `invalidProbeCount`, `passedProbeCount`, `probePassRate` = passed / valid |
+| Code presence, including invalid probes | `canaryPresentCount` |
+
+Rates are null for empty denominators. Totals sum check populations rather than averaging task rates. Probe results do not affect
+deliverable completion. Validation rebuilds counts/rates and checks observable verdict/eligibility invariants; it cannot verify the
+truth of text verdicts, early repetition, or manifest completeness without the excluded text.
+
 Every path in the report, including the manifest path, is relative to the run folder, so a run folder can be moved or archived
 and a committed report carries no machine-local path. Validation rejects a report that contains an absolute path.
 
 Task turn budgets are hard limits on started agent provider calls, including failed and cancelled attempts. The agent checks the
 allowance before preparing another context. Per-exchange caps can pause an exchange but cannot extend the task allowance.
 The sample yields a long exchange at the start of the reserved window so the runner can send its wrap-up prompt. An in-budget wrap-up reply counts as protocol completion;
-`turn_budget_reached` does not. Deliverable completion is `notEvaluated`: the report does not judge answer quality or artifacts.
+`turn_budget_reached` does not. Deliverable completion is `notEvaluated` without checks, `complete` when every declared check passes,
+and `incomplete` otherwise. Check failures and invalid probes measure quality and leave operational exit codes unchanged.
 A budget stop returns a nonzero exit code. A run whose tasks all have complete measurements can remain non-partial despite
 a budget stop; protocol completion and measurement coverage are separate report fields.
 
@@ -317,10 +387,12 @@ dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.c
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare --help
 ```
 
-The command accepts schema version 2 reports only. It validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
+The command accepts schema version 3 reports only; version 2 reports must be re-recorded, not relabelled. It validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
 including distributions and unavailable values. It lists tasks present in only one report and categorical completion changes.
 It also prints each report's partial flag and unrun task IDs.
 By default, models, effective budget/summarization/generation settings, task budgets, and manifest hash must match.
+On matching tasks, check-ID sets (ignoring case) and probe presence/required kind must also match. Comparison prints changed
+check verdicts/reasons and missing declarations, both probe statuses/reasons/code-presence flags, and failed-side kind counters.
 A treatment/control pair may differ only in context-window tokens. `--allow-incompatible` prints mismatches and permits an
 informational comparison; an invalid or incomplete control never permits a measured-reduction claim.
 
@@ -341,6 +413,15 @@ limits such as `--limit prepareOutcomeCounts.CannotCompact=0 --limit healthSigna
 The known prepare outcomes are `Ready`, `Compacted`, `CompactionInsufficient`, and `CannotCompact`. The known health signals
 are `EstimatorDrift`, `RepeatedCompaction`, `LowCompactionYield`, `SummarizationFailureStreak`, `RepeatedOverBudget`,
 `PinnedPressure`, and `CheckpointChurn`. Other recorded names remain comparable; absent unknown names are rejected.
+
+Quality limits use absolute metric-unit deltas: decreases regress `checkPassRate`, `deliverableCompletionRate`, and `probePassRate`;
+increases regress `invalidProbeCount`, `messagesMasked`, and `messagesSummarized`. Equality and improvements pass; null limited
+rates fail. Informational fields cannot have limits: `checksTotal`, `checksPassed`, `evaluatedTaskCount`,
+`deliverableCompletedTaskCount`, `probeCount`, `passedProbeCount`, `canaryPresentCount`. There are no default thresholds.
+Use `probePassRate` limits between the same arm's valid-probe populations.
+
+The committed treatment baseline is a real schema-3 Qwen run. Its [baseline notes](../Codexplorer.Automation/baselines/README.md)
+record the operational checks, deliverable verdicts, invalid retention probe, and observed summarization failures.
 
 Manual baseline reports live under `samples/Codexplorer.Automation/baselines/`. Their recorded commit must include both TG-013
 and this implementation. Baselines come from real provider calls after committing the implementation; credentials stay in local
@@ -394,7 +475,7 @@ Example:
 {
   "Codexplorer": {
     "Model": {
-      "Name": "deepseek/deepseek-v4.1-flash",
+      "Name": "qwen/qwen3.7-flash",
       "MaxOutputTokens": 8192,
       "Temperature": 0.0
     },

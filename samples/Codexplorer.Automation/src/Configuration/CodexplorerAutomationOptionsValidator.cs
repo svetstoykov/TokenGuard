@@ -1,4 +1,6 @@
 using Codexplorer.Automation.Reporting;
+using Codexplorer.Automation.Scoring;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Configuration;
 
@@ -100,8 +102,9 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
     /// <param name="configuredTasks">The loaded task definitions.</param>
     /// <param name="manifestPath">The configured path, or null for inline tasks.</param>
     /// <param name="failures">The destination for validation failures.</param>
+    /// <param name="scorer">The shared evaluator for anti-restatement checks.</param>
     internal static void ValidateTasks(
-        IReadOnlyList<AutomationTaskDefinition> configuredTasks, string? manifestPath, List<string> failures)
+        IReadOnlyList<AutomationTaskDefinition> configuredTasks, string? manifestPath, List<string> failures, IAnswerScorer scorer)
     {
         if (configuredTasks.Count == 0)
         {
@@ -153,6 +156,7 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
 
                 ValidateTaskTarget(task, taskPrefix, failures);
                 ValidateRepositoryCommit(task, taskPrefix, failures);
+                ValidateScoring(task, taskPrefix, failures, scorer);
 
                 if (string.IsNullOrWhiteSpace(task.InitialPrompt))
                 {
@@ -163,6 +167,102 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
                     ValidateTaskPrompt(task, taskPrefix, failures);
                 }
             }
+        }
+    }
+
+    /// <summary>Accumulates declaration errors and rejects checks already satisfied by their own prompt.</summary>
+    /// <param name="task">The task containing optional declarations.</param>
+    /// <param name="prefix">The indexed configuration prefix.</param>
+    /// <param name="failures">The independent semantic errors.</param>
+    /// <param name="scorer">The shared deterministic evaluator.</param>
+    private static void ValidateScoring(AutomationTaskDefinition task, string prefix, List<string> failures, IAnswerScorer scorer)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < (task.Checks?.Count ?? 0); index++)
+        {
+            var check = task.Checks![index];
+            var field = $"{prefix}:Checks:{index}";
+            var context = $"task '{task.TaskId}', check '{check?.Id}'";
+            void Error(string property, string message) => failures.Add($"Configuration field '{field}:{property}' ({context}) {message}");
+            if (check is null)
+            {
+                Error("", "must be an object.");
+                continue;
+            }
+            var before = failures.Count;
+            if (string.IsNullOrWhiteSpace(check.Id) || !IsDirectoryName(check.Id))
+                Error("Id", "must start with an ASCII letter/digit and contain only ASCII letters/digits, '.', '-' or '_'.");
+            else if (!ids.Add(check.Id))
+                Error("Id", "must be unique ignoring case.");
+            if (check.Kind is not ("contains" or "matches"))
+                Error("Kind", "must be contains or matches.");
+            if (check.Artifact is { } artifact && (string.IsNullOrWhiteSpace(artifact) || artifact.Contains('\\') || artifact.Contains(':')
+                || artifact.Split('/').Any(segment => segment is "" or "." or "..")))
+                Error("Artifact", "must be a relative forward-slash file path without empty, dot or parent segments, backslashes or colons.");
+            if (check.Kind == "contains")
+            {
+                if (check.AnyOf is null)
+                    Error("AnyOf", "is required for contains.");
+                if (check.Pattern is not null)
+                    Error("Pattern", "must be omitted for contains.");
+            }
+            if (check.Kind == "matches")
+            {
+                if (check.AnyOf is not null)
+                    Error("AnyOf", "must be omitted for matches.");
+                if (string.IsNullOrWhiteSpace(check.Pattern))
+                    Error("Pattern", "is required for matches.");
+                else
+                {
+                    try
+                    {
+                        _ = new Regex(check.Pattern, AnswerScorer.PatternOptions, Regex.InfiniteMatchTimeout);
+                    }
+                    catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+                    {
+                        Error("Pattern", $"is invalid for the scoring engine: {ex.Message}");
+                    }
+                }
+            }
+            ValidateValues(check.AnyOf, "AnyOf", Error);
+            ValidateValues(check.NoneOf, "NoneOf", Error);
+            if (failures.Count == before)
+            {
+                foreach (var forbidden in check.NoneOf ?? [])
+                {
+                    if (check.AnyOf?.Any(value => ValueMatcher.IsMatch(TextNormalizer.Normalize(value), TextNormalizer.Normalize(forbidden))) == true)
+                        Error("NoneOf", "must not match inside an AnyOf value.");
+                }
+                if (!string.IsNullOrWhiteSpace(task.InitialPrompt) && scorer.EvaluateCheck(check, task.InitialPrompt, "noAnswer").Passed)
+                    Error("", "must not pass on its own InitialPrompt, including artifact-targeted checks.");
+            }
+        }
+        if (task.Probe is { } probe)
+        {
+            var canary = probe.Canary;
+            var field = $"{prefix}:Probe";
+            if (canary is null || canary.Length is < 6 or > 32 || !char.IsAsciiLetterOrDigit(canary[0])
+                || !char.IsAsciiLetterOrDigit(canary[^1]) || !canary.All(character => char.IsAsciiLetterOrDigit(character) || character == '-'))
+                failures.Add($"Configuration field '{field}:Canary' (task '{task.TaskId}') "
+                    + "must be 6–32 ASCII letters/digits/hyphens with alphanumeric ends.");
+            else if (task.InitialPrompt is { } prompt && ValueMatcher.IsMatch(TextNormalizer.Normalize(prompt), TextNormalizer.Normalize(canary)))
+                failures.Add($"Configuration field '{field}:Canary' (task '{task.TaskId}') must not occur in InitialPrompt.");
+            if (probe.Requires is not (null or "masked" or "summarized" or "dropped"))
+                failures.Add($"Configuration field '{field}:Requires' (task '{task.TaskId}') must be masked, summarized or dropped when supplied.");
+        }
+    }
+
+    private static void ValidateValues(IReadOnlyList<string>? values, string property, Action<string, string> error)
+    {
+        if (values is null)
+            return;
+        if (values.Count == 0)
+            error(property, "must contain at least one value.");
+        for (var index = 0; index < values.Count; index++)
+        {
+            var value = values[index];
+            if (string.IsNullOrWhiteSpace(value) || value.Contains('`') || value.Contains('*') || TextNormalizer.Normalize(value).Length == 0)
+                error($"{property}:{index}", "must be a nonempty literal without backticks or asterisks.");
         }
     }
 

@@ -1,3 +1,4 @@
+using Codexplorer.Automation.Scoring;
 using System.Security.Cryptography;
 using System.Text;
 using Codexplorer.Automation.Configuration;
@@ -22,7 +23,7 @@ public sealed class ManifestEncodingTests
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(manifest)).ToArray();
         File.WriteAllBytes(path, bytes);
         var loader = new AutomationTaskManifestLoader(Options.Create(new CodexplorerAutomationOptions { ManifestPath = path }),
-            NullLogger<AutomationTaskManifestLoader>.Instance);
+            NullLogger<AutomationTaskManifestLoader>.Instance, new AnswerScorer());
         try
         {
             var snapshot = loader.LoadSnapshot();
