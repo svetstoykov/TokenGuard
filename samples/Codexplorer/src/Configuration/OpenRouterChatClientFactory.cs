@@ -5,7 +5,10 @@ namespace Codexplorer.Configuration;
 
 internal static class OpenRouterChatClientFactory
 {
+    private const int MaxRetries = 10;
+
     private static readonly Uri OpenRouterEndpoint = new("https://openrouter.ai/api/v1");
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
 
     internal static ChatClient Create(CodexplorerOptions options)
     {
@@ -26,7 +29,7 @@ internal static class OpenRouterChatClientFactory
             ?? throw new InvalidOperationException("Codexplorer model name is not configured.");
         var client = new OpenAIClient(
             new System.ClientModel.ApiKeyCredential(apiKey),
-            new OpenAIClientOptions { Endpoint = OpenRouterEndpoint });
+            new OpenAIClientOptions { Endpoint = OpenRouterEndpoint, RetryPolicy = new FixedDelayRetryPolicy(MaxRetries, RetryDelay) });
 
         return client.GetChatClient(modelName);
     }
