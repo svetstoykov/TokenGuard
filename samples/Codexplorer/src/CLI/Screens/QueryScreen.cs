@@ -67,6 +67,15 @@ internal sealed class QueryScreen : IScreen
                     this._console.WriteLine();
                     continue;
 
+                case AgentExchangeEmptyReply:
+                    this._console.Write(DegradationNotice.RenderWarning(
+                        "Empty Model Reply",
+                        "The model returned no text and no tool call twice in a row. Send the message again to retry.",
+                        session.LogFilePath,
+                        CodexplorerTheme.Default));
+                    this._console.WriteLine();
+                    continue;
+
                 case AgentExchangeCancelled:
                     this._console.MarkupLine("[yellow]Session cancelled. Returning to the main menu.[/]");
                     await Task.Delay(400, CancellationToken.None).ConfigureAwait(false);

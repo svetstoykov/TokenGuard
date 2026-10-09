@@ -111,6 +111,120 @@ public sealed class SampleSessionTests
         fixture.Collector.Snapshot().ProviderCalls[0].PrepareIndex.Should().Be(1);
     }
 
+    /// <summary>Verifies one empty reply is retried and the exchange completes with both calls counted.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task EmptyReply_FollowedByReply_CompletesExchangeWithBothCallsCounted()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(3);
+        var calls = 0;
+        var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion(++calls == 1 ? "" : "answer")));
+        var capture = new RecordingCapture();
+        await using var session = CreateSession(fixture, provider, 3, capture: capture);
+
+        var result = await session.SubmitAsync("inspect", CancellationToken.None);
+        var measurements = fixture.Collector.Snapshot();
+
+        result.Should().BeOfType<AgentReplyReceived>().Which.ReplyText.Should().Be("answer");
+        measurements.ProviderCalls.Select(call => call.Status).Should().Equal("failed", "completed");
+        measurements.ProviderCalls.Should().OnlyContain(call => call.InputTokens == 100 && call.OutputTokens == 7);
+        measurements.ProviderCalls.Select(call => call.PrepareIndex).Should().OnlyHaveUniqueItems();
+        capture.Statuses.Should().Equal("failed", "completed");
+    }
+
+    /// <summary>Verifies two empty replies in a row end the exchange with a named result and complete records.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task EmptyReply_Twice_EndsExchangeWithNamedResult()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(3);
+        var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion("")));
+        var capture = new RecordingCapture();
+        await using var session = CreateSession(fixture, provider, 3, capture: capture);
+
+        var result = await session.SubmitAsync("inspect", CancellationToken.None);
+        var measurements = fixture.Collector.Snapshot();
+
+        result.Should().BeOfType<AgentExchangeEmptyReply>().Which.ModelTurnsCompleted.Should().Be(0);
+        measurements.ProviderCalls.Select(call => call.Status).Should().Equal("failed", "failed");
+        measurements.ProviderCalls.Should().OnlyContain(call => call.InputTokens == 100 && call.OutputTokens == 7);
+        capture.Statuses.Should().Equal("failed", "failed");
+    }
+
+    /// <summary>Verifies the session log names each empty reply and the final empty-reply outcome.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task EmptyReply_Twice_LogsTheRetryAndTheOutcome()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(3);
+        var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion("")));
+        var logger = new SampleSessionLogger();
+        await using var session = CreateSession(fixture, provider, 3, logger: logger);
+
+        await session.SubmitAsync("inspect", CancellationToken.None);
+
+        logger.Appended.OfType<ExchangeOutcomeEvent>().Select(evt => evt.Outcome).Should().Equal("EmptyModelReplyRetry", "EmptyModelReply");
+    }
+
+    /// <summary>Verifies a retry that would exceed the call allowance stops at the budget instead.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task EmptyReply_OnLastAllowedCall_StopsAtTheBudget()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(1);
+        var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion("")));
+        await using var session = CreateSession(fixture, provider, 1);
+
+        var result = await session.SubmitAsync("inspect", CancellationToken.None);
+
+        result.Should().BeOfType<AgentExchangeTurnBudgetReached>();
+        fixture.Collector.Snapshot().ProviderCalls.Should().ContainSingle().Which.Status.Should().Be("failed");
+    }
+
+    /// <summary>Verifies a reply with tool calls and no text continues as an ordinary tool turn.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task EmptyTextWithToolCall_IsHandledAsAToolTurn()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(2);
+        var calls = 0;
+        var provider = new SampleChatClient(_ => Task.FromResult(
+            ++calls == 1 ? SampleChatClient.Completion("", toolCall: true) : SampleChatClient.Completion()));
+        await using var session = CreateSession(fixture, provider, 2);
+
+        var result = await session.SubmitAsync("inspect", CancellationToken.None);
+
+        result.Should().BeOfType<AgentReplyReceived>().Which.ModelTurnsCompleted.Should().Be(2);
+        fixture.Collector.Snapshot().ProviderCalls.Select(call => call.Status).Should().Equal("completed", "completed");
+    }
+
+    /// <summary>Verifies the automation protocol reports repeated empty replies as their own outcome with the session open.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task EmptyReply_Twice_SubmitReturnsEmptyModelReplyOutcome()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        var explorer = new SampleExplorerAgent(budget => CreateSession(
+            fixture, new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion(""))), budget));
+        await using var registry = new AutomationSessionRegistry(NullLogger<AutomationSessionRegistry>.Instance);
+        var dispatcher = new AutomationCommandDispatcher(
+            explorer, new SampleWorkspaceManager(), registry, fixture.Collector, new EffectiveSettings());
+        var opened = await dispatcher.DispatchAsync(Request("open_session", new { repositoryUrl = "https://github.com/a/b", modelCallBudget = 3 }),
+            CancellationToken.None);
+        var id = Result(opened).GetProperty("sessionId").GetString();
+
+        var submitted = Result(await dispatcher.DispatchAsync(Request("submit", new { sessionId = id, message = "inspect" }), CancellationToken.None));
+
+        submitted.GetProperty("outcome").GetString().Should().Be("empty_model_reply");
+        submitted.GetProperty("sessionOpen").GetBoolean().Should().BeTrue();
+        submitted.GetProperty("measurements").GetProperty("providerCalls").GetArrayLength().Should().Be(2);
+    }
+
     /// <summary>Verifies provider cancellation reaches the actual call and keeps finalization available.</summary>
     [Fact]
     public async Task ProviderCancellation_RecordsCancelledAttempt()
@@ -441,13 +555,30 @@ public sealed class SampleSessionTests
 
     private static SessionDirectory SampleSessionDirectory => new(Path.Combine(Path.GetTempPath(), "sample-test-session"));
 
+    private sealed class RecordingCapture : ISessionCapture
+    {
+        public List<string> Statuses { get; } = [];
+
+        /// <inheritdoc />
+        public Task WriteExchangeAsync(
+            int modelCall, IReadOnlyList<ContextMessage> messages, string status, CapturedResponse? response, CancellationToken ct = default)
+        {
+            this.Statuses.Add(status);
+            return Task.CompletedTask;
+        }
+
+        /// <inheritdoc />
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     private static ExplorerSession CreateSession(
-        SampleTelemetryFixture fixture, ChatClient client, int? budget, SampleToolRegistry? tools = null)
+        SampleTelemetryFixture fixture, ChatClient client, int? budget, SampleToolRegistry? tools = null, SampleSessionLogger? logger = null,
+        ISessionCapture? capture = null)
     {
         var context = fixture.CreateContext();
-        return new ExplorerSession(SampleWorkspaceManager.Workspace, context, new SampleSessionLogger(), SampleSessionDirectory,
+        return new ExplorerSession(SampleWorkspaceManager.Workspace, context, logger ?? new SampleSessionLogger(), SampleSessionDirectory,
             Task.CompletedTask, tools ?? new SampleToolRegistry(), new Lazy<ChatClient>(() => client), [], new AgentOptions { MaxTurns = 5 },
-            new ModelOptions(), budget, fixture.Collector);
+            new ModelOptions(), budget, fixture.Collector, capture: capture);
     }
 
     private static AutomationRequestEnvelope Request(string command, object payload) =>

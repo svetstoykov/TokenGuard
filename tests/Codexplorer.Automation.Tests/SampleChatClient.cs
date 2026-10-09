@@ -35,15 +35,18 @@ internal sealed class SampleChatClient : ChatClient
     }
 
     /// <summary>Deserializes a deterministic response with optional tool use and reported usage.</summary>
-    /// <param name="text">The assistant answer text.</param>
+    /// <param name="text">
+    ///     The assistant text, or <see langword="null" /> for <c>working</c> beside a tool call and <c>answer</c> otherwise.
+    /// </param>
     /// <param name="toolCall">Whether the response requests a tool.</param>
     /// <returns>The provider response.</returns>
-    public static ChatCompletion Completion(string text = "answer", bool toolCall = false)
+    public static ChatCompletion Completion(string? text = null, bool toolCall = false)
     {
+        var content = System.Text.Json.JsonSerializer.Serialize(text ?? (toolCall ? "working" : "answer"));
         var message = toolCall
-            ? "{\"role\":\"assistant\",\"content\":\"working\",\"tool_calls\":[{\"id\":\"tool_1\",\"type\":\"function\","
+            ? "{\"role\":\"assistant\",\"content\":" + content + ",\"tool_calls\":[{\"id\":\"tool_1\",\"type\":\"function\","
                 + "\"function\":{\"name\":\"inspect\",\"arguments\":\"{}\"}}]}"
-            : System.Text.Json.JsonSerializer.Serialize(new { role = "assistant", content = text });
+            : "{\"role\":\"assistant\",\"content\":" + content + "}";
         var json = "{\"id\":\"test\",\"object\":\"chat.completion\",\"created\":1700000000,\"model\":\"test\",\"choices\":[{\"index\":0,"
             + "\"finish_reason\":\"" + (toolCall ? "tool_calls" : "stop") + "\",\"message\":" + message
             + "}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":7,\"total_tokens\":107}}";

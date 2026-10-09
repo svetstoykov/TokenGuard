@@ -329,6 +329,24 @@ public sealed class AutomationRunnerTests : IDisposable
         fixture.Writer.Report.UnrunTaskIds.Should().Equal("unrun");
     }
 
+    /// <summary>Verifies repeated empty model replies end the task under their own outcome in a valid, non-partial report.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_EmptyModelReply_ReportsTheNamedOutcome()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Submit = (_, _) => Task.FromResult(Response("empty_model_reply", Snapshot(2)));
+        fixture.Client.Close = (_, _) => Task.FromResult(new CloseSessionResponse("session", "closed", Snapshot(2, complete: true)));
+
+        var exit = await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var report = fixture.Writer.Report!;
+        exit.Should().Be(1);
+        report.Partial.Should().BeFalse();
+        report.Tasks.Single().Outcome.Should().Be("empty_model_reply");
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
     /// <summary>Verifies an empty helper response retains its reported usage.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]

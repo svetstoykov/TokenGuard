@@ -448,6 +448,10 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 registration, measurements, "turn_budget_reached", budgetReached.PartialText,
                 !string.IsNullOrWhiteSpace(budgetReached.PartialText), budgetReached.ModelTurnsCompleted, null, false, null, null),
 
+            AgentExchangeEmptyReply emptyReply => CreateSubmitResult(
+                registration, measurements, "empty_model_reply", emptyReply.PartialText,
+                !string.IsNullOrWhiteSpace(emptyReply.PartialText), emptyReply.ModelTurnsCompleted, null, true, null, null),
+
             AgentExchangeFailed failed => CreateSubmitResult(
                 registration,
                 measurements,
