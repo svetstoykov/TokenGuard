@@ -15,7 +15,9 @@ namespace Codexplorer.Automation.Tests.Runner;
 /// <summary>Verifies task execution and partial-report finalization.</summary>
 public sealed class AutomationRunnerTests : IDisposable
 {
-    private readonly string _outputDirectory = Path.Combine(Path.GetTempPath(), "tg-runner-" + Guid.NewGuid().ToString("N"));
+    private const string PinnedCommit = "724ae6d9a6e84ba4ad7eb3734dfe64250d4bf2fa";
+
+    private readonly string _outputDirectory =Path.Combine(Path.GetTempPath(), "tg-runner-" + Guid.NewGuid().ToString("N"));
 
     /// <inheritdoc />
     public void Dispose()
@@ -514,6 +516,61 @@ public sealed class AutomationRunnerTests : IDisposable
         task.SessionDirectory.Should().BeNull();
     }
 
+    /// <summary>Verifies a pinned task asks Codexplorer to open its session at the pinned commit.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_PinnedTask_OpensSessionAtPinnedCommit()
+    {
+        var fixture = new Fixture("treatment", [], this._outputDirectory, repositoryCommit: PinnedCommit);
+        fixture.Client.Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        fixture.Client.OpenRequest!.RepositoryCommit.Should().Be(PinnedCommit);
+    }
+
+    /// <summary>Verifies a pinned task's report records the pinned commit and stays valid.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_PinnedTask_ReportsPinnedCommit()
+    {
+        var fixture = new Fixture("treatment", [], this._outputDirectory, repositoryCommit: PinnedCommit);
+        fixture.Client.Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        var report = fixture.Writer.Report!;
+        report.Tasks.Single().RepositoryCommit.Should().Be(PinnedCommit);
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
+    /// <summary>Verifies a pinned task whose commit could not be fetched still reports the pinned commit.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_PinnedCommitCannotBeFetched_ReportsPinnedCommit()
+    {
+        var fixture = new Fixture("treatment", [], this._outputDirectory, repositoryCommit: PinnedCommit);
+        fixture.Client.Open = (_, _) => throw new CodexplorerAutomationProtocolException("request", "clone_failed", "clone failed");
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        fixture.Writer.Report!.Tasks.Single().RepositoryCommit.Should().Be(PinnedCommit);
+    }
+
+    /// <summary>Verifies an unpinned task opens its session without a commit and reports none.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_UnpinnedTask_OpensSessionAndReportsWithoutCommit()
+    {
+        var fixture = this.CreateFixture();
+        fixture.Client.Submit = (_, _) => Task.FromResult(Response("failed", Snapshot(1, complete: true), open: false));
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        fixture.Client.OpenRequest!.RepositoryCommit.Should().BeNull();
+        fixture.Writer.Report!.Tasks.Single().RepositoryCommit.Should().BeNull();
+    }
+
     /// <summary>Verifies a written report from a file manifest holds no absolute path.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
@@ -572,7 +629,8 @@ public sealed class AutomationRunnerTests : IDisposable
         /// <param name="ids">The task IDs, or empty to use a single default task.</param>
         /// <param name="outputDirectory">The directory that receives the run folder.</param>
         /// <param name="capture">Whether sessions capture their model calls.</param>
-        public Fixture(string arm, string[] ids, string outputDirectory, bool capture = true)
+        /// <param name="repositoryCommit">The commit every task pins its repository to, or <see langword="null" /> for unpinned tasks.</param>
+        public Fixture(string arm, string[] ids, string outputDirectory, bool capture = true, string? repositoryCommit = null)
         {
             var budget = new TurnBudgetProfile { MaxTurns = 3, WrapUpWindow = 1 };
             var options = Options.Create(new CodexplorerAutomationOptions
@@ -584,7 +642,7 @@ public sealed class AutomationRunnerTests : IDisposable
                 TurnBudgets = new AutomationTurnBudgetOptions { Small = budget, Medium = budget, Large = budget },
                 Tasks = (ids.Length == 0 ? new[] { "task" } : ids).Select(id => new AutomationTaskDefinition
                 {
-                    TaskId = id, Title = "Task", RepositoryUrl = "https://github.com/example/repo",
+                    TaskId = id, Title = "Task", RepositoryUrl = "https://github.com/example/repo", RepositoryCommit = repositoryCommit,
                     InitialPrompt = "initial"
                 }).ToArray()
             });

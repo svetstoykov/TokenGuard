@@ -152,6 +152,7 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
                 }
 
                 ValidateTaskTarget(task, taskPrefix, failures);
+                ValidateRepositoryCommit(task, taskPrefix, failures);
 
                 if (string.IsNullOrWhiteSpace(task.InitialPrompt))
                 {
@@ -209,6 +210,22 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
 
         ValidateRepositoryUrl(task.RepositoryUrl!, $"{taskPrefix}:RepositoryUrl", failures);
     }
+
+    private static void ValidateRepositoryCommit(AutomationTaskDefinition task, string taskPrefix, List<string> failures)
+    {
+        if (task.RepositoryCommit is null || IsFullCommitSha(task.RepositoryCommit))
+        {
+            return;
+        }
+
+        failures.Add(
+            $"Configuration field '{taskPrefix}:RepositoryCommit' of task '{task.TaskId}' must be a full 40-character hexadecimal commit SHA. "
+            + $"Value '{task.RepositoryCommit}' is not one.");
+    }
+
+    /// <summary>Determines whether a value is a complete SHA-1 commit identifier.</summary>
+    /// <remarks>A remote resolves a fetched commit only by its complete identifier, so an abbreviation cannot pin a repository.</remarks>
+    private static bool IsFullCommitSha(string value) => value.Length == 40 && value.All(char.IsAsciiHexDigit);
 
     private static void ValidateRepositoryUrl(string repositoryUrl, string fieldName, List<string> failures)
     {

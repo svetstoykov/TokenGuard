@@ -22,7 +22,8 @@ internal sealed class SampleWorkspaceManager : IWorkspaceManager
     public static Workspace Workspace { get; } = new("b", "a/b", Path.GetTempPath(), DateTime.UnixEpoch, 0);
 
     /// <inheritdoc />
-    public Task<Workspace> CloneAsync(string githubUrl, bool forceReclone = false, CancellationToken ct = default) => Task.FromResult(Workspace);
+    public Task<Workspace> CloneAsync(string githubUrl, bool forceReclone = false, string? commitSha = null, CancellationToken ct = default) =>
+        Task.FromResult(Workspace);
 
     /// <inheritdoc />
     public IReadOnlyList<Workspace> ListExisting() => [Workspace];

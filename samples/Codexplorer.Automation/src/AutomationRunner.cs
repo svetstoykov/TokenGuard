@@ -203,6 +203,7 @@ internal sealed class AutomationRunner
         var opened = await this._client.OpenSessionAsync(new OpenSessionRequest
         {
             RepositoryUrl = state.Task.RepositoryUrl,
+            RepositoryCommit = state.Task.RepositoryCommit,
             ModelCallBudget = state.Budget.MaxTurns,
             WrapUpWindow = state.Budget.WrapUpWindow,
             SessionDirectory = state.SessionDirectory,
@@ -307,10 +308,11 @@ internal sealed class AutomationRunner
     private TaskReport CreateTaskReport(TaskExecutionState state)
     {
         this.WriteFinalAnswer(state);
-        return this._aggregator.CreateTask(
+        var report = this._aggregator.CreateTask(
             state.Task.TaskId!, state.Task.TaskSize.ToString().ToLowerInvariant(), state.Outcome, state.ProtocolCompletion, state.Budget.MaxTurns,
             state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionId is null ? null : new TaskSessionRecord(
                 state.SessionId, Path.GetFileName(state.SessionDirectory), state.ArtifactsAtStart, ListArtifacts(state.SessionDirectory)));
+        return report with { RepositoryCommit = state.Task.RepositoryCommit };
     }
 
     /// <summary>
