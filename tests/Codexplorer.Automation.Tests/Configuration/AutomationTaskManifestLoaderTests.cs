@@ -310,6 +310,49 @@ public sealed class AutomationTaskManifestLoaderTests
         }
     }
 
+    /// <summary>Verifies a repository commit that is not a full hexadecimal SHA is rejected with a message naming the task.</summary>
+    /// <param name="repositoryCommit">The repository commit under test.</param>
+    [Theory]
+    [InlineData("")]
+    [InlineData("724ae6d")]
+    [InlineData("main")]
+    [InlineData("724ae6d9a6e84ba4ad7eb3734dfe64250d4bf2fag")]
+    [InlineData("z24ae6d9a6e84ba4ad7eb3734dfe64250d4bf2fa")]
+    [InlineData(" 724ae6d9a6e84ba4ad7eb3734dfe64250d4bf2f")]
+    public void LoadSnapshot_RepositoryCommitIsNotFullSha_RejectsTheLoadedManifestNamingTheTask(string repositoryCommit)
+    {
+        var loader = new AutomationTaskManifestLoader(
+            Options.Create(new CodexplorerAutomationOptions
+            {
+                ManifestPath = null, Tasks = [ValidTask("pinned-task") with { RepositoryCommit = repositoryCommit }]
+            }),
+            NullLogger<AutomationTaskManifestLoader>.Instance, new AnswerScorer());
+
+        var load = () => loader.LoadSnapshot();
+
+        load.Should().Throw<OptionsValidationException>().Which.Failures.Should().ContainSingle()
+            .Which.Should().Contain("RepositoryCommit").And.Contain("'pinned-task'");
+    }
+
+    /// <summary>Verifies a full hexadecimal repository commit in either letter case is accepted.</summary>
+    /// <param name="repositoryCommit">The repository commit under test.</param>
+    [Theory]
+    [InlineData("724ae6d9a6e84ba4ad7eb3734dfe64250d4bf2fa")]
+    [InlineData("724AE6D9A6E84BA4AD7EB3734DFE64250D4BF2FA")]
+    public void LoadSnapshot_RepositoryCommitIsFullSha_LoadsTheTask(string repositoryCommit)
+    {
+        var loader = new AutomationTaskManifestLoader(
+            Options.Create(new CodexplorerAutomationOptions
+            {
+                ManifestPath = null, Tasks = [ValidTask("pinned-task") with { RepositoryCommit = repositoryCommit }]
+            }),
+            NullLogger<AutomationTaskManifestLoader>.Instance, new AnswerScorer());
+
+        var snapshot = loader.LoadSnapshot();
+
+        snapshot.Tasks.Single().RepositoryCommit.Should().Be(repositoryCommit);
+    }
+
     private static AutomationTaskDefinition ValidTask(string taskId) => new()
     {
         TaskId = taskId,

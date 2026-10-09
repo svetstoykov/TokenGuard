@@ -64,6 +64,9 @@ internal sealed record AutomationTaskDefinition
 
     public string? RepositoryUrl { get; init; }
 
+    /// <summary>Gets the full commit SHA the repository is checked out at, or <see langword="null" /> to use the default branch.</summary>
+    public string? RepositoryCommit { get; init; }
+
     [JsonConverter(typeof(JsonStringEnumConverter<RunnerTaskSize>))]
     public RunnerTaskSize TaskSize { get; init; } = RunnerTaskSize.Medium;
 

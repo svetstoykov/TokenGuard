@@ -32,6 +32,9 @@ internal sealed record OpenSessionRequest
 
     public string? RepositoryUrl { get; init; }
 
+    /// <summary>Gets the full commit SHA the workspace is checked out at, or <see langword="null" /> to use the default branch.</summary>
+    public string? RepositoryCommit { get; init; }
+
     /// <summary>Gets the hard allowance for all started model calls in the task.</summary>
     public int? ModelCallBudget { get; init; }
 

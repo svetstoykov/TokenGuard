@@ -26,6 +26,11 @@ internal sealed record TaskReport
     public required string Size { get; init; }
 
     /// <summary>
+    ///     Gets the full commit SHA the manifest pins the task's repository to, or <see langword="null" /> when the task is unpinned.
+    /// </summary>
+    public string? RepositoryCommit { get; init; }
+
+    /// <summary>
     ///     Gets the terminal protocol outcome.
     /// </summary>
     public required string Outcome { get; init; }

@@ -57,7 +57,7 @@ public sealed class WorkspaceManager : IWorkspaceManager
     }
 
     /// <inheritdoc />
-    public async Task<Workspace> CloneAsync(string githubUrl, bool forceReclone = false, CancellationToken ct = default)
+    public async Task<Workspace> CloneAsync(string githubUrl, bool forceReclone = false, string? commitSha = null, CancellationToken ct = default)
     {
         var repositoryReference = ParseGitHubUrl(githubUrl);
         var destinationPath = this.GetDestinationPath(repositoryReference);
@@ -72,7 +72,7 @@ public sealed class WorkspaceManager : IWorkspaceManager
             {
                 if (Repository.IsValid(destinationPath))
                 {
-                    if (!forceReclone)
+                    if (!forceReclone && (commitSha is null || IsHeadAtCommit(destinationPath, commitSha)))
                     {
                         return this.EnsureTrackedWorkspace(repositoryReference, destinationPath);
                     }
@@ -94,7 +94,7 @@ public sealed class WorkspaceManager : IWorkspaceManager
 
             try
             {
-                await this._gitCloner.CloneAsync(githubUrl, destinationPath, this._workspaceOptions.CloneDepth, ct).ConfigureAwait(false);
+                await this._gitCloner.CloneAsync(githubUrl, destinationPath, this._workspaceOptions.CloneDepth, commitSha, ct).ConfigureAwait(false);
 
                 var sizeBytes = ComputeDirectorySize(destinationPath);
                 var maxSizeBytes = this.GetMaximumSizeBytes();
@@ -245,6 +245,13 @@ public sealed class WorkspaceManager : IWorkspaceManager
     private string GetDestinationPath(RepositoryReference repositoryReference)
     {
         return Path.Combine(this._workspaceRootDirectory, $"{repositoryReference.Owner}-{repositoryReference.Repository}");
+    }
+
+    private static bool IsHeadAtCommit(string destinationPath, string commitSha)
+    {
+        using var repository = new Repository(destinationPath);
+
+        return string.Equals(repository.Head.Tip?.Sha, commitSha, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GetMetadataPath(string destinationPath)

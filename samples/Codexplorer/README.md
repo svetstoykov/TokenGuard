@@ -116,6 +116,9 @@ An optional `wrapUpWindow` reserves calls for the runner wrap-up prompt; it must
 An optional absolute `sessionDirectory` names the directory the session writes to; without it Codexplorer creates
 `<SessionLogsDirectory>/<sessionId>/`, for example `20261008-141502-sharkdp_bat`. An optional `capture` flag (default `false`)
 records every model call in the session directory's `capture/` folder. The response returns the `sessionDirectory` in use.
+An optional `repositoryCommit` holds a full 40-character commit SHA; the workspace is then checked out at exactly that commit
+with its full history, and an existing clone whose head is another commit is deleted and cloned again. When the commit cannot
+be fetched, `open_session` fails with `clone_failed` and a message naming the repository and the SHA.
 
 If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
 
@@ -222,6 +225,11 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
 }
 ```
 
+A task may add `"repositoryCommit"` with a full 40-character commit SHA to pin its repository, so the task reads the same file
+contents on every run. A malformed SHA fails startup validation with a message naming the task. A pinned clone carries full
+history, which counts toward `Workspace:MaxRepoSizeMB`. A task without `repositoryCommit` clones the default branch and reuses
+an existing clone as it is.
+
 ### Deliverable checks and retention probes
 
 Tasks may supply `checks` and a separate `probe`; omission or null means no declaration, and empty checks are allowed.
@@ -302,6 +310,7 @@ Schema version 3 includes these location fields:
 | Task | `sessionDirectory` | The task's session directory |
 | Task | `artifactsAtStart` | Files in `artifacts/` when the session opened; an isolated session starts with none |
 | Task | `artifactsAtEnd` | File paths and sizes in `artifacts/` when the session closed |
+| Task | `repositoryCommit` | Optional. The commit SHA the manifest pins the task's repository to; `null` or absent for an unpinned task |
 
 Reports store each check's ID, passed flag and reason, and each probe's required kind, status, reason and `canaryPresent`.
 They exclude expected values, regexes and reference codes as well as answer text. All fields are emitted, including empty checks,

@@ -218,6 +218,7 @@ internal sealed class AutomationRunner
         var opened = await this._client.OpenSessionAsync(new OpenSessionRequest
         {
             RepositoryUrl = state.Task.RepositoryUrl,
+            RepositoryCommit = state.Task.RepositoryCommit,
             ModelCallBudget = state.Budget.MaxTurns,
             WrapUpWindow = state.Budget.WrapUpWindow,
             SessionDirectory = state.SessionDirectory,
@@ -349,10 +350,11 @@ internal sealed class AutomationRunner
             FinalAnswer = state.ProtocolCompletion && !string.IsNullOrWhiteSpace(state.FinalAnswer) ? state.FinalAnswer : null,
             ArtifactTexts = texts, CanaryRepeated = state.CanaryRepeated, Measurements = state.Measurements,
         });
-        return this._aggregator.CreateTask(
+        var report = this._aggregator.CreateTask(
             state.Task.TaskId!, state.Task.TaskSize.ToString().ToLowerInvariant(), state.Outcome, state.ProtocolCompletion, state.Budget.MaxTurns,
             state.Measurements, state.HelperResponses, state.HelperCalls, state.SessionId is null ? null : new TaskSessionRecord(
                 state.SessionId, Path.GetFileName(state.SessionDirectory), state.ArtifactsAtStart, inventory), scoring);
+        return report with { RepositoryCommit = state.Task.RepositoryCommit };
     }
 
     /// <summary>Inventories artifacts while preserving finalization after enumeration or per-file failures.</summary>

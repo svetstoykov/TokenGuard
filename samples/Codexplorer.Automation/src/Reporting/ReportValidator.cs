@@ -58,7 +58,8 @@ internal static class ReportValidator
             var expected = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget,
                 ReportAggregator.ToMeasurements(task), task.HelperResponses, task.Metrics.HelperCalls,
                 new TaskSessionRecord(task.SessionId, task.SessionDirectory, task.ArtifactsAtStart, task.ArtifactsAtEnd),
-                new AnswerScoringResult { Checks = task.Checks, Probe = task.Probe });
+                new AnswerScoringResult { Checks = task.Checks, Probe = task.Probe })
+                with { RepositoryCommit = task.RepositoryCommit };
             if (!JsonElement.DeepEquals(JsonSerializer.SerializeToElement(task, ReportJson.Options),
                 JsonSerializer.SerializeToElement(expected, ReportJson.Options)))
             {
