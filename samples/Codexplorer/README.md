@@ -176,6 +176,9 @@ Shipped batch workflow:
 1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty repository-survey tasks.
    `verifiable-corpus.json` in the same directory defines ten pinned tasks (three Small, four Medium, three Large),
    with 31 deliverable checks and four retention probes, including one requiring emergency truncation.
+   `long-sessions-100k.json`, `long-sessions-180k.json`, and `long-sessions-280k.json` each define two pinned tasks
+   meant to grow an uncompacted history to about the size in the file name; run each with its own
+   `TurnBudgets:Large:MaxTurns` and its own treatment window.
    Select a corpus with `CodexplorerAutomation:ManifestPath`.
 2. Runner creates one run folder, loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
 3. Each shipped task tells Codexplorer not to modify repository source files and to write its deliverables with the artifact tools.

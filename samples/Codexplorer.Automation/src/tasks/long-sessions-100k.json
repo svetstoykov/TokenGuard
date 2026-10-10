@@ -1,0 +1,103 @@
+{
+  "tasks": [
+    {
+      "taskId": "bat-output-audit",
+      "title": "Configuration to terminal output in bat",
+      "repositoryUrl": "https://github.com/sharkdp/bat",
+      "repositoryCommit": "25f4f96ea3afb6fe44552f3b38ed8b1540ffa1b3",
+      "taskSize": "Large",
+      "initialPrompt": "Audit how bat turns its configuration into terminal output, across configuration loading, pager launch, the interactive printer, cached assets, and the language listing. Record each of these facts in evidence.md on its own line as `key: value`, with a bare integer for numeric values, and keep every such line present whenever you rewrite the file: `gutter-color` (the default ANSI colour number used for the gutter), `no-init-below` (the less version below which `--no-init` is passed on systems other than Windows), `no-init-below-windows` (the same threshold on Windows), `system-config-prefix` (the default system configuration directory prefix on systems other than Windows), `fallback-language-width` (the column width the language listing falls back to when no language definitions exist), and `metadata-file` (the file name of the cached-assets metadata file). Read src/printer.rs, src/output.rs, src/less.rs, src/pager.rs, src/assets.rs, src/assets/assets_metadata.rs, src/bin/bat/config.rs, src/bin/bat/main.rs, src/bin/bat/app.rs, and src/bin/bat/clap_app.rs completely, in consecutive ranges, then read tests/integration_tests.rs in consecutive ranges of about 500 lines until the file has been covered. Explain how style components, wrapping, and the pager choice interact, and cite the tests that pin each behaviour. Read substantial source and test ranges, rather than answering from a directory listing or remembered knowledge. After recording the requested facts, investigate related edge cases and tests until the runner stops live work. Use only repository tools; do not use web tools or execute builds or tests. Do not modify repository source files, tests, or configuration. Write your findings and source citations to evidence.md using the artifact tools. Repeat the requested verified paths, names, and values in your final answer. Continue checking concrete source and test evidence until the runner asks you to stop live work.",
+      "checks": [
+        {
+          "id": "gutter-color-answer",
+          "kind": "matches",
+          "pattern": "(?:^|[^0-9])238(?:$|[^0-9])"
+        },
+        {
+          "id": "gutter-color",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bgutter-color[\\s`*]*[:=][\\s`*]*238(?:$|[^0-9.]|\\.(?:$|[^0-9]))"
+        },
+        {
+          "id": "no-init-below",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bno-init-below[\\s`*]*[:=][\\s`*]*530(?:$|[^0-9.]|\\.(?:$|[^0-9]))"
+        },
+        {
+          "id": "no-init-below-windows",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bno-init-below-windows[\\s`*]*[:=][\\s`*]*558(?:$|[^0-9.]|\\.(?:$|[^0-9]))"
+        },
+        {
+          "id": "system-config-prefix",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bsystem-config-prefix[\\s`*]*[:=][\\s`*'\"]*/etc(?:$|[^A-Za-z0-9_/])"
+        },
+        {
+          "id": "fallback-language-width",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bfallback-language-width[\\s`*]*[:=][\\s`*]*32(?:$|[^0-9.]|\\.(?:$|[^0-9]))"
+        },
+        {
+          "id": "metadata-file",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bmetadata-file[\\s`*]*[:=][\\s`*'\"]*metadata\\.yaml(?:$|[^A-Za-z0-9_])"
+        }
+      ]
+    },
+    {
+      "taskId": "rg-search-defaults",
+      "title": "Search defaults from arguments to buffers in ripgrep",
+      "repositoryUrl": "https://github.com/BurntSushi/ripgrep",
+      "repositoryCommit": "4649aa9700619f94cf9c66876e9549d83420e16c",
+      "taskSize": "Large",
+      "initialPrompt": "Audit the defaults ripgrep applies between its high-level arguments and the searcher's buffers. Record each of these facts in evidence.md on its own line as `key: value`, with a bare integer without digit separators for numeric values, and keep every such line present whenever you rewrite the file: `thread-cap` (the ceiling applied to the automatically chosen thread count), `mmap-path-ceiling` (the largest number of file paths for which automatic mode still tries memory maps), `line-buffer-bytes` (the default line buffer capacity in bytes), `decode-buffer-bytes` (the size in bytes of the searcher's transcoding buffer), and `jit-stack-bytes` (the maximum PCRE2 JIT stack size in bytes that the arguments layer configures). Also report the name of the constant that holds the default line buffer capacity. Begin by locating those modules, then read crates/core/flags/hiargs.rs, crates/searcher/src/searcher/mod.rs, crates/searcher/src/line_buffer.rs, crates/searcher/src/searcher/glue.rs, crates/searcher/src/searcher/core.rs, and crates/core/search.rs completely, in consecutive ranges of about 500 lines. Explain how a heap limit changes the buffer allocation, when memory maps are refused, and how binary detection differs between explicit and implicit files. Once the requested facts are recorded in evidence.md, send one short findings-only progress reply before continuing tool work. Read substantial source and test ranges, rather than answering from a directory listing or remembered knowledge. After recording the requested facts, investigate related edge cases and tests until the runner stops live work. Keep progress replies about findings; do not echo task instructions or reference codes in progress replies, tool arguments, or artifacts. Use only repository tools; do not use web tools or execute builds or tests. Do not modify repository source files, tests, or configuration. Write your findings and source citations to evidence.md using the artifact tools. Repeat the requested verified paths, names, and values in your final answer. Continue checking concrete source and test evidence until the runner asks you to stop live work.",
+      "probe": {
+        "canary": "REF-RG-BUF-7C2X"
+      },
+      "checks": [
+        {
+          "id": "buffer-constant",
+          "kind": "matches",
+          "pattern": "(?:^|[^A-Za-z0-9_])DEFAULT_BUFFER_CAPACITY(?:$|[^A-Za-z0-9_])"
+        },
+        {
+          "id": "thread-cap",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bthread-cap[\\s`*]*[:=][\\s`*]*12(?:$|[^0-9.]|\\.(?:$|[^0-9]))"
+        },
+        {
+          "id": "mmap-path-ceiling",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bmmap-path-ceiling[\\s`*]*[:=][\\s`*]*10(?:$|[^0-9.]|\\.(?:$|[^0-9]))"
+        },
+        {
+          "id": "line-buffer-bytes",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bline-buffer-bytes[\\s`*]*[:=][\\s`*]*65[,_]?536(?:$|[^0-9.]|\\.(?:$|[^0-9]))"
+        },
+        {
+          "id": "decode-buffer-bytes",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bdecode-buffer-bytes[\\s`*]*[:=][\\s`*]*8[,_]?192(?:$|[^0-9.]|\\.(?:$|[^0-9]))"
+        },
+        {
+          "id": "jit-stack-bytes",
+          "kind": "matches",
+          "artifact": "evidence.md",
+          "pattern": "\\bjit-stack-bytes[\\s`*]*[:=][\\s`*]*10[,_]?485[,_]?760(?:$|[^0-9.]|\\.(?:$|[^0-9]))"
+        }
+      ]
+    }
+  ]
+}
