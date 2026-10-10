@@ -19,7 +19,8 @@ public interface IWorkspaceManager
     /// </param>
     /// <param name="commitSha">
     /// The full commit SHA the workspace must be checked out at, or <see langword="null"/> to use the default
-    /// branch. An existing workspace whose head is another commit is deleted and cloned again.
+    /// branch. An existing workspace whose head is another commit is deleted and cloned again; one already at the commit
+    /// is restored to the commit's contents, discarding edits and untracked files.
     /// </param>
     /// <param name="ct">The cancellation token for the clone operation.</param>
     /// <returns>The tracked <see cref="Workspace"/> entry for the cloned repository.</returns>

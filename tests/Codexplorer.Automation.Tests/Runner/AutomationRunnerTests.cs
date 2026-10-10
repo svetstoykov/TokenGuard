@@ -500,7 +500,7 @@ public sealed class AutomationRunnerTests : IDisposable
         await fixture.Runner.RunAsync(CancellationToken.None);
 
         var report = fixture.Writer.Report!;
-        report.SchemaVersion.Should().Be(3);
+        report.SchemaVersion.Should().Be(4);
         report.Run.RunId.Should().Be("20261008-141502-treatment");
         report.Run.CaptureEnabled.Should().BeTrue();
         var task = report.Tasks.Single();

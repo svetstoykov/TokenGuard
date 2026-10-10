@@ -151,6 +151,25 @@ public sealed class SampleMeasurementsTests
         fixture.Collector.Snapshot().PrepareRecords.Should().ContainSingle().Which.StrategyRuns.Should().Be(1);
     }
 
+    /// <summary>Verifies edit calls are counted by outcome while a session is active and start from zero in the next session.</summary>
+    [Fact]
+    public void EditCompleted_SucceededAndFailed_KeepsSeparateCounts()
+    {
+        var collector = new SessionMeasurementCollector();
+        collector.Begin(null);
+
+        collector.EditCompleted(succeeded: true);
+        collector.EditCompleted(succeeded: true);
+        collector.EditCompleted(succeeded: false);
+
+        var first = collector.Snapshot();
+        collector.End();
+        collector.EditCompleted(succeeded: true);
+        collector.Begin(null);
+        (first.EditCallsSucceeded, first.EditCallsFailed).Should().Be((2, 1));
+        (collector.Snapshot().EditCallsSucceeded, collector.Snapshot().EditCallsFailed).Should().Be((0, 0));
+    }
+
     /// <summary>Verifies only the meter's dropped kind contributes to dropped messages.</summary>
     [Fact]
     public void CompactionMessages_DroppedAndMasked_KeepsSeparateCounts()

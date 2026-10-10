@@ -46,6 +46,12 @@ internal sealed record SessionMeasurements
     /// <summary>Gets the messages summarized according to the compaction meter; defaults to zero.</summary>
     public long MessagesSummarized { get; init; } = 0;
 
+    /// <summary>Gets the <c>edit_file</c> calls that changed a repository file; defaults to zero.</summary>
+    public long EditCallsSucceeded { get; init; } = 0;
+
+    /// <summary>Gets the <c>edit_file</c> calls that returned an error and left the file unchanged; defaults to zero.</summary>
+    public long EditCallsFailed { get; init; } = 0;
+
     /// <summary>
     ///     Gets the emergency truncation operations.
     /// </summary>

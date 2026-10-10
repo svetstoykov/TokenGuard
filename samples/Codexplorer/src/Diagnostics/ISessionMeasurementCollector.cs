@@ -51,6 +51,10 @@ internal interface ISessionMeasurementCollector
     /// <param name="outputTokens">Provider output usage, or absent when unavailable.</param>
     void ProviderFinished(string status, long? inputTokens = null, long? outputTokens = null);
 
+    /// <summary>Records one finished <c>edit_file</c> call.</summary>
+    /// <param name="succeeded">Whether the call changed the file.</param>
+    void EditCompleted(bool succeeded);
+
     /// <summary>Records a received summarizer response, including an empty answer.</summary>
     /// <param name="inputTokens">Provider input usage, or absent when unavailable.</param>
     /// <param name="outputTokens">Provider output usage, or absent when unavailable.</param>

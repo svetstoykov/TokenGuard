@@ -21,6 +21,12 @@ internal sealed record ReportMetrics
     /// <summary>Gets the independently measured summarized count.</summary>
     public required long MessagesSummarized { get; init; }
 
+    /// <summary>Gets the <c>edit_file</c> calls that changed a repository file.</summary>
+    public required long EditCallsSucceeded { get; init; }
+
+    /// <summary>Gets the <c>edit_file</c> calls that returned an error and left the file unchanged.</summary>
+    public required long EditCallsFailed { get; init; }
+
 
     /// <summary>
     ///     Gets the number of completed provider calls.

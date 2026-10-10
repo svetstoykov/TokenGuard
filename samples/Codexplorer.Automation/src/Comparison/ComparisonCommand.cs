@@ -463,7 +463,7 @@ internal static class ComparisonCommand
         return limits.TryAdd(value[..separator], limit);
     }
 
-    /// <summary>Recognizes distribution counters defined by report schema version 3.</summary>
+    /// <summary>Recognizes distribution counters defined by report schema version 4.</summary>
     /// <param name="metric">The full distribution metric name. Cannot be <see langword="null" />.</param>
     /// <returns>Whether the metric names a known prepare outcome or health signal.</returns>
     private static bool IsKnownDistributionMetric(string metric) => metric is

@@ -17,9 +17,9 @@ internal static class ReportValidator
     public static IReadOnlyList<string> Validate(RunReport report)
     {
         var errors = new List<string>();
-        if (report.SchemaVersion != 3)
+        if (report.SchemaVersion != 4)
         {
-            errors.Add("Unsupported report schema version; expected 3.");
+            errors.Add("Unsupported report schema version; expected 4.");
             return errors;
         }
 
@@ -232,6 +232,7 @@ internal static class ReportValidator
             || task.Metrics.SummarizerCalls < task.SummarizerResponses.Count || task.Metrics.HelperCalls < task.HelperResponses.Count
             || task.Metrics.SummarizerFailures < 0 || task.Metrics.SummarizerFailures > task.Metrics.SummarizerCalls
             || task.Metrics.MessagesMasked < 0 || task.Metrics.MessagesSummarized < 0
+            || task.Metrics.EditCallsSucceeded < 0 || task.Metrics.EditCallsFailed < 0
             || task.Metrics.MessagesDropped < 0 || task.Metrics.SummarizationErrors < 0 || task.Metrics.EmergencyTruncations < 0
             || task.Metrics.HealthSignalCounts is null
             || task.Metrics.HealthSignalCounts.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || pair.Value < 0))

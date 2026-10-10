@@ -48,6 +48,7 @@ public sealed class ToolRegistry : IToolRegistry
             new ListDirectoryTool(),
             new ReadFileTool(),
             new ReadRangeTool(),
+            new EditFileTool(),
             new GrepTool(),
             new FindFilesTool(),
             new FileTreeTool(),

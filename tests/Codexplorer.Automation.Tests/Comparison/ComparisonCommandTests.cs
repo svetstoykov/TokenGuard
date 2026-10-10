@@ -403,7 +403,7 @@ public sealed class ComparisonCommandTests
     }
 
     /// <summary>
-    ///     Verifies that schema version 3 reports with session directories and artifact records compare successfully.
+    ///     Verifies that schema version 4 reports with session directories and artifact records compare successfully.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
@@ -425,7 +425,7 @@ public sealed class ComparisonCommandTests
         var result = await CompareAsync(ReportFixture.Create() with { SchemaVersion = 1 }, ReportFixture.Create());
 
         result.ExitCode.Should().Be(1);
-        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 3.");
+        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 4.");
     }
 
     /// <summary>

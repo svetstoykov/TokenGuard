@@ -55,6 +55,8 @@ internal sealed class ReportAggregator : IReportAggregator
             MessagesDropped = snapshots.Sum(snapshot => snapshot.MessagesDropped),
             MessagesMasked = snapshots.Sum(snapshot => snapshot.MessagesMasked),
             MessagesSummarized = snapshots.Sum(snapshot => snapshot.MessagesSummarized),
+            EditCallsSucceeded = snapshots.Sum(snapshot => snapshot.EditCallsSucceeded),
+            EditCallsFailed = snapshots.Sum(snapshot => snapshot.EditCallsFailed),
             EmergencyTruncations = snapshots.Sum(snapshot => snapshot.EmergencyTruncations),
             HealthSignalCounts = MergeCounts(snapshots.Select(snapshot => snapshot.HealthSignalCounts))
         };
@@ -71,7 +73,7 @@ internal sealed class ReportAggregator : IReportAggregator
         var errors = ReportValidator.GetCollectionErrors(metadata, tasks, unrunTaskIds);
         return new RunReport
         {
-            SchemaVersion = 3, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
+            SchemaVersion = 4, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
             Partial = partial || unrunTaskIds.Count > 0 || tasks.Any(task => task.Outcome is "failed" or "cancelled"),
             Totals = new RunTotals
             {
@@ -104,6 +106,7 @@ internal sealed class ReportAggregator : IReportAggregator
         SummarizerCalls = task.Metrics.SummarizerCalls, SummarizerFailures = task.Metrics.SummarizerFailures,
         SummarizationErrors = task.Metrics.SummarizationErrors, MessagesDropped = task.Metrics.MessagesDropped,
         MessagesMasked = task.Metrics.MessagesMasked, MessagesSummarized = task.Metrics.MessagesSummarized,
+        EditCallsSucceeded = task.Metrics.EditCallsSucceeded, EditCallsFailed = task.Metrics.EditCallsFailed,
         EmergencyTruncations = task.Metrics.EmergencyTruncations, HealthSignalCounts = task.Metrics.HealthSignalCounts,
         SummaryCrossCheck = task.SummaryCrossCheck, Complete = task.MeasurementsComplete, ModelCallBudget = task.ModelCallBudget
     };
@@ -131,6 +134,7 @@ internal sealed class ReportAggregator : IReportAggregator
         {
             ChecksTotal = 0, ChecksPassed = 0, CheckPassRate = null,
             MessagesMasked = measurements.MessagesMasked, MessagesSummarized = measurements.MessagesSummarized,
+            EditCallsSucceeded = measurements.EditCallsSucceeded, EditCallsFailed = measurements.EditCallsFailed,
             CompletedModelTurns = providers.Count(call => call.Status == "completed"), ModelCallsMade = providers.Count,
             BudgetOvershoot = Math.Max(0, providers.Count - budget), PrepareCalls = prepares.Count, CompletedPrepareCalls = completed.Length,
             StrategyRuns = completed.Sum(prepare => prepare.StrategyRuns), TokensBefore = before, TokensAfter = after,

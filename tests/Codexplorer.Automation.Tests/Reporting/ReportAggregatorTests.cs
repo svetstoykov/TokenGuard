@@ -254,4 +254,24 @@ public sealed class ReportAggregatorTests
         ReportValidator.Validate(report).Should().BeEmpty();
     }
 
+    /// <summary>Verifies each task keeps its own edit-call counts and the run totals add them up.</summary>
+    [Fact]
+    public void CreateReport_SumsEditCallsAcrossTasks()
+    {
+        var template = ReportFixture.Create();
+        var aggregator = new ReportAggregator();
+        var scoring = new AnswerScoringResult { Checks = [], Probe = null };
+        var tasks = new[] { ("edited", 2L, 1L), ("readOnly", 0L, 0L), ("failedOnly", 0L, 3L) }
+            .Select(entry => aggregator.CreateTask(entry.Item1, "small", "reply_received", true, 24,
+                ReportAggregator.ToMeasurements(template.Tasks[0]) with { EditCallsSucceeded = entry.Item2, EditCallsFailed = entry.Item3 },
+                [], 0, null, scoring))
+            .ToArray();
+
+        var report = aggregator.CreateReport(template.Run, tasks, [], false);
+
+        report.Tasks.Select(task => (task.Metrics.EditCallsSucceeded, task.Metrics.EditCallsFailed)).Should().Equal((2, 1), (0, 0), (0, 3));
+        report.Totals.Metrics.EditCallsSucceeded.Should().Be(2);
+        report.Totals.Metrics.EditCallsFailed.Should().Be(4);
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
 }
