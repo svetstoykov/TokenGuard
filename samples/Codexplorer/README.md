@@ -176,12 +176,13 @@ Shipped batch workflow:
 1. `samples/Codexplorer.Automation/src/tasks/initial-corpus.json` defines twenty repository-survey tasks.
    `verifiable-corpus.json` in the same directory defines ten pinned tasks (three Small, four Medium, three Large),
    with 31 deliverable checks and four retention probes, including one requiring emergency truncation.
-   `long-sessions-100k.json`, `long-sessions-180k.json`, and `long-sessions-280k.json` each define two pinned tasks
+   `long-sessions-100k.json`, `long-sessions-200k.json`, and `long-sessions-300k.json` each define two pinned tasks
+   that alternate reads, edits and re-reads inside one feature of a large repository (hugo, django, jellyfin, redis),
    meant to grow an uncompacted history to about the size in the file name; run each with its own
    `TurnBudgets:Large:MaxTurns` and its own treatment window.
    Select a corpus with `CodexplorerAutomation:ManifestPath`.
 2. Runner creates one run folder, loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
-3. Each shipped task tells Codexplorer not to modify repository source files and to write its deliverables with the artifact tools.
+3. Each shipped task tells Codexplorer to write its deliverables with the artifact tools. The long-session tasks name the files to edit and forbid any other change; every other task tells Codexplorer not to modify repository source files.
 4. Each task's session writes its notes and deliverables only into its own session directory inside the run folder. A task that
    asks for a change edits files of the cloned repository with `edit_file`; a pinned clone is restored to its commit before the
    next task opens it.

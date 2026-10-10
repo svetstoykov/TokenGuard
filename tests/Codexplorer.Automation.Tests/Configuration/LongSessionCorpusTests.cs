@@ -9,14 +9,14 @@ namespace Codexplorer.Automation.Tests.Configuration;
 /// <summary>Verifies the long-session corpus manifests and the facts their checks accept.</summary>
 public sealed class LongSessionCorpusTests
 {
-    private static readonly string[] Manifests = ["long-sessions-100k.json", "long-sessions-180k.json", "long-sessions-280k.json"];
+    private static readonly string[] Manifests = ["long-sessions-100k.json", "long-sessions-200k.json", "long-sessions-300k.json"];
 
     /// <summary>Verifies each tier holds two workloads.</summary>
     /// <param name="manifest">The tier manifest file name.</param>
     [Theory]
     [InlineData("long-sessions-100k.json")]
-    [InlineData("long-sessions-180k.json")]
-    [InlineData("long-sessions-280k.json")]
+    [InlineData("long-sessions-200k.json")]
+    [InlineData("long-sessions-300k.json")]
     public void LoadTasks_LongSessionTier_LoadsTwoTasks(string manifest)
     {
         var tasks = LoadTasks(manifest);
@@ -28,8 +28,8 @@ public sealed class LongSessionCorpusTests
     /// <param name="manifest">The tier manifest file name.</param>
     [Theory]
     [InlineData("long-sessions-100k.json")]
-    [InlineData("long-sessions-180k.json")]
-    [InlineData("long-sessions-280k.json")]
+    [InlineData("long-sessions-200k.json")]
+    [InlineData("long-sessions-300k.json")]
     public void LoadTasks_LongSessionTier_DeclaresAtLeastSixChecksPerTask(string manifest)
     {
         var tasks = LoadTasks(manifest);
@@ -41,8 +41,8 @@ public sealed class LongSessionCorpusTests
     /// <param name="manifest">The tier manifest file name.</param>
     [Theory]
     [InlineData("long-sessions-100k.json")]
-    [InlineData("long-sessions-180k.json")]
-    [InlineData("long-sessions-280k.json")]
+    [InlineData("long-sessions-200k.json")]
+    [InlineData("long-sessions-300k.json")]
     public void LoadTasks_LongSessionTier_ChecksOneFactInFinalAnswer(string manifest)
     {
         var tasks = LoadTasks(manifest);
@@ -50,28 +50,34 @@ public sealed class LongSessionCorpusTests
         tasks.Should().OnlyContain(task => task.Checks!.Count(check => check.Artifact == null) == 1);
     }
 
-    /// <summary>Verifies each tier carries one retention probe.</summary>
+    /// <summary>Verifies each workload checks a value that holds only after its edits.</summary>
     /// <param name="manifest">The tier manifest file name.</param>
     [Theory]
     [InlineData("long-sessions-100k.json")]
-    [InlineData("long-sessions-180k.json")]
-    [InlineData("long-sessions-280k.json")]
-    public void LoadTasks_LongSessionTier_DeclaresOneProbe(string manifest)
+    [InlineData("long-sessions-200k.json")]
+    [InlineData("long-sessions-300k.json")]
+    public void LoadTasks_LongSessionTier_ChecksPostEditFactInArtifact(string manifest)
     {
         var tasks = LoadTasks(manifest);
 
-        tasks.Count(task => task.Probe is not null).Should().Be(1);
+        tasks.Should().OnlyContain(task => task.Checks!.Any(check => check.Artifact != null && check.Id!.EndsWith("-after")));
     }
 
-    /// <summary>Verifies the tiers reuse the verifiable corpus checkout of each repository.</summary>
+    /// <summary>Verifies the tiers pin each repository to one commit.</summary>
     [Fact]
-    public void LoadTasks_LongSessionTiers_PinRepositoriesToVerifiableCorpusCommits()
+    public void LoadTasks_LongSessionTiers_PinEachRepositoryToOneCommit()
     {
-        var pins = LoadTasks("verifiable-corpus.json").Select(task => (task.RepositoryUrl, task.RepositoryCommit)).Distinct().ToArray();
+        (string? RepositoryUrl, string? RepositoryCommit)[] pins =
+        [
+            ("https://github.com/gohugoio/hugo", "0732eadd5aead94d4bd4674d87e9bfc79aaf10a7"),
+            ("https://github.com/django/django", "dab0a5c47f159eb58472110dcbc10bd4a9b01adb"),
+            ("https://github.com/jellyfin/jellyfin", "a45d1415d4da7c9b69d6e7a6895fc63d2d68e8f1"),
+            ("https://github.com/redis/redis", "3c7e951c3dc13fdeb905092e4a921ca7823e6faa"),
+        ];
 
         var used = Manifests.SelectMany(LoadTasks).Select(task => (task.RepositoryUrl, task.RepositoryCommit)).Distinct().ToArray();
 
-        used.Should().BeSubsetOf(pins);
+        used.Should().HaveCount(pins.Length).And.BeSubsetOf(pins);
     }
 
     /// <summary>Verifies a task identifier names one workload across all tiers.</summary>
@@ -89,55 +95,71 @@ public sealed class LongSessionCorpusTests
     {
         (string Manifest, string TaskId, string CheckId, string Correct, string Wrong)[] facts =
         [
-            ("long-sessions-100k.json", "bat-output-audit", "gutter-color-answer", "The gutter falls back to colour 238.", "The gutter falls back to colour 2380."),
-            ("long-sessions-100k.json", "bat-output-audit", "gutter-color", "gutter-color: 238", "gutter-color: 236"),
-            ("long-sessions-100k.json", "bat-output-audit", "no-init-below", "no-init-below: 530", "no-init-below: 558"),
-            ("long-sessions-100k.json", "bat-output-audit", "no-init-below-windows", "no-init-below-windows: 558", "no-init-below-windows: 530"),
-            ("long-sessions-100k.json", "bat-output-audit", "system-config-prefix", "system-config-prefix: /etc", "system-config-prefix: /etc/bat"),
-            ("long-sessions-100k.json", "bat-output-audit", "fallback-language-width", "fallback-language-width: 32", "fallback-language-width: 320"),
-            ("long-sessions-100k.json", "bat-output-audit", "metadata-file", "metadata-file: metadata.yaml", "metadata-file: metadata.yml"),
-            ("long-sessions-100k.json", "rg-search-defaults", "buffer-constant", "The capacity is DEFAULT_BUFFER_CAPACITY.", "The capacity is DEFAULT_BUFFER_CAPACITY_KB."),
-            ("long-sessions-100k.json", "rg-search-defaults", "thread-cap", "thread-cap: 12", "thread-cap: 16"),
-            ("long-sessions-100k.json", "rg-search-defaults", "mmap-path-ceiling", "mmap-path-ceiling: 10", "mmap-path-ceiling: 100"),
-            ("long-sessions-100k.json", "rg-search-defaults", "line-buffer-bytes", "line-buffer-bytes: 65536", "line-buffer-bytes: 8192"),
-            ("long-sessions-100k.json", "rg-search-defaults", "decode-buffer-bytes", "decode-buffer-bytes: 8192", "decode-buffer-bytes: 65536"),
-            ("long-sessions-100k.json", "rg-search-defaults", "jit-stack-bytes", "jit-stack-bytes: 10485760", "jit-stack-bytes: 1048576"),
-            ("long-sessions-180k.json", "rg-ignore-and-globs", "excludes-default-answer", "The fallback comes from excludes_file_default.", "The fallback comes from excludes_file_default_path."),
-            ("long-sessions-180k.json", "rg-ignore-and-globs", "walker-fallback-threads", "walker-fallback-threads: 2", "walker-fallback-threads: 12"),
-            ("long-sessions-180k.json", "rg-ignore-and-globs", "ts-glob-count", "ts-glob-count: 4", "ts-glob-count: 2"),
-            ("long-sessions-180k.json", "rg-ignore-and-globs", "py-second-glob", "py-second-glob: *.pyi", "py-second-glob: *.py"),
-            ("long-sessions-180k.json", "rg-ignore-and-globs", "glob-strategy-count", "glob-strategy-count: 7", "glob-strategy-count: 6"),
-            ("long-sessions-180k.json", "rg-ignore-and-globs", "global-excludes-function", "global-excludes-function: gitconfig_excludes_path", "global-excludes-function: excludes_file_default"),
-            ("long-sessions-180k.json", "rg-ignore-and-globs", "excludes-default-function", "excludes-default-function: excludes_file_default", "excludes-default-function: gitconfig_excludes_path"),
-            ("long-sessions-180k.json", "rg-ignore-and-globs", "own-ignore-file", "own-ignore-file: .rgignore", "own-ignore-file: .ignore"),
-            ("long-sessions-180k.json", "gh-list-defaults", "run-delete-constant", "The lookup is bounded by defaultRunGetLimit.", "The lookup is bounded by defaultLimit."),
-            ("long-sessions-180k.json", "gh-list-defaults", "run-list-limit", "run-list-limit: 20", "run-list-limit: 30"),
-            ("long-sessions-180k.json", "gh-list-defaults", "workflow-list-limit", "workflow-list-limit: 50", "workflow-list-limit: 30"),
-            ("long-sessions-180k.json", "gh-list-defaults", "gist-list-limit", "gist-list-limit: 10", "gist-list-limit: 100"),
-            ("long-sessions-180k.json", "gh-list-defaults", "run-delete-lookup", "run-delete-lookup: 10", "run-delete-lookup: 20"),
-            ("long-sessions-180k.json", "gh-list-defaults", "run-watch-interval-seconds", "run-watch-interval-seconds: 3", "run-watch-interval-seconds: 10"),
-            ("long-sessions-180k.json", "gh-list-defaults", "pr-checks-interval-seconds", "pr-checks-interval-seconds: 10", "pr-checks-interval-seconds: 3"),
-            ("long-sessions-180k.json", "gh-list-defaults", "project-limit-max", "project-limit-max: 100", "project-limit-max: 30"),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "look-ahead-constant", "The limit is MAX_LOOK_AHEAD.", "The limit is MAX_LOOK_AHEAD_BYTES."),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "look-ahead-bytes", "look-ahead-bytes: 128", "look-ahead-bytes: 1280"),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "error-exit-code", "error-exit-code: 2", "error-exit-code: 1"),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "no-match-exit-code", "no-match-exit-code: 1", "no-match-exit-code: 2"),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "default-path-color", "default-path-color: magenta", "default-path-color: cyan"),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "default-path-color-windows", "default-path-color-windows: cyan", "default-path-color-windows: magenta"),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "default-line-color", "default-line-color: green", "default-line-color: red"),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "summary-kind-count", "summary-kind-count: 5", "summary-kind-count: 6"),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "kitty-format", "kitty-format: file://{host}{path}#{line}", "kitty-format: file://{host}{path}"),
-            ("long-sessions-280k.json", "rg-flags-and-printers", "omitted-match-text", "omitted-match-text: [Omitted long matching line]", "omitted-match-text: [Omitted long context line]"),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "display-name-constant", "The limit is displayNameMaxLength.", "The limit is displayNameMax."),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "permissions-polling-interval-seconds", "permissions-polling-interval-seconds: 5", "permissions-polling-interval-seconds: 60"),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "permissions-polling-timeout-seconds", "permissions-polling-timeout-seconds: 60", "permissions-polling-timeout-seconds: 5"),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "display-name-max", "display-name-max: 48", "display-name-max: 64"),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "rpc-connection-timeout-seconds", "rpc-connection-timeout-seconds: 5", "rpc-connection-timeout-seconds: 30"),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "rpc-request-timeout-seconds", "rpc-request-timeout-seconds: 30", "rpc-request-timeout-seconds: 5"),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "heartbeat-interval-seconds", "heartbeat-interval-seconds: 60", "heartbeat-interval-seconds: 30"),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "backoff-max-interval-seconds", "backoff-max-interval-seconds: 10", "backoff-max-interval-seconds: 1"),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "backoff-max-elapsed-seconds", "backoff-max-elapsed-seconds: 300", "backoff-max-elapsed-seconds: 120"),
-            ("long-sessions-280k.json", "gh-codespaces-timing", "list-page-size", "list-page-size: 100", "list-page-size: 30"),
+            ("long-sessions-100k.json", "hugo-assembly-thresholds", "collect-log-file-step-after-answer", "collect-log-file-step-after: 200", "collect-log-file-step-after: 1000"),
+            ("long-sessions-100k.json", "hugo-assembly-thresholds", "collect-log-seconds", "collect-log-seconds: 3", "collect-log-seconds: 30"),
+            ("long-sessions-100k.json", "hugo-assembly-thresholds", "collect-log-file-step", "collect-log-file-step: 1000", "collect-log-file-step: 200"),
+            ("long-sessions-100k.json", "hugo-assembly-thresholds", "eviction-ceiling", "eviction-ceiling: 200", "eviction-ceiling: 1000"),
+            ("long-sessions-100k.json", "hugo-assembly-thresholds", "surrounding-sample-size", "surrounding-sample-size: 10", "surrounding-sample-size: 3"),
+            ("long-sessions-100k.json", "hugo-assembly-thresholds", "parallel-section-depth", "parallel-section-depth: 3", "parallel-section-depth: 10"),
+            ("long-sessions-100k.json", "hugo-assembly-thresholds", "output-dependency-depth", "output-dependency-depth: 50", "output-dependency-depth: 5"),
+            ("long-sessions-100k.json", "hugo-assembly-thresholds", "collect-log-file-step-after", "collect-log-file-step-after: 200", "collect-log-file-step-after: 1000"),
+            ("long-sessions-100k.json", "hugo-assembly-thresholds", "parallel-section-depth-after", "parallel-section-depth-after: 10", "parallel-section-depth-after: 3"),
+            ("long-sessions-100k.json", "django-migration-naming", "name-limit-after-answer", "name-limit-after: 100", "name-limit-after: 52"),
+            ("long-sessions-100k.json", "django-migration-naming", "fragment-join-limit", "fragment-join-limit: 52", "fragment-join-limit: 100"),
+            ("long-sessions-100k.json", "django-migration-naming", "suggested-name-cap", "suggested-name-cap: 100", "suggested-name-cap: 52"),
+            ("long-sessions-100k.json", "django-migration-naming", "index-or-constraint-dependency", "index-or-constraint-dependency: 5", "index-or-constraint-dependency: 4"),
+            ("long-sessions-100k.json", "django-migration-naming", "questioner-abort-code", "questioner-abort-code: 3", "questioner-abort-code: 1"),
+            ("long-sessions-100k.json", "django-migration-naming", "operation-writer-indent", "operation-writer-indent: 2", "operation-writer-indent: 4"),
+            ("long-sessions-100k.json", "django-migration-naming", "name-limit-after", "name-limit-after: 100", "name-limit-after: 52"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "monitor-restart-delay-ms-after-answer", "monitor-restart-delay-ms-after: 2000", "monitor-restart-delay-ms-after: 1000"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "shortcut-extension", "shortcut-extension: .mblink", "shortcut-extension: .lnk"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "view-refresh-hours", "view-refresh-hours: 24", "view-refresh-hours: 12"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "validation-progress-share", "validation-progress-share: 96", "validation-progress-share: 100"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "monitor-restart-delay-ms", "monitor-restart-delay-ms: 1000", "monitor-restart-delay-ms: 2000"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "splashscreen-item-limit", "splashscreen-item-limit: 30", "splashscreen-item-limit: 32"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "splashscreen-max-rating", "splashscreen-max-rating: 13", "splashscreen-max-rating: 18"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "ignore-cache-floor", "ignore-cache-floor: 100", "ignore-cache-floor: 32"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "rules-cache-floor", "rules-cache-floor: 32", "rules-cache-floor: 24"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "splashscreen-item-limit-after", "splashscreen-item-limit-after: 32", "splashscreen-item-limit-after: 30"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "rules-cache-floor-after", "rules-cache-floor-after: 24", "rules-cache-floor-after: 32"),
+            ("long-sessions-200k.json", "jellyfin-scan-limits", "monitor-restart-delay-ms-after", "monitor-restart-delay-ms-after: 2000", "monitor-restart-delay-ms-after: 1000"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "sync-fsync-megabytes-after-answer", "sync-fsync-megabytes-after: 20", "sync-fsync-megabytes-after: 8"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "snapshot-format-version", "snapshot-format-version: 16", "snapshot-format-version: 12"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "hash-template-opcode", "hash-template-opcode: 242", "hash-template-opcode: 244"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "array-type-code", "array-type-code: 28", "array-type-code: 21"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "connset-preflush-kilobytes", "connset-preflush-kilobytes: 256", "connset-preflush-kilobytes: 8192"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "compress-min-length", "compress-min-length: 20", "compress-min-length: 256"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "empty-key-log-limit", "empty-key-log-limit: 10", "empty-key-log-limit: 100"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "sync-fsync-megabytes", "sync-fsync-megabytes: 8", "sync-fsync-megabytes: 20"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "rdbchannel-psync-code", "rdbchannel-psync-code: 6", "rdbchannel-psync-code: 5"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "connset-preflush-kilobytes-after", "connset-preflush-kilobytes-after: 8192", "connset-preflush-kilobytes-after: 256"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "sync-fsync-megabytes-after", "sync-fsync-megabytes-after: 20", "sync-fsync-megabytes-after: 8"),
+            ("long-sessions-200k.json", "redis-snapshot-thresholds", "compress-min-length-after", "compress-min-length-after: 256", "compress-min-length-after: 20"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "segment-gap-numerator-after-answer", "segment-gap-numerator-after: 128", "segment-gap-numerator-after: 24"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "segmented-ping-timeout-ms", "segmented-ping-timeout-ms: 60000", "segmented-ping-timeout-ms: 10000"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "partial-delete-retry-limit", "partial-delete-retry-limit: 10", "partial-delete-retry-limit: 24"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "partial-delete-first-delay-ms", "partial-delete-first-delay-ms: 1500", "partial-delete-first-delay-ms: 15000"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "sdr-image-timeout-ms", "sdr-image-timeout-ms: 10000", "sdr-image-timeout-ms: 20000"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "hdr-image-timeout-ms", "hdr-image-timeout-ms: 20000", "hdr-image-timeout-ms: 10000"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "segment-gap-numerator", "segment-gap-numerator: 24", "segment-gap-numerator: 128"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "muxing-queue-floor", "muxing-queue-floor: 128", "muxing-queue-floor: 1024"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "sane-bitrate-ceiling", "sane-bitrate-ceiling: 400000000", "sane-bitrate-ceiling: 200000000"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "subtitle-description-length", "subtitle-description-length: 100", "subtitle-description-length: 1000"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "partial-delete-retry-limit-after", "partial-delete-retry-limit-after: 24", "partial-delete-retry-limit-after: 10"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "segment-gap-numerator-after", "segment-gap-numerator-after: 128", "segment-gap-numerator-after: 24"),
+            ("long-sessions-300k.json", "jellyfin-transcode-limits", "sane-bitrate-ceiling-after", "sane-bitrate-ceiling-after: 200000000", "sane-bitrate-ceiling-after: 400000000"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "writable-delay-ms-after-answer", "writable-delay-ms-after: 4096", "writable-delay-ms-after: 2000"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "failover-relog-seconds", "failover-relog-seconds: 10", "failover-relog-seconds: 60"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "rcvbuf-init-bytes", "rcvbuf-init-bytes: 1024", "rcvbuf-init-bytes: 1000"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "accepts-per-call", "accepts-per-call: 1000", "accepts-per-call: 1024"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "blacklist-ttl-seconds", "blacklist-ttl-seconds: 60", "blacklist-ttl-seconds: 10"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "rejoin-delay-max-ms", "rejoin-delay-max-ms: 5000", "rejoin-delay-max-ms: 500"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "rejoin-delay-min-ms", "rejoin-delay-min-ms: 500", "rejoin-delay-min-ms: 1024"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "writable-delay-ms", "writable-delay-ms: 2000", "writable-delay-ms: 4096"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "asm-aof-min-items", "asm-aof-min-items: 512", "asm-aof-min-items: 1000"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "rejoin-delay-min-ms-after", "rejoin-delay-min-ms-after: 1024", "rejoin-delay-min-ms-after: 500"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "writable-delay-ms-after", "writable-delay-ms-after: 4096", "writable-delay-ms-after: 2000"),
+            ("long-sessions-300k.json", "redis-cluster-delays", "asm-aof-min-items-after", "asm-aof-min-items-after: 1000", "asm-aof-min-items-after: 512"),
         ];
         (string Format, bool KeepsVerdict)[] formats = [("{0}", true), ("- {0}", true), ("{0}\nSource evidence follows.", true)];
         foreach (var fact in facts)
@@ -170,14 +192,14 @@ public sealed class LongSessionCorpusTests
     /// <summary>Verifies keyed facts survive the emphasis and code formatting models add to artifact lines.</summary>
     /// <param name="text">The artifact line to score. Cannot be <see langword="null" />.</param>
     [Theory]
-    [InlineData("**gutter-color:** 238")]
-    [InlineData("`gutter-color`: `238`")]
-    [InlineData("- **gutter-color**: 238.")]
-    [InlineData("gutter-color = 238 (src/printer.rs)")]
+    [InlineData("**eviction-ceiling:** 200")]
+    [InlineData("`eviction-ceiling`: `200`")]
+    [InlineData("- **eviction-ceiling**: 200.")]
+    [InlineData("eviction-ceiling = 200 (hugolib/content_map_page.go)")]
     public void EvaluateCheck_KeyedFactWithMarkdownFormatting_Passes(string text)
     {
-        var check = LoadTasks("long-sessions-100k.json").Single(task => task.TaskId == "bat-output-audit").Checks!
-            .Single(check => check.Id == "gutter-color");
+        var check = LoadTasks("long-sessions-100k.json").Single(task => task.TaskId == "hugo-assembly-thresholds").Checks!
+            .Single(check => check.Id == "eviction-ceiling");
 
         var result = new AnswerScorer().EvaluateCheck(check, text, "noAnswer");
 
