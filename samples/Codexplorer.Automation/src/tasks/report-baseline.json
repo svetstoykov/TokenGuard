@@ -5,7 +5,7 @@
       "title": "Documentation evidence baseline",
       "repositoryUrl": "https://github.com/sharkdp/bat",
       "taskSize": "Small",
-      "initialPrompt": "Survey this repository documentation and developer workflow with repository tools. Start with file_tree, then inspect README, build configuration, and focused source ranges. Keep exploring concrete evidence until the runner asks you to wrap up. Write concise evidence-backed notes to baseline.md using create_artifact or write_artifact. Do not modify repository source files, tests, or configuration. Write all task-owned notes with the artifact tools. Avoid web tools for this task. In your notes and in your final summary, name the build manifest file, the setting that declares the minimum supported Rust version, and the command that runs the tests.",
+      "initialPrompt": "Survey this repository documentation and developer workflow with repository tools. Start with file_tree, then inspect README, build configuration, and focused source ranges. Keep exploring concrete evidence until the runner asks you to wrap up. Write concise evidence-backed notes to baseline.md using create_artifact or write_artifact. Write all task-owned notes with the artifact tools. Avoid web tools for this task. In your notes and in your final summary, name the build manifest file, the setting that declares the minimum supported Rust version, and the command that runs the tests.",
       "checks": [
         {
           "id": "build-manifest",
