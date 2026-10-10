@@ -18,7 +18,7 @@ public sealed class ManifestEncodingTests
         var path = Path.GetTempFileName();
         const string manifest = """
             {"tasks":[{"taskId":"bom-task","title":"Task","repositoryUrl":"https://github.com/example/repo",
-            "initialPrompt":"Do not modify repository source files."}]}
+            "initialPrompt":"Write notes with the artifact tools."}]}
             """;
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(manifest)).ToArray();
         File.WriteAllBytes(path, bytes);

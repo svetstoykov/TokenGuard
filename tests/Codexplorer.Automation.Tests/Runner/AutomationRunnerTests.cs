@@ -154,7 +154,7 @@ public sealed class AutomationRunnerTests : IDisposable
                     "nullTasks" => "{\"tasks\":null}",
                     _ => """
                         {"tasks":[{"title":"Task","repositoryUrl":"https://github.com/example/repo",
-                        "initialPrompt":"Do not modify repository source files."}]}
+                        "initialPrompt":"Write notes with the artifact tools."}]}
                         """
                 };
                 await File.WriteAllTextAsync(manifestPath, content);
@@ -611,7 +611,7 @@ public sealed class AutomationRunnerTests : IDisposable
         var manifestPath = Path.Combine(this._outputDirectory, "manifest.json");
         await File.WriteAllTextAsync(manifestPath, """
             {"tasks":[{"taskId":"task","title":"Task","repositoryUrl":"https://github.com/example/repo",
-            "initialPrompt":"Do not modify repository source files."}]}
+            "initialPrompt":"Write notes with the artifact tools."}]}
             """);
         var options = Options.Create(new CodexplorerAutomationOptions { ManifestPath = manifestPath, OutputDirectory = this._outputDirectory });
         var client = new FakeClient

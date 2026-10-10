@@ -182,7 +182,7 @@ Shipped batch workflow:
    `TurnBudgets:Large:MaxTurns` and its own treatment window.
    Select a corpus with `CodexplorerAutomation:ManifestPath`.
 2. Runner creates one run folder, loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
-3. Each shipped task tells Codexplorer to write its deliverables with the artifact tools. The long-session tasks name the files to edit and forbid any other change; every other task tells Codexplorer not to modify repository source files.
+3. Each shipped task tells Codexplorer to write its deliverables with the artifact tools. The long-session tasks also name the files to edit in the clone.
 4. Each task's session writes its notes and deliverables only into its own session directory inside the run folder. A task that
    asks for a change edits files of the cloned repository with `edit_file`; a pinned clone is restored to its commit before the
    next task opens it.
@@ -236,7 +236,7 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
       "title": "Example title",
       "repositoryUrl": "https://github.com/cli/cli",
       "taskSize": "Medium",
-      "initialPrompt": "Write notes with the artifact tools. Do not modify repository source files, tests, or configuration. Write all task-owned deliverables with the artifact tools."
+      "initialPrompt": "Write notes with the artifact tools. Write all task-owned deliverables with the artifact tools."
     }
   ]
 }
