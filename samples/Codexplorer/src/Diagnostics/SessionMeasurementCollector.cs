@@ -26,6 +26,8 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
     private long _masked;
     private long _summarized;
     private long _emergency;
+    private long _editsSucceeded;
+    private long _editsFailed;
 
     /// <inheritdoc />
     public bool IsActive
@@ -57,7 +59,7 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
             this._health.Clear();
             this._summary = null;
             this._summarizerCalls = this._summarizerFailures = this._summarizationErrors = this._dropped = this._emergency = 0;
-            this._masked = this._summarized = 0;
+            this._masked = this._summarized = this._editsSucceeded = this._editsFailed = 0;
         }
     }
 
@@ -87,6 +89,8 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
                 MessagesDropped = this._dropped,
                 MessagesMasked = this._masked,
                 MessagesSummarized = this._summarized,
+                EditCallsSucceeded = this._editsSucceeded,
+                EditCallsFailed = this._editsFailed,
                 EmergencyTruncations = this._emergency,
                 HealthSignalCounts = new Dictionary<string, long>(this._health),
                 SummaryCrossCheck = this.CrossCheck(),
@@ -221,6 +225,21 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
         {
             if (this._active && this._providers.Count > 0)
                 this._providers[^1] = this._providers[^1] with { Status = status, InputTokens = inputTokens, OutputTokens = outputTokens };
+        }
+    }
+
+    /// <inheritdoc />
+    public void EditCompleted(bool succeeded)
+    {
+        lock (this._gate)
+        {
+            if (!this._active)
+                return;
+
+            if (succeeded)
+                this._editsSucceeded++;
+            else
+                this._editsFailed++;
         }
     }
 

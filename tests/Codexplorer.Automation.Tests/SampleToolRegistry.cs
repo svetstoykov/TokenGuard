@@ -19,10 +19,17 @@ namespace Codexplorer.Automation.Tests;
 internal sealed class SampleToolRegistry : IToolRegistry
 {
     private readonly bool _waitForCancellation;
+    private readonly string _result;
 
     /// <summary>Initializes a new instance of the <see cref="SampleToolRegistry" /> class.</summary>
     /// <param name="waitForCancellation">Whether a tool waits for its work token to be cancelled.</param>
-    public SampleToolRegistry(bool waitForCancellation = false) => this._waitForCancellation = waitForCancellation;
+    /// <param name="result">The text every tool call returns.</param>
+    public SampleToolRegistry(bool waitForCancellation = false, string result = "result")
+    {
+        this._waitForCancellation = waitForCancellation;
+        this._result = result;
+    }
+
     /// <summary>Gets the signal that tool execution has started.</summary>
     public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -35,6 +42,6 @@ internal sealed class SampleToolRegistry : IToolRegistry
         this.Started.TrySetResult();
         if (this._waitForCancellation)
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-        return "result";
+        return this._result;
     }
 }

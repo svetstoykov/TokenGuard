@@ -329,6 +329,11 @@ internal sealed class ExplorerSession : IExplorerSession
                         .ConfigureAwait(false);
                     stopwatch.Stop();
 
+                    if (toolCall.ToolName == EditFileTool.ToolName)
+                    {
+                        this._collector?.EditCompleted(EditFileTool.IsSuccess(toolResult));
+                    }
+
                     this._conversationContext.RecordToolResult(toolCall.ToolCallId, toolCall.ToolName, toolResult);
 
                     await this._sessionLogger.AppendAsync(

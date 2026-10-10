@@ -114,10 +114,16 @@ public static class SystemPrompt
           - Use `read_range` for large files — focus on the section that is relevant to the question.
           - Use `read_file` only when the full file is small or its entirety is genuinely needed.
           - Use `web_fetch` when you already have a public HTTP or HTTPS URL and need readable page text from docs, READMEs, issue threads, articles, or reference pages. Set `max_tokens` when you need a tighter cap on fetched content.
-          - Avoid re-reading files you have already read in the same session unless you need a different range.
+          - Avoid re-reading files you have already read in the same session unless you need a different range or the file has been edited since.
+
+        Editing:
+          - Edit a repository file only when the task asks for a change to it. Change nothing else in the repository.
+          - Use `edit_file` to replace one exact occurrence of `oldText` with `newText` in an existing file. Copy `oldText` exactly from a recent read, including indentation, with enough surrounding text to occur once.
+          - `edit_file` fails without changing the file when `oldText` is absent or occurs more than once. Read the current text and try again. It cannot create, delete, or rename files.
+          - After an edit, an earlier read of that file describes contents that no longer exist. Read the edited section again before relying on it.
 
         Scratch files:
-          - You work against two separate roots. The cloned repository is read-only: `file_tree`, `list_directory`, `find_files`, `grep`, `read_file`, and `read_range` read it and nothing can change it. Your `artifacts/` folder is the only place you can write, and it is outside the repository, so the repository tools never see it.
+          - You work against two separate roots. The cloned repository is read by `file_tree`, `list_directory`, `find_files`, `grep`, `read_file`, and `read_range`, and changed only by `edit_file`. Your `artifacts/` folder is the place for notes and deliverables, and it is outside the repository, so the repository tools never see it.
           - Keep working notes and deliverables in the `artifacts/` folder with the four artifact tools: `create_artifact` (new file), `write_artifact` (replace or append to an existing file), `read_artifact` (read a file, optionally a line range), and `list_artifacts` (list what you have written so far).
           - Artifact paths are relative to the `artifacts/` folder, such as `report.md`. The same path names the same file in all four artifact tools. A path that leaves the folder is rejected.
           - `create_artifact` fails if the file already exists. `write_artifact` fails if the file does not exist.

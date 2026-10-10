@@ -72,9 +72,14 @@ public sealed class WorkspaceManager : IWorkspaceManager
             {
                 if (Repository.IsValid(destinationPath))
                 {
-                    if (!forceReclone && (commitSha is null || IsHeadAtCommit(destinationPath, commitSha)))
+                    if (!forceReclone && commitSha is null)
                     {
                         return this.EnsureTrackedWorkspace(repositoryReference, destinationPath);
+                    }
+
+                    if (!forceReclone && commitSha is not null && IsHeadAtCommit(destinationPath, commitSha))
+                    {
+                        return this.RestoreTrackedWorkspace(repositoryReference, destinationPath);
                     }
 
                     this.DeleteDirectory(destinationPath);
@@ -192,6 +197,34 @@ public sealed class WorkspaceManager : IWorkspaceManager
         this.WriteMetadata(workspace);
         this._logger.LogInformation("Tracked existing repository workspace {OwnerRepo} at {LocalPath}", workspace.OwnerRepo, workspace.LocalPath);
         return workspace;
+    }
+
+    /// <summary>
+    ///     Returns a reused pinned clone to the exact contents of its head commit.
+    /// </summary>
+    /// <remarks>
+    ///     Edits and untracked files left by an earlier session are discarded, so every session on a pinned commit starts
+    ///     from the same files. The workspace metadata file is untracked too; it is read first and written back.
+    /// </remarks>
+    /// <param name="repositoryReference">The repository the clone belongs to.</param>
+    /// <param name="destinationPath">The clone directory, whose head is at the pinned commit.</param>
+    /// <returns>The tracked workspace, with the clone time it had before the restore.</returns>
+    private Workspace RestoreTrackedWorkspace(RepositoryReference repositoryReference, string destinationPath)
+    {
+        var existingWorkspace = this.TryLoadWorkspace(destinationPath);
+
+        using (var repository = new Repository(destinationPath))
+        {
+            repository.Reset(ResetMode.Hard);
+            repository.RemoveUntrackedFiles();
+        }
+
+        if (existingWorkspace is not null)
+        {
+            this.WriteMetadata(existingWorkspace);
+        }
+
+        return this.EnsureTrackedWorkspace(repositoryReference, destinationPath);
     }
 
     private Workspace? TryLoadWorkspace(string destinationPath)

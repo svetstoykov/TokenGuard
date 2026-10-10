@@ -203,6 +203,49 @@ public sealed class SampleSessionTests
         fixture.Collector.Snapshot().ProviderCalls.Select(call => call.Status).Should().Equal("completed", "completed");
     }
 
+    /// <summary>Verifies an <c>edit_file</c> call is counted as succeeded or failed from the text the tool returned.</summary>
+    /// <param name="toolResult">The text the edit tool returned.</param>
+    /// <param name="succeeded">The expected count of succeeded edit calls.</param>
+    /// <param name="failed">The expected count of failed edit calls.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("Edited src/a.cs: replaced lines 3-3; the new text is at lines 3-4.", 1, 0)]
+    [InlineData("Error: oldText not found in src/a.cs. Read the file again and copy the text exactly.", 0, 1)]
+    public async Task EditFileCall_IsCountedByItsResult(string toolResult, long succeeded, long failed)
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(2);
+        var calls = 0;
+        var provider = new SampleChatClient(_ => Task.FromResult(
+            ++calls == 1 ? SampleChatClient.Completion(toolCall: true, toolName: EditFileTool.ToolName) : SampleChatClient.Completion()));
+        await using var session = CreateSession(fixture, provider, 2, new SampleToolRegistry(result: toolResult));
+
+        await session.SubmitAsync("edit", CancellationToken.None);
+
+        var measurements = fixture.Collector.Snapshot();
+        measurements.EditCallsSucceeded.Should().Be(succeeded);
+        measurements.EditCallsFailed.Should().Be(failed);
+    }
+
+    /// <summary>Verifies a call to another tool leaves both edit counts at zero.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task OtherToolCall_IsNotCountedAsAnEdit()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(2);
+        var calls = 0;
+        var provider = new SampleChatClient(_ => Task.FromResult(
+            ++calls == 1 ? SampleChatClient.Completion(toolCall: true) : SampleChatClient.Completion()));
+        await using var session = CreateSession(fixture, provider, 2, new SampleToolRegistry(result: "Error: file not found"));
+
+        await session.SubmitAsync("read", CancellationToken.None);
+
+        var measurements = fixture.Collector.Snapshot();
+        measurements.EditCallsSucceeded.Should().Be(0);
+        measurements.EditCallsFailed.Should().Be(0);
+    }
+
     /// <summary>Verifies the automation protocol reports repeated empty replies as their own outcome with the session open.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]

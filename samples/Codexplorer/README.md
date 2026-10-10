@@ -17,10 +17,11 @@ It is built as standalone sample inside TokenGuard repo and shows off two things
 | Ask repo questions | Hold multi-turn conversation about one cloned repo |
 | Explore with tools | Agent can map tree, list folders, find files, grep, search public web results, read focused file ranges, and fetch readable text from public web pages |
 | Create and edit notes | Agent writes notes and deliverables into its session's `artifacts/` folder, outside the cloned repo |
+| Edit repo files | Agent can replace exact text in an existing file of the cloned repo when a task asks for a change |
 | Stay inside budget | TokenGuard manages session context and compacts message history as token pressure grows |
 | See live compaction | Terminal shows prepare results, token counts, compacted messages, degradation warnings, and final answer as run happens |
 | Keep transcripts | Every session gets its own directory with a readable markdown transcript, `session.md` |
-| Stay safe by default | Agent writes only into its session's `artifacts/` folder; the cloned repo is read-only |
+| Stay safe by default | Agent creates files only in its session's `artifacts/` folder; in the cloned repo it can only edit files that already exist |
 
 ## How TokenGuard drives this app
 
@@ -117,7 +118,9 @@ An optional absolute `sessionDirectory` names the directory the session writes t
 `<SessionLogsDirectory>/<sessionId>/`, for example `20261008-141502-sharkdp_bat`. An optional `capture` flag (default `false`)
 records every model call in the session directory's `capture/` folder. The response returns the `sessionDirectory` in use.
 An optional `repositoryCommit` holds a full 40-character commit SHA; the workspace is then checked out at exactly that commit
-with its full history, and an existing clone whose head is another commit is deleted and cloned again. When the commit cannot
+with its full history, and an existing clone whose head is another commit is deleted and cloned again. An existing clone
+already at that commit is restored to the commit's contents before the session starts: edits to tracked files are discarded
+and untracked files are removed, so no session sees an earlier session's edits. When the commit cannot
 be fetched, `open_session` fails with `clone_failed` and a message naming the repository and the SHA.
 
 If the assistant needs genuine outside clarification from the automation runner, it emits one line that starts exactly with `QUESTION_FOR_RUNNER:`. The `submit` response also surfaces that through `asksRunner` and `runnerQuestion`.
@@ -176,7 +179,14 @@ Shipped batch workflow:
    Select a corpus with `CodexplorerAutomation:ManifestPath`.
 2. Runner creates one run folder, loads manifest sequentially, opens one Codexplorer session per task, and continues to next task even when a prior task fails.
 3. Each shipped task tells Codexplorer not to modify repository source files and to write its deliverables with the artifact tools.
-4. Each task's session writes only into its own session directory inside the run folder. Nothing is written into the cloned repository.
+4. Each task's session writes its notes and deliverables only into its own session directory inside the run folder. A task that
+   asks for a change edits files of the cloned repository with `edit_file`; a pinned clone is restored to its commit before the
+   next task opens it.
+
+Two runs that use the same workspace root must not run at the same time, because their tasks would edit and restore the same
+clone. To run two arms side by side, give each run its own root: set the environment variable
+`Codexplorer__Workspace__RootDirectory` to a different absolute path for each runner process. The Codexplorer child process
+inherits it.
 
 One run is one self-contained folder, `<OutputDirectory>/<runId>/`. `<runId>` is the UTC start time plus the arm, for example
 `20261008-141502-treatment`. The runner fails before running any task when that folder already exists, and logs the run folder
@@ -230,8 +240,9 @@ To run a different manifest, point `CodexplorerAutomation:ManifestPath` at anoth
 
 A task may add `"repositoryCommit"` with a full 40-character commit SHA to pin its repository, so the task reads the same file
 contents on every run. A malformed SHA fails startup validation with a message naming the task. A pinned clone carries full
-history, which counts toward `Workspace:MaxRepoSizeMB`. A task without `repositoryCommit` clones the default branch and reuses
-an existing clone as it is.
+history, which counts toward `Workspace:MaxRepoSizeMB`. A reused pinned clone is restored to the pinned commit before the task
+starts. A task without `repositoryCommit` clones the default branch and reuses an existing clone as it is, including any edits
+an earlier session made in it.
 
 ### Deliverable checks and retention probes
 
@@ -298,7 +309,7 @@ to assess cost rather than assuming each call adds only a few thousand tokens.
 
 ### Run reports and comparison
 
-Every manifest run writes UTF-8 schema-version-3 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
+Every manifest run writes UTF-8 schema-version-4 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
 Manifest and checkout identity validation happen before the run folder is created, so a preflight error surfaces its diagnostics
 and leaves the output directory untouched.
 Run these commands from the TokenGuard repository root after building both sample projects:
@@ -317,7 +328,7 @@ Run metadata records the commit and dirty flag at run start, UTC timestamps, eff
 TokenGuard log level, arm, and the SHA-256 hash of the immutable manifest bytes executed. Inline tasks use deterministic JSON
 serialization with explicit inline provenance. Reports exclude prompts, answers, tool content, raw configuration, secrets, and exception messages.
 
-Schema version 3 includes these location fields:
+Schema version 4 includes these location fields:
 
 | Where | Field | Meaning |
 | --- | --- | --- |
@@ -333,6 +344,8 @@ Reports store each check's ID, passed flag and reason, and each probe's required
 They exclude expected values, regexes and reference codes as well as answer text. All fields are emitted, including empty checks,
 null probes and null rates. Completed prepares carry `openingMessagePresent=true/false`; incomplete prepares carry null.
 `messagesMasked` and `messagesSummarized` are independent meter counters, alongside `messagesDropped`.
+`editCallsSucceeded` counts the `edit_file` calls that changed a repository file and `editCallsFailed` the calls that returned
+an error and changed nothing, per task and summed in the totals. A task with both at zero never tried to edit.
 
 | Population | Count/rate |
 | --- | --- |
@@ -404,7 +417,7 @@ dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.c
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare --help
 ```
 
-The command accepts schema version 3 reports only; version 2 reports must be re-recorded, not relabelled. It validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
+The command accepts schema version 4 reports only; reports of an earlier version must be re-recorded, not relabelled. It validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
 including distributions and unavailable values. It lists tasks present in only one report and categorical completion changes.
 It also prints each report's partial flag and unrun task IDs.
 By default, models, effective budget/summarization/generation settings, task budgets, and manifest hash must match.
@@ -607,9 +620,9 @@ Choose **View past session logs** to inspect the `session.md` transcript of a pr
 
 ## Tooling available to agent
 
-Codexplorer is more than chat box. Agent has twelve tools in three groups.
+Codexplorer is more than chat box. Agent has thirteen tools in three groups.
 
-Repository tools read the cloned repo, which is read-only:
+Repository tools read the cloned repo, and one of them edits it:
 
 | Tool | Use |
 | --- | --- |
@@ -619,6 +632,12 @@ Repository tools read the cloned repo, which is read-only:
 | `grep` | Search content with regex |
 | `read_file` | Read smaller text files |
 | `read_range` | Read exact line windows from larger files |
+| `edit_file` | Replace one exact occurrence of `oldText` with `newText` in an existing file |
+
+`edit_file` changes a file only when `oldText` occurs exactly once in it; an absent or repeated text returns an error and leaves
+the file as it was. The result names the path and the line range that changed, without the file contents. The tool cannot
+create, delete, or rename files, refuses paths under `.git`, and rejects a path that leaves the clone. After an edit, an earlier
+read of the file that is still in the conversation describes contents that no longer exist.
 
 Web tools have no root:
 
@@ -648,12 +667,12 @@ remember what it wrote, a create on an existing file fails without overwriting i
 
 | Path | Purpose |
 | --- | --- |
-| `./workspace` | Cloned repositories by default, under the executable directory; read-only for the agent |
+| `./workspace` | Cloned repositories by default, under the executable directory; the agent reads them and edits existing files with `edit_file` |
 | `.artifacts/reports/interactive/<sessionId>/` | Session directory of an interactive session: `session.md` and `artifacts/` |
 | `.artifacts/reports/benchmark/<runId>/` | Run folder of an automation run: `run-report.json` and one session directory per task |
 | `./src/bin/.../logs` | Rolling application logs under build output |
 
-A session writes to exactly one place, its session directory, which is never inside a clone:
+A session writes its transcript, notes and deliverables to exactly one place, its session directory, which is never inside a clone:
 
 ```text
 <session directory>/
@@ -667,9 +686,11 @@ repository, for example `20261008-141502-sharkdp_bat`. Interactive sessions have
 
 ## Editing scope
 
-Codexplorer agent **can create and edit files**, but only inside its session's `artifacts/` folder. It **does not edit repository source files**, and its notes never appear in its own repository searches.
+Codexplorer agent **creates files** only inside its session's `artifacts/` folder, so its notes never appear in its own repository searches and a deliverable survives a re-clone.
 
-That gives you safe note-taking and deliverables without mutating the cloned repository, and a deliverable that survives a re-clone.
+In the cloned repository it **edits existing files** with `edit_file`, one exact text replacement per call. It cannot create, delete, or rename repository files, and it has no shell, so it cannot build or run what it edited. The system prompt tells it to edit only when the task asks for a change.
+
+Edits stay in the local clone; nothing is committed or pushed. A clone pinned to a commit is restored to that commit when the next session opens it. An unpinned clone keeps its edits until it is cloned again.
 
 ## Why this sample is interesting
 

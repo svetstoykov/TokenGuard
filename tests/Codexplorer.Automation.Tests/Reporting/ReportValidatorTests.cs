@@ -110,23 +110,24 @@ public sealed class ReportValidatorTests
     }
 
     /// <summary>
-    ///     Verifies that only schema version 3 is accepted.
+    ///     Verifies that only schema version 4 is accepted.
     /// </summary>
     /// <param name="schemaVersion">The unsupported schema version.</param>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
-    public void Validate_SchemaVersionOtherThanThree_ReturnsUnsupportedVersionError(int schemaVersion)
+    [InlineData(3)]
+    public void Validate_SchemaVersionOtherThanFour_ReturnsUnsupportedVersionError(int schemaVersion)
     {
         var report = ReportFixture.Create() with { SchemaVersion = schemaVersion };
 
         var errors = ReportValidator.Validate(report);
 
-        errors.Should().ContainSingle().Which.Should().Contain("expected 3");
+        errors.Should().ContainSingle().Which.Should().Contain("expected 4");
     }
 
     /// <summary>
-    ///     Verifies that a schema version 3 report with a relative session directory and artifact records is valid.
+    ///     Verifies that a schema version 4 report with a relative session directory and artifact records is valid.
     /// </summary>
     [Fact]
     public void Validate_VersionThreeReportWithRelativeSessionPaths_ReturnsNoErrors()
@@ -185,6 +186,8 @@ public sealed class ReportValidatorTests
     [InlineData("rate")]
     [InlineData("masked")]
     [InlineData("summarized")]
+    [InlineData("editsSucceeded")]
+    [InlineData("editsFailed")]
     [InlineData("prepareNull")]
     [InlineData("incompleteFlag")]
     public void Validate_RejectsQualityCorruption(string corruption)
@@ -205,6 +208,8 @@ public sealed class ReportValidatorTests
             "rate" => task with { Metrics = task.Metrics with { CheckPassRate = double.NaN } },
             "masked" => task with { Metrics = task.Metrics with { MessagesMasked = -1 } },
             "summarized" => task with { Metrics = task.Metrics with { MessagesSummarized = -1 } },
+            "editsSucceeded" => task with { Metrics = task.Metrics with { EditCallsSucceeded = -1 } },
+            "editsFailed" => task with { Metrics = task.Metrics with { EditCallsFailed = -1 } },
             "prepareNull" => task with { PrepareRecords = [task.PrepareRecords[0] with { OpeningMessagePresent = null }] },
             _ => task with { PrepareRecords = [new PrepareMeasurement { Index = 1, OpeningMessagePresent = false }] },
         };

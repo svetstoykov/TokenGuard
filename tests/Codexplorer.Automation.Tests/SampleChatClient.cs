@@ -39,13 +39,14 @@ internal sealed class SampleChatClient : ChatClient
     ///     The assistant text, or <see langword="null" /> for <c>working</c> beside a tool call and <c>answer</c> otherwise.
     /// </param>
     /// <param name="toolCall">Whether the response requests a tool.</param>
+    /// <param name="toolName">The name of the requested tool.</param>
     /// <returns>The provider response.</returns>
-    public static ChatCompletion Completion(string? text = null, bool toolCall = false)
+    public static ChatCompletion Completion(string? text = null, bool toolCall = false, string toolName = "inspect")
     {
         var content = System.Text.Json.JsonSerializer.Serialize(text ?? (toolCall ? "working" : "answer"));
         var message = toolCall
             ? "{\"role\":\"assistant\",\"content\":" + content + ",\"tool_calls\":[{\"id\":\"tool_1\",\"type\":\"function\","
-                + "\"function\":{\"name\":\"inspect\",\"arguments\":\"{}\"}}]}"
+                + "\"function\":{\"name\":\"" + toolName + "\",\"arguments\":\"{}\"}}]}"
             : "{\"role\":\"assistant\",\"content\":" + content + "}";
         var json = "{\"id\":\"test\",\"object\":\"chat.completion\",\"created\":1700000000,\"model\":\"test\",\"choices\":[{\"index\":0,"
             + "\"finish_reason\":\"" + (toolCall ? "tool_calls" : "stop") + "\",\"message\":" + message
