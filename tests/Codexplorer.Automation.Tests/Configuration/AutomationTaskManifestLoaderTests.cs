@@ -147,15 +147,15 @@ public sealed class AutomationTaskManifestLoaderTests
     {
         var check = new AutomationCheckDefinition
         {
-            Id = "fact", Kind = kind, Artifact = artifact, AnyOf = kind == "contains" ? ["source"] : null,
-            Pattern = kind == "matches" ? "source" : null,
+            Id = "fact", Kind = kind, Artifact = artifact, AnyOf = kind == "contains" ? ["notes"] : null,
+            Pattern = kind == "matches" ? "notes" : null,
         };
         var failures = new List<string>();
         var task = ValidTask("task") with { Checks = [check] };
         CodexplorerAutomationOptionsValidator.ValidateTasks([task], null, failures, new AnswerScorer());
         failures.Should().ContainSingle().Which.Should().Contain("InitialPrompt");
         failures.Clear();
-        task = task with { Checks = [check with { NoneOf = ["modify"] }] };
+        task = task with { Checks = [check with { NoneOf = ["artifact"] }] };
         CodexplorerAutomationOptionsValidator.ValidateTasks([task], null, failures, new AnswerScorer());
         failures.Should().BeEmpty();
     }
@@ -274,7 +274,7 @@ public sealed class AutomationTaskManifestLoaderTests
     [InlineData("ABC_123")]
     [InlineData("ABCé123")]
     [InlineData("ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567")]
-    [InlineData("SOURCE")]
+    [InlineData("NOTES")]
     public void ValidateTasks_RejectsInvalidCanariesAndDuplicateChecks(string? canary)
     {
         var check = new AutomationCheckDefinition { Id = "fact", Kind = "contains", AnyOf = ["expected"] };
@@ -358,11 +358,11 @@ public sealed class AutomationTaskManifestLoaderTests
         TaskId = taskId,
         Title = "Task",
         RepositoryUrl = "https://github.com/example/repo",
-        InitialPrompt = "Do not modify repository source files."
+        InitialPrompt = "Write notes with the artifact tools."
     };
 
     private static string Manifest(string taskId) => $$"""
         {"tasks":[{"taskId":"{{taskId}}","title":"Task","repositoryUrl":"https://github.com/example/repo",
-        "initialPrompt":"Do not modify repository source files."}]}
+        "initialPrompt":"Write notes with the artifact tools."}]}
         """;
 }

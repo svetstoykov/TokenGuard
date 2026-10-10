@@ -162,10 +162,6 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
                 {
                     failures.Add($"Configuration field '{taskPrefix}:InitialPrompt' is required.");
                 }
-                else
-                {
-                    ValidateTaskPrompt(task, taskPrefix, failures);
-                }
             }
         }
     }
@@ -272,23 +268,6 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
     {
         return char.IsAsciiLetterOrDigit(taskId[0])
             && taskId.All(static character => char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_');
-    }
-
-    private static void ValidateTaskPrompt(
-        AutomationTaskDefinition task,
-        string taskPrefix,
-        List<string> failures)
-    {
-        ArgumentNullException.ThrowIfNull(task);
-        ArgumentException.ThrowIfNullOrWhiteSpace(taskPrefix);
-        ArgumentNullException.ThrowIfNull(failures);
-
-        if (!task.InitialPrompt!.Contains("Do not modify", StringComparison.OrdinalIgnoreCase)
-            || !task.InitialPrompt.Contains("repository source", StringComparison.OrdinalIgnoreCase))
-        {
-            failures.Add(
-                $"Configuration field '{taskPrefix}:InitialPrompt' must explicitly forbid modifying repository source files.");
-        }
     }
 
     private static void ValidateTaskTarget(
