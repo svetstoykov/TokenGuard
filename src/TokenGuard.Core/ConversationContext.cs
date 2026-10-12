@@ -1112,9 +1112,19 @@ public sealed class ConversationContext : IConversationContext
             this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn, currentTokens,
             emergencyTriggerTokens, turnGroups, turnGroupsDropped, preservedFloorIndex, floorExceedsTrigger);
 
-    private void LogMessageRecorded(ContextMessage message) =>
-        ConversationContextLog.MessageRecorded(
-            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, message.Role, message.IsPinned, message.Segments.Count);
+    private void LogMessageRecorded(ContextMessage message)
+    {
+        try
+        {
+            ConversationContextLog.MessageRecorded(
+                this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, message.Role, message.IsPinned,
+                message.Segments.Count);
+        }
+        catch (Exception)
+        {
+            // The message is already stored; a failing logger must not make the recording call look failed.
+        }
+    }
 
     /// <summary>
     /// Returns a snapshot of the history as the prepared view, with any pinned message recorded inside a tool exchange moved before it.
@@ -1196,17 +1206,25 @@ public sealed class ConversationContext : IConversationContext
 
         this._anchorCorrection = providerInputTokens.Value - this._lastPreparedMessageTokens;
         this._anchorBaseTokens = this._lastPreparedMessageTokens;
-        this._health.OnProviderTokensReported(providerInputTokens.Value, this._lastEstimatedTotalTokens);
 
-        ConversationContextLog.EstimateAnchored(
-            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, providerInputTokens.Value,
-            this._lastEstimatedTotalTokens, this._anchorCorrection);
-
-        if (providerInputTokens.Value > 0)
+        try
         {
-            TokenGuardTelemetry.EstimateErrorRatio.Record(
-                (double)(providerInputTokens.Value - this._lastEstimatedTotalTokens) / providerInputTokens.Value,
-                this._diagnostics.ContextNameTag);
+            this._health.OnProviderTokensReported(providerInputTokens.Value, this._lastEstimatedTotalTokens);
+
+            ConversationContextLog.EstimateAnchored(
+                this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, providerInputTokens.Value,
+                this._lastEstimatedTotalTokens, this._anchorCorrection);
+
+            if (providerInputTokens.Value > 0)
+            {
+                TokenGuardTelemetry.EstimateErrorRatio.Record(
+                    (double)(providerInputTokens.Value - this._lastEstimatedTotalTokens) / providerInputTokens.Value,
+                    this._diagnostics.ContextNameTag);
+            }
+        }
+        catch (Exception)
+        {
+            // The response and the correction are already stored; a failing logger or listener must not make the recording call look failed.
         }
     }
 

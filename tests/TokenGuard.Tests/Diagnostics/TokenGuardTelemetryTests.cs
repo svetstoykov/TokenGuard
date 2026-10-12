@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -279,6 +280,40 @@ public sealed class TokenGuardTelemetryTests
         await act.Should().ThrowAsync<OperationCanceledException>();
         capture.ActivitiesNamed(Compact).Should().ContainSingle().Which.Status.Should().Be(ActivityStatusCode.Unset);
         capture.ActivitiesNamed(Prepare).Should().ContainSingle().Which.Status.Should().Be(ActivityStatusCode.Unset);
+    }
+
+    [Fact]
+    public async Task RecordModelResponse_WhenAMeterListenerThrows_DoesNotThrowAndStoresTheMessageOnce()
+    {
+        // Arrange
+        var contextName = NewContextName();
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == TokenGuardDiagnostics.MeterName && instrument.Name == "tokenguard.estimate.error_ratio")
+                    meterListener.EnableMeasurementEvents(instrument);
+            },
+        };
+        listener.SetMeasurementEventCallback<double>((_, _, tags, _) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (contextName.Equals(tag.Value))
+                    throw new InvalidOperationException("The meter listener failed.");
+            }
+        });
+        listener.Start();
+        using var context = CreateContext(contextName, summarizer: null);
+        context.AddUserMessage(Text('a', 20));
+        await context.PrepareAsync();
+
+        // Act
+        var act = () => context.RecordModelResponse([new TextContent(Text('b', 5))], providerInputTokens: 26);
+
+        // Assert
+        act.Should().NotThrow();
+        context.History.Count(message => message.Role == MessageRole.Model).Should().Be(1);
     }
 
     [Fact]
