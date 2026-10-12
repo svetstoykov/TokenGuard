@@ -379,8 +379,10 @@ That floor is:
 - when the conversation ends with a model reply, TokenGuard also preserves the triggering user message
 
 If that preserved floor is still above the emergency threshold, TokenGuard returns the over-budget floor unchanged. It
-prefers preserving the newest indispensable tail over forcing a structurally broken fit. The outcome is then
-`CompactionInsufficient`, or `CannotCompact` when nothing was masked, summarized, or dropped; it is never `Compacted`.
+prefers preserving the newest indispensable tail over forcing a structurally broken fit. When the final estimate is
+above `MaxTokens` plus the overrun tolerance (`OverrunToleranceTokens`, 5% of `MaxTokens` by default, rounded down), the
+outcome is `CompactionInsufficient`, or `CannotCompact` when nothing was masked, summarized, or dropped. A final
+estimate at or below that limit is `Compacted`, or `Ready` when no message changed.
 A large user message can therefore turn a view that would fit without it into an over-budget outcome: TokenGuard
 reports that instead of sending a tool loop with no request in view.
 

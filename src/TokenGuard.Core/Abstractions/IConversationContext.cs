@@ -179,6 +179,8 @@ public interface IConversationContext : IDisposable
     /// <para>
     /// If the estimated token total is below the compaction trigger, the current history is returned
     /// directly with <see cref="Models.PrepareResult.Outcome"/> set to <see cref="Enums.PrepareOutcome.Ready"/>.
+    /// A context with no recorded messages therefore returns an empty <see cref="Enums.PrepareOutcome.Ready"/> list;
+    /// record at least one user message before the first model call.
     /// If the trigger is reached, the configured compaction strategy is awaited to produce a smaller list.
     /// Pinned messages are handled specially: they are excluded from the compactable set, their token cost
     /// is added to the reserved budget passed into the compaction strategy, and they are put back between

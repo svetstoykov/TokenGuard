@@ -8,7 +8,7 @@ repo_root="$(cd "$project_dir/../.." && pwd)"
 work_dir="$repo_root/artifacts/readme-snippets"
 program="$project_dir/Program.cs"
 readmes=("README.md" "src/TokenGuard.Core/PackageReadme.md")
-blocks=("LoopUsings" "Register" "CreateContext" "Loop")
+blocks=("QuickStart")
 
 rm -rf "$work_dir" "$project_dir/bin" "$project_dir/obj"
 

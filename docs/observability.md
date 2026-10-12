@@ -22,6 +22,12 @@ services.AddLogging();
 services.AddConversationContext(builder => builder.WithMaxTokens(100_000));
 ```
 
+`AddLogging()` registers no provider, so nothing is printed until you add one. To see the records in a console, add the
+`Microsoft.Extensions.Logging.Console` package and call
+`services.AddLogging(logging => logging.AddConsole().SetMinimumLevel(LogLevel.Debug))`. The
+[Observability section of the README](../README.md#observability) has a complete program that prints log records,
+activities, and metrics.
+
 ### Without dependency injection
 
 Pass a logger factory to the builder.
@@ -131,8 +137,9 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics => metrics.AddMeter(TokenGuardDiagnostics.MeterName));
 ```
 
-TokenGuard does not reference OpenTelemetry. The snippet needs the OpenTelemetry packages in your application; an
-`ActivityListener` and a `MeterListener` work as well.
+TokenGuard does not reference OpenTelemetry. The snippet needs the `OpenTelemetry.Extensions.Hosting` package in your
+application, and an exporter to send the data somewhere: `OpenTelemetry.Exporter.Console` with `AddConsoleExporter()`
+on both builders prints it. An `ActivityListener` and a `MeterListener` work as well.
 
 | Activity | Covers | Tags |
 | --- | --- | --- |
