@@ -49,7 +49,8 @@ internal interface ISessionMeasurementCollector
     /// <param name="status">The completed, failed, or cancelled status.</param>
     /// <param name="inputTokens">Provider input usage, or absent when unavailable.</param>
     /// <param name="outputTokens">Provider output usage, or absent when unavailable.</param>
-    void ProviderFinished(string status, long? inputTokens = null, long? outputTokens = null);
+    /// <param name="cachedInputTokens">Input tokens the provider read from its prompt cache, or absent when it reported none.</param>
+    void ProviderFinished(string status, long? inputTokens = null, long? outputTokens = null, long? cachedInputTokens = null);
 
     /// <summary>Records one finished <c>edit_file</c> call.</summary>
     /// <param name="succeeded">Whether the call changed the file.</param>

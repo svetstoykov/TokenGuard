@@ -219,12 +219,15 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
     }
 
     /// <inheritdoc />
-    public void ProviderFinished(string status, long? inputTokens = null, long? outputTokens = null)
+    public void ProviderFinished(string status, long? inputTokens = null, long? outputTokens = null, long? cachedInputTokens = null)
     {
         lock (this._gate)
         {
             if (this._active && this._providers.Count > 0)
-                this._providers[^1] = this._providers[^1] with { Status = status, InputTokens = inputTokens, OutputTokens = outputTokens };
+                this._providers[^1] = this._providers[^1] with
+                {
+                    Status = status, InputTokens = inputTokens, OutputTokens = outputTokens, CachedInputTokens = cachedInputTokens
+                };
         }
     }
 

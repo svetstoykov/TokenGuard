@@ -74,6 +74,34 @@ public sealed class SampleSessionTests
         fixture.Collector.Snapshot().ProviderCalls.Should().ContainSingle().Which.InputTokens.Should().Be(100);
     }
 
+    /// <summary>Verifies the cached input tokens a provider reports are recorded on the call.</summary>
+    [Fact]
+    public async Task ProviderReportsCachedInputTokens_RecordsThemOnTheCall()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(1);
+        var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion(cachedTokens: 64)));
+        await using var session = CreateSession(fixture, provider, 1);
+
+        await session.SubmitAsync("inspect", CancellationToken.None);
+
+        fixture.Collector.Snapshot().ProviderCalls.Should().ContainSingle().Which.CachedInputTokens.Should().Be(64);
+    }
+
+    /// <summary>Verifies a response without input token details records absent cached input tokens, not zero.</summary>
+    [Fact]
+    public async Task ProviderOmitsInputTokenDetails_RecordsCachedInputTokensAsAbsent()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(1);
+        var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion()));
+        await using var session = CreateSession(fixture, provider, 1);
+
+        await session.SubmitAsync("inspect", CancellationToken.None);
+
+        fixture.Collector.Snapshot().ProviderCalls.Should().ContainSingle().Which.CachedInputTokens.Should().BeNull();
+    }
+
     /// <summary>Verifies a long exchange yields before consuming the calls reserved for wrap-up.</summary>
     [Fact]
     public async Task LongToolExchange_YieldsAtWrapUpBoundaryAndAllowsTheFinalReply()

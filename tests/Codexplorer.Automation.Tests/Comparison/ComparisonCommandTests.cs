@@ -425,7 +425,117 @@ public sealed class ComparisonCommandTests
         var result = await CompareAsync(ReportFixture.Create() with { SchemaVersion = 1 }, ReportFixture.Create());
 
         result.ExitCode.Should().Be(1);
-        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 4.");
+        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 4 or 5.");
+    }
+
+    /// <summary>
+    ///     Verifies that a recorded schema version 4 report compares with a schema version 5 report and that the skipped
+    ///     cached-token comparison is stated.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_RecordedSchemaVersionFourBaseline_ComparesAndStatesSkippedCachedComparison()
+    {
+        var recordedJson = await File.ReadAllTextAsync(ReportFixture.RecordedSchemaVersionFourPath());
+        var recorded = JsonSerializer.Deserialize<RunReport>(recordedJson, ReportJson.Options)!;
+        var aggregator = new ReportAggregator();
+        var tasks = recorded.Tasks.Select(task => aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion,
+            task.ModelCallBudget,
+            ReportAggregator.ToMeasurements(task) with
+            {
+                ProviderCalls = task.ProviderCalls.Select(call => call with { CachedInputTokens = 10 }).ToArray()
+            },
+            task.HelperResponses, task.Metrics.HelperCalls,
+            new TaskSessionRecord(task.SessionId, task.SessionDirectory, task.ArtifactsAtStart, task.ArtifactsAtEnd),
+            new AnswerScoringResult { Checks = task.Checks, Probe = task.Probe }) with { RepositoryCommit = task.RepositoryCommit }).ToArray();
+        var candidate = aggregator.CreateReport(recorded.Run, tasks, recorded.UnrunTaskIds, recorded.Partial);
+
+        var result = await CompareJsonAsync(recordedJson, JsonSerializer.Serialize(candidate, ReportJson.Options));
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain("Report schema version: baseline=4 candidate=5").And.NotContain("Incompatible:")
+            .And.Contain("totals providerInputTokens: baseline=10262329 candidate=10262329 delta=0")
+            .And.Contain("totals providerCachedInputTokens: baseline=unavailable candidate=1510 delta=unavailable")
+            .And.Contain("Cached input token comparison skipped: baseline is a schema version 4 report, which records no cached input tokens.");
+    }
+
+    /// <summary>
+    ///     Verifies that two reports with cached input totals print the delta and no skip notice.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_BothReportsRecordCachedInputTokens_PrintsDeltaWithoutSkipNotice()
+    {
+        var result = await CompareAsync(ReportFixture.Create(cachedInputTokens: 40), ReportFixture.Create(cachedInputTokens: 10));
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain("totals providerCachedInputTokens: baseline=40 candidate=10 delta=-30")
+            .And.Contain("Report schema version: baseline=5 candidate=5").And.NotContain("Cached input token comparison skipped");
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 5 report whose provider reported no cached input tokens names the affected calls.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_ProviderReportedNoCachedInputTokens_StatesAffectedCalls()
+    {
+        var result = await CompareAsync(ReportFixture.Create(cachedInputTokens: 40), ReportFixture.Create(cachedInputTokens: null));
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain(
+            "Cached input token comparison skipped: candidate provider reported no cached input tokens for 1 of 1 calls.");
+    }
+
+    /// <summary>
+    ///     Verifies that the cached input total is informational and cannot have a regression limit.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_CachedInputTokenLimit_IsRefused()
+    {
+        var result = await CompareAsync(ReportFixture.Create(cachedInputTokens: 40), ReportFixture.Create(cachedInputTokens: 10),
+            ["--limit", "providerCachedInputTokens=1"]);
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Unknown or informational metric cannot have a regression limit: providerCachedInputTokens.");
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 5 report missing a cached input token field is rejected.
+    /// </summary>
+    /// <param name="field">The cached input token field removed from the report.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("cachedInputTokens")]
+    [InlineData("providerCachedInputTokens")]
+    public async Task RunAsync_SchemaVersionFiveReportMissingCachedField_ReturnsFailure(string field)
+    {
+        var current = JsonSerializer.Serialize(ReportFixture.Create(cachedInputTokens: 40), ReportJson.Options);
+        var node = System.Text.Json.Nodes.JsonNode.Parse(current)!;
+        var owner = field == "cachedInputTokens" ? node["tasks"]![0]!["providerCalls"]![0]! : node["totals"]!["metrics"]!;
+        owner.AsObject().Remove(field);
+
+        var result = await CompareJsonAsync(node.ToJsonString(), current);
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Malformed report JSON, unsupported schema, or invalid required report shape.");
+    }
+
+    /// <summary>
+    ///     Verifies that a report labelled schema version 4 that carries the cached input token fields is rejected.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_SchemaVersionFourReportCarryingCachedFields_ReturnsFailure()
+    {
+        var current = JsonSerializer.Serialize(ReportFixture.Create(), ReportJson.Options);
+        var relabelled = current.Replace("\"schemaVersion\": 5", "\"schemaVersion\": 4", StringComparison.Ordinal);
+
+        var result = await CompareJsonAsync(relabelled, current);
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Malformed report JSON, unsupported schema, or invalid required report shape.");
     }
 
     /// <summary>
@@ -687,7 +797,20 @@ public sealed class ComparisonCommandTests
     /// <param name="candidate">The candidate report fixture. Cannot be <see langword="null" />.</param>
     /// <param name="extra">Additional comparison options, or <see langword="null" /> for none.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the exit code and comparison text.</returns>
-    internal static async Task<(int ExitCode, string Text)> CompareAsync(RunReport baseline, RunReport candidate, string[]? extra = null)
+    internal static Task<(int ExitCode, string Text)> CompareAsync(RunReport baseline, RunReport candidate, string[]? extra = null)
+    {
+        return CompareJsonAsync(JsonSerializer.Serialize(baseline, ReportJson.Options), JsonSerializer.Serialize(candidate, ReportJson.Options),
+            extra);
+    }
+
+    /// <summary>
+    ///     Asynchronously compares two report JSON texts through files.
+    /// </summary>
+    /// <param name="baselineJson">The baseline report JSON. Cannot be <see langword="null" />.</param>
+    /// <param name="candidateJson">The candidate report JSON. Cannot be <see langword="null" />.</param>
+    /// <param name="extra">Additional comparison options, or <see langword="null" /> for none.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the exit code and comparison text.</returns>
+    private static async Task<(int ExitCode, string Text)> CompareJsonAsync(string baselineJson, string candidateJson, string[]? extra = null)
     {
         var directory = Path.Combine(Path.GetTempPath(), "tg-compare-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -695,8 +818,8 @@ public sealed class ComparisonCommandTests
         {
             var baselinePath = Path.Combine(directory, "baseline.json");
             var candidatePath = Path.Combine(directory, "candidate.json");
-            await File.WriteAllTextAsync(baselinePath, JsonSerializer.Serialize(baseline, ReportJson.Options));
-            await File.WriteAllTextAsync(candidatePath, JsonSerializer.Serialize(candidate, ReportJson.Options));
+            await File.WriteAllTextAsync(baselinePath, baselineJson);
+            await File.WriteAllTextAsync(candidatePath, candidateJson);
             using var output = new StringWriter();
             var exit = await ComparisonCommand.RunAsync([baselinePath, candidatePath, .. extra ?? []], output);
             return (exit, output.ToString());

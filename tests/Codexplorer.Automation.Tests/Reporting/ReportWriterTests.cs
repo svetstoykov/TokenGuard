@@ -27,7 +27,7 @@ public sealed class ReportWriterTests
             var json = await File.ReadAllTextAsync(Path.Combine(directory, "run-report.json"));
             var report = JsonSerializer.Deserialize<RunReport>(json, ReportJson.Options)!;
             report.Totals.Metrics.ProviderInputTokens.Should().Be(200);
-            json.Should().Contain("\"schemaVersion\": 4");
+            json.Should().Contain("\"schemaVersion\": 5");
             json.Should().NotContain("initialPrompt").And.NotContain("apiKey").And.NotContain("repositoryUrl").And.NotContain("answerText");
             Directory.GetFiles(directory).Should().HaveCount(1);
         }
@@ -39,6 +39,29 @@ public sealed class ReportWriterTests
             }
         }
     }
+
+    /// <summary>Verifies that cached input tokens the provider did not report are written as null, not omitted or zero.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task WriteAsync_UnreportedCachedInputTokens_WritesNull()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "tg-report-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            await new JsonRunReportWriter().WriteAsync(ReportFixture.Create(cachedInputTokens: null), directory);
+
+            var json = await File.ReadAllTextAsync(Path.Combine(directory, "run-report.json"));
+            json.Should().Contain("\"cachedInputTokens\": null").And.Contain("\"providerCachedInputTokens\": null");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
     /// <summary>Verifies schema-3 verdict writing excludes scoring inputs while retaining nullable fields.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Fact]
