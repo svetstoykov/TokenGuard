@@ -39,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller cancelled is not remembered.
 - Documentation states that a summarizer call has no time limit of its own: it is bounded only by the cancellation
   token passed to `PrepareAsync()` and by the provider client's network timeout.
+- A masked tool result is labelled with the tool name recorded on that result. The name used to be looked up by tool
+  call ID across the whole history, so when two tool calls shared an ID both placeholders named the later tool. The
+  masked `ToolResultContent.ToolName` and the `{0}` argument of `SlidingWindowOptions.PlaceholderFormat` are now the
+  name passed to `RecordToolResult`; a result whose tool call is not in the compacted history used to show its tool
+  call ID in place of the name.
 
 ## [1.1.0] - 2026-10-07
 

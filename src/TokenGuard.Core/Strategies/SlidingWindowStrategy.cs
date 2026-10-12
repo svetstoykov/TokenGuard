@@ -163,7 +163,6 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
                 nameof(SlidingWindowStrategy)));
         }
 
-        var toolNameLookup = BuildToolNameLookup(messages);
         var result = new ContextMessage[messages.Count];
         var messagesAffected = 0;
         var toolResultsMasked = 0;
@@ -171,7 +170,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         for (var i = 0; i < boundary; i++)
         {
-            result[i] = MaskToolResultsIfNeeded(messages[i], toolNameLookup, this._options.PlaceholderFormat);
+            result[i] = MaskToolResultsIfNeeded(messages[i], this._options.PlaceholderFormat);
 
             if (messages[i].State == CompactionState.Original && result[i].State == CompactionState.Masked)
             {
@@ -237,30 +236,18 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         return messages.Sum(message => message.TokenCount ?? tokenCounter.Count(message));
     }
 
-    private static Dictionary<string, string> BuildToolNameLookup(IReadOnlyList<ContextMessage> messages)
-    {
-        var lookup = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        foreach (var message in messages)
-        {
-            var content = message.Segments;
-
-            foreach (var contentSegment in content)
-            {
-                if (contentSegment is ToolUseContent toolUse)
-                {
-                    lookup[toolUse.ToolCallId] = toolUse.ToolName;
-                }
-            }
-        }
-
-        return lookup;
-    }
-
-    private static ContextMessage MaskToolResultsIfNeeded(
-        ContextMessage contextMessage,
-        IReadOnlyDictionary<string, string> toolNameLookup,
-        string placeholderFormat)
+    /// <summary>
+    ///     Replaces the content of every tool result in a message with a placeholder.
+    /// </summary>
+    /// <remarks>
+    ///     The placeholder names the tool recorded on the result itself, so each masked result keeps its own
+    ///     <see cref="ToolResultContent.ToolName"/> and <see cref="ToolResultContent.ToolCallId"/> even when another
+    ///     tool call in the history has the same identifier.
+    /// </remarks>
+    /// <param name="contextMessage">The message to mask.</param>
+    /// <param name="placeholderFormat">The format that receives the tool name as <c>{0}</c> and the tool call identifier as <c>{1}</c>.</param>
+    /// <returns>The same message when it holds no tool result; otherwise, a masked copy.</returns>
+    private static ContextMessage MaskToolResultsIfNeeded(ContextMessage contextMessage, string placeholderFormat)
     {
         var content = contextMessage.Segments;
         var hasToolResult = false;
@@ -284,14 +271,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         {
             if (content[i] is ToolResultContent toolResult)
             {
-                var resolvedName = toolNameLookup.TryGetValue(toolResult.ToolCallId, out var toolName)
-                    ? toolName
-                    : toolResult.ToolCallId;
-
-                replacedContent[i] = new ToolResultContent(
-                    toolResult.ToolCallId,
-                    resolvedName,
-                    string.Format(placeholderFormat, resolvedName, toolResult.ToolCallId));
+                replacedContent[i] = toolResult with { Content = string.Format(placeholderFormat, toolResult.ToolName, toolResult.ToolCallId) };
                 continue;
             }
 
