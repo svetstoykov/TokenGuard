@@ -94,6 +94,7 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | 1016 | EmergencyTruncationEvaluated | Debug | The prepared payload exceeded the emergency trigger. Carries current tokens, the trigger, drop units considered and dropped (`TurnGroups` and `TurnGroupsDropped`: each whole turn group before the newest one, and each user message or model message with its tool results inside the newest one), the index of the first unpinned message that is always kept (`PreservedFloorIndex`: the user message that opened the tool loop when the payload ends with a tool result, otherwise the start of the preserved floor), and whether the kept messages alone still exceed the trigger. |
 | 1017 | PinnedMessagePlaced | Debug | One pinned message was placed in a prepared payload that was reassembled around pinned messages. Carries the message's index in the recorded history and its index in the prepared payload. |
 | 1018 | ProviderCorrectionApplied | Debug | A prepare call included a provider correction in its token totals. Carries the correction, the summed message estimates of the payload the provider measured (`CorrectionBaseTokens`), and the part of the correction included in the total before compaction and in the total of the prepared payload. Written on every prepare call while the correction is not zero. |
+| 1019 | StrategyFailed | Error | The compaction strategy threw and `PrepareAsync()` rethrew the exception to the caller. The exception is attached. A cancelled call (`OperationCanceledException`) writes no record. |
 | 2000 | SlidingWindowApplied | Debug | One sliding-window pass. Carries message count, available tokens, tokens before and after, window size, protected messages, and tool results masked. |
 | 2001 | ToolResultMasked | Trace | One tool result was replaced with a placeholder. Carries message index, tool call ID, tool name, and the message's tokens before and after. |
 | 3000 | SummarizationPathSelected | Debug | Summarization started with or without a reusable checkpoint. Carries the protected tail's first index and size, the number and token total of older messages, and the target summary size. |
@@ -155,6 +156,8 @@ Status and events:
 
 - `tokenguard.prepare` ends with status `Ok`, or `Error` when the outcome is `CompactionInsufficient` or `CannotCompact`,
   or when `PinnedTokenBudgetExceededException` is thrown.
+- A compaction strategy that throws sets status `Error` on `tokenguard.compact` and `tokenguard.prepare`, with the
+  exception type name as the status description. A cancelled call (`OperationCanceledException`) leaves both unset.
 - Emergency truncation adds a `tokenguard.emergency_truncation` event to `tokenguard.prepare` with the tag
   `tokenguard.messages.dropped`.
 - A summarizer call that throws sets status `Error` on `tokenguard.summarize` and adds an `exception` event. When the

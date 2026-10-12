@@ -24,6 +24,7 @@ public sealed class ConversationContextLoggingTests
     private const int EmergencyTruncationEvaluated = 1016;
     private const int PinnedMessagePlaced = 1017;
     private const int ProviderCorrectionApplied = 1018;
+    private const int StrategyFailed = 1019;
 
     public static TheoryData<string, MessageRole, bool, int> RecordingMethods => new()
     {
@@ -286,6 +287,44 @@ public sealed class ConversationContextLoggingTests
         record.Level.Should().Be(LogLevel.Error);
         record.Property("PinnedTokens").Should().Be(120);
         record.Property("MaxTokens").Should().Be(100);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenTheStrategyThrows_LogsOneErrorWithTheExceptionAndRethrowsIt()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var failure = new InvalidOperationException("strategy failed");
+        using var context = CreateContext(logs, new StubCompactionStrategy((_, _) => throw failure), contextName: "research");
+        context.AddUserMessage(Text(60));
+
+        // Act
+        var act = () => context.PrepareAsync();
+
+        // Assert
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Should().BeSameAs(failure);
+        var record = logs.WithEventId(StrategyFailed).Should().ContainSingle().Subject;
+        record.Level.Should().Be(LogLevel.Error);
+        record.Exception.Should().BeSameAs(failure);
+        record.Property("ConversationId").Should().BeOfType<string>().Which.Should().NotBeEmpty();
+        record.Property("ContextName").Should().Be("research");
+        record.Property("Turn").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenTheStrategyIsCancelled_LogsNoErrorRecord()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, new StubCompactionStrategy((_, _) => throw new OperationCanceledException()));
+        context.AddUserMessage(Text(60));
+
+        // Act
+        var act = () => context.PrepareAsync();
+
+        // Assert
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        logs.Records.Should().NotContain(record => record.Level >= LogLevel.Error);
     }
 
     [Theory]

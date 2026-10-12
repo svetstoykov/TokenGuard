@@ -246,4 +246,19 @@ internal static partial class ConversationContextLog
     internal static partial void ProviderCorrectionApplied(
         ILogger logger, string conversationId, string contextName, int turn, int correction, int correctionBaseTokens, int correctionBefore,
         int correctionAfter);
+
+    /// <summary>
+    ///     Logs that the compaction strategy threw and the prepare call failed with that exception.
+    /// </summary>
+    /// <param name="logger">The logger to write to.</param>
+    /// <param name="exception">The exception thrown by the compaction strategy.</param>
+    /// <param name="conversationId">The identifier of the conversation.</param>
+    /// <param name="contextName">The configuration name of the conversation.</param>
+    /// <param name="turn">The turn number of the prepare call.</param>
+    [LoggerMessage(
+        EventId = 1019,
+        EventName = "StrategyFailed",
+        Level = LogLevel.Error,
+        Message = "Conversation {ConversationId} ({ContextName}) turn {Turn}: the compaction strategy threw; the prepare call failed.")]
+    internal static partial void StrategyFailed(ILogger logger, Exception exception, string conversationId, string contextName, int turn);
 }

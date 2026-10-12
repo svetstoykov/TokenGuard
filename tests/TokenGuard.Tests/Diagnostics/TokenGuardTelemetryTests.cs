@@ -244,6 +244,44 @@ public sealed class TokenGuardTelemetryTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenTheStrategyThrows_SetsErrorStatusOnThePrepareAndCompactActivities()
+    {
+        // Arrange
+        using var capture = new TelemetryCapture();
+        var failure = new InvalidOperationException("strategy failed");
+        using var context = CreateContext(new StubCompactionStrategy((_, _) => throw failure));
+        context.AddUserMessage(Text('a', 60));
+
+        // Act
+        var act = () => context.PrepareAsync();
+
+        // Assert
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Should().BeSameAs(failure);
+        var compact = capture.ActivitiesNamed(Compact).Should().ContainSingle().Subject;
+        var prepare = capture.ActivitiesNamed(Prepare).Should().ContainSingle().Subject;
+        compact.ParentSpanId.Should().Be(prepare.SpanId);
+        compact.Status.Should().Be(ActivityStatusCode.Error);
+        prepare.Status.Should().Be(ActivityStatusCode.Error);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenTheStrategyIsCancelled_LeavesThePrepareAndCompactActivitiesWithoutAnErrorStatus()
+    {
+        // Arrange
+        using var capture = new TelemetryCapture();
+        using var context = CreateContext(new StubCompactionStrategy((_, _) => throw new OperationCanceledException()));
+        context.AddUserMessage(Text('a', 60));
+
+        // Act
+        var act = () => context.PrepareAsync();
+
+        // Assert
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        capture.ActivitiesNamed(Compact).Should().ContainSingle().Which.Status.Should().Be(ActivityStatusCode.Unset);
+        capture.ActivitiesNamed(Prepare).Should().ContainSingle().Which.Status.Should().Be(ActivityStatusCode.Unset);
+    }
+
+    [Fact]
     public async Task PrepareAsync_WithoutAnyListener_CreatesNoActivityAndLeavesInstrumentsDisabled()
     {
         // Arrange
@@ -320,6 +358,9 @@ public sealed class TokenGuardTelemetryTests
 
         return new ConversationContext(CreateBudget(emergencyThreshold), counter, strategy, diagnostics);
     }
+
+    private static ConversationContext CreateContext(ICompactionStrategy strategy) =>
+        new(CreateBudget(emergencyThreshold: 1.0), new TextLengthTokenCounter(), strategy, new ConversationDiagnostics(NullLoggerFactory.Instance, NewContextName()));
 
     private static ContextBudget CreateBudget(double? emergencyThreshold) =>
         new(100, compactionThreshold: 0.5, emergencyThreshold: emergencyThreshold, overrunTolerance: 0.05);
