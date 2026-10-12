@@ -57,6 +57,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   start, and release validation fails when `README.md` or the Anthropic package readme stops carrying its text. The
   Anthropic package readme has a complete quick start with the request and the recording of the response, and states
   that the adapter is covered by unit tests only.
+- A recording call (`SetSystemPrompt`, `AddPinnedMessage`, `AddUserMessage`, `RecordModelResponse`, `RecordToolResult`)
+  or a `PrepareAsync()` call that starts while another of those calls on the same context is still running throws
+  `InvalidOperationException`. It used to succeed and could lose a message with no error. A `PrepareAsync()` call is
+  running until its task completes, so await it before recording, and record the results of parallel tool calls one
+  after another. The detection is best effort and a context is still for one caller at a time: calls from several
+  threads that happen not to overlap are not reported. No public member changed.
 
 ### Fixed
 

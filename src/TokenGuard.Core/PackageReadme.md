@@ -122,7 +122,7 @@ Override with `WithEmergencyThreshold(0.95)` to trigger earlier, or call `Withou
 
 ### Create a context per conversation
 
-Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, so separate contexts can be used concurrently. A single context is for one caller at a time and nothing enforces that: if you record tool results from parallel tool calls on one context, serialize the calls yourself.
+Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, so separate contexts can be used concurrently. A single context is for one caller at a time: a call that starts while another call on the same context is still running throws `InvalidOperationException`, on a best-effort basis. Run parallel tool calls in parallel and record their results one after another.
 
 ## Observability
 
