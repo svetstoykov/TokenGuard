@@ -32,7 +32,7 @@ internal static class AnthropicQuickStart
 
         var services = new ServiceCollection();
         services.AddConversationContext(builder => builder
-            .WithMaxTokens(25_000)
+            .WithMaxTokens(40_000)
             .UseLlmSummarization(anthropicClient, "claude-opus-5-5"));
 
         using var serviceProvider = services.BuildServiceProvider();

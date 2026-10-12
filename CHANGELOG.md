@@ -40,8 +40,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tool again if you need this content.]` instead of `[Tool result cleared — {0}, {1}]`, so masked results carry the new
   text. `{0}` is still the tool name and `{1}` the tool call ID. A custom format is unaffected. The new text is longer,
   so a masked result costs a few more tokens than before.
+- Behavior change in `TokenGuard.Extensions.Anthropic`: `ForAnthropic()` throws `InvalidOperationException` for input
+  it used to convert with content missing. The message names the role and the problem. It throws for a user or system
+  message with no text or with a segment that is not text; for a model message with a segment that is neither text nor
+  a tool call, or with neither text nor a tool call; for a tool message with no tool result or with a segment that is
+  not a tool result; for a tool result with no preceding tool call; for a tool call with no matching result before the
+  next message that is not a tool message; and for tool calls unanswered at the end of the list. A system message with
+  no text used to be skipped, a tool message with no result used to be left out, and unpaired tool calls and results
+  used to be sent as they were. No public member changed.
+- Behavior change in `TokenGuard.Extensions.Anthropic`: tool-call arguments that are not a JSON object make
+  `ForAnthropic()` throw `InvalidOperationException` naming the tool call ID. It used to throw a `JsonException` with
+  no TokenGuard message; that exception is now the inner exception when the arguments are not valid JSON.
+- Behavior change in `TokenGuard.Extensions.Anthropic`: `InputTokens()` on an Anthropic `Message` returns `null` when
+  the response carries no usage. It used to throw the SDK's `AnthropicInvalidDataException`.
+- `tests/TokenGuard.ReadmeSnippets/verify.sh` packs `TokenGuard.Extensions.Anthropic` and compiles an Anthropic quick
+  start, and release validation fails when `README.md` or the Anthropic package readme stops carrying its text. The
+  Anthropic package readme has a complete quick start with the request and the recording of the response, and states
+  that the adapter is covered by unit tests only.
 
 ### Fixed
+
+- Behavior change in `TokenGuard.Extensions.Anthropic`: `InputTokens()` on an Anthropic `Message` returns the total
+  input of the request, the sum of `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`. It
+  used to return `input_tokens` alone, which with prompt caching is a small part of the request, so passing it to
+  `RecordModelResponse` anchored the token estimates to too small a count. Without prompt caching the value is the
+  same as before.
+- Behavior change in `TokenGuard.Extensions.Anthropic`: `ForAnthropic()` sends every text segment of a user, model or
+  system message as its own text block, in order, and every result of a tool message as a `tool_result` block in one
+  user message. It used to send the first text segment and the first tool result only, so a recorded response with
+  two text blocks came back as one. A request built from such messages is larger than before.
 
 - A summarizer call that threw, or returned a summary too large for the budget, is not repeated while the history and
   the available tokens stay the same. Calling `PrepareAsync()` again without recording a message used to send a new
