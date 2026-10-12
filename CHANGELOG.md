@@ -44,6 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   masked `ToolResultContent.ToolName` and the `{0}` argument of `SlidingWindowOptions.PlaceholderFormat` are now the
   name passed to `RecordToolResult`; a result whose tool call is not in the compacted history used to show its tool
   call ID in place of the name.
+- A compaction strategy that throws out of `PrepareAsync()` is visible in diagnostics. The call used to leave no log
+  record and both activities with status `Unset`; it now writes the new `Error` event 1019 (`StrategyFailed`) with the
+  exception attached and sets status `Error` on `tokenguard.compact` and `tokenguard.prepare`. The caller receives the
+  same exception as before, and a cancelled call (`OperationCanceledException`) writes no error record.
+- A logger or meter listener that throws does not fail a recording call. `SetSystemPrompt`, `AddPinnedMessage`,
+  `AddUserMessage`, `RecordModelResponse`, and `RecordToolResult` store the message, complete normally, and discard the
+  exception from the diagnostics call. The exception used to reach the caller after the message was stored, so a caller
+  that retried recorded the message twice. Exceptions from the token counter still reach the caller, and
+  `PrepareAsync()` still surfaces an exception thrown by a logger or listener.
 
 ## [1.1.0] - 2026-10-07
 
