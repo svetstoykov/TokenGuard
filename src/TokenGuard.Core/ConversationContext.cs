@@ -428,7 +428,7 @@ public sealed class ConversationContext : IConversationContext
 
         var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
 
-        var compacted = await this.RunStrategyAsync(compactable, availableTokens, cancellationToken);
+        var compacted = await this.RunStrategyAsync(activity, compactable, availableTokens, cancellationToken);
 
         var prepared = pinnedSlots.Count == 0
             ? compacted.Messages
@@ -506,12 +506,17 @@ public sealed class ConversationContext : IConversationContext
     /// <summary>
     /// Runs the compaction strategy inside the conversation log scope and the <c>tokenguard.compact</c> activity.
     /// </summary>
+    /// <remarks>
+    /// An exception thrown by the strategy is logged once as an error, sets status <see cref="ActivityStatusCode.Error"/> on both
+    /// activities, and is rethrown unchanged. An <see cref="OperationCanceledException"/> is rethrown without either.
+    /// </remarks>
+    /// <param name="prepareActivity">The prepare activity, or <see langword="null"/> when no listener is subscribed.</param>
     /// <param name="compactable">The unpinned messages handed to the strategy.</param>
     /// <param name="availableTokens">The token budget left after pinned messages.</param>
     /// <param name="cancellationToken">A token that can cancel the strategy.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the strategy result.</returns>
     private async Task<CompactionResult> RunStrategyAsync(
-        IReadOnlyList<ContextMessage> compactable, int availableTokens, CancellationToken cancellationToken)
+        Activity? prepareActivity, IReadOnlyList<ContextMessage> compactable, int availableTokens, CancellationToken cancellationToken)
     {
         using var scope = ConversationContextLog.BeginCompactionScope(
             this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn);
@@ -520,7 +525,19 @@ public sealed class ConversationContext : IConversationContext
         var timeStrategy = TokenGuardTelemetry.CompactionDuration.Enabled;
         var startTimestamp = timeStrategy ? Stopwatch.GetTimestamp() : 0;
 
-        var compacted = await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
+        CompactionResult compacted;
+        try
+        {
+            compacted = await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            ConversationContextLog.StrategyFailed(
+                this._logger, exception, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn);
+            activity?.SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
+            prepareActivity?.SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
+            throw;
+        }
 
         if (timeStrategy)
         {
@@ -1095,9 +1112,19 @@ public sealed class ConversationContext : IConversationContext
             this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn, currentTokens,
             emergencyTriggerTokens, turnGroups, turnGroupsDropped, preservedFloorIndex, floorExceedsTrigger);
 
-    private void LogMessageRecorded(ContextMessage message) =>
-        ConversationContextLog.MessageRecorded(
-            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, message.Role, message.IsPinned, message.Segments.Count);
+    private void LogMessageRecorded(ContextMessage message)
+    {
+        try
+        {
+            ConversationContextLog.MessageRecorded(
+                this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, message.Role, message.IsPinned,
+                message.Segments.Count);
+        }
+        catch (Exception)
+        {
+            // The message is already stored; a failing logger must not make the recording call look failed.
+        }
+    }
 
     /// <summary>
     /// Returns a snapshot of the history as the prepared view, with any pinned message recorded inside a tool exchange moved before it.
@@ -1179,17 +1206,25 @@ public sealed class ConversationContext : IConversationContext
 
         this._anchorCorrection = providerInputTokens.Value - this._lastPreparedMessageTokens;
         this._anchorBaseTokens = this._lastPreparedMessageTokens;
-        this._health.OnProviderTokensReported(providerInputTokens.Value, this._lastEstimatedTotalTokens);
 
-        ConversationContextLog.EstimateAnchored(
-            this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, providerInputTokens.Value,
-            this._lastEstimatedTotalTokens, this._anchorCorrection);
-
-        if (providerInputTokens.Value > 0)
+        try
         {
-            TokenGuardTelemetry.EstimateErrorRatio.Record(
-                (double)(providerInputTokens.Value - this._lastEstimatedTotalTokens) / providerInputTokens.Value,
-                this._diagnostics.ContextNameTag);
+            this._health.OnProviderTokensReported(providerInputTokens.Value, this._lastEstimatedTotalTokens);
+
+            ConversationContextLog.EstimateAnchored(
+                this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, providerInputTokens.Value,
+                this._lastEstimatedTotalTokens, this._anchorCorrection);
+
+            if (providerInputTokens.Value > 0)
+            {
+                TokenGuardTelemetry.EstimateErrorRatio.Record(
+                    (double)(providerInputTokens.Value - this._lastEstimatedTotalTokens) / providerInputTokens.Value,
+                    this._diagnostics.ContextNameTag);
+            }
+        }
+        catch (Exception)
+        {
+            // The response and the correction are already stored; a failing logger or listener must not make the recording call look failed.
         }
     }
 

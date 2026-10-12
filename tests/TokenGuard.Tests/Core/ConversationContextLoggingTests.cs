@@ -24,6 +24,7 @@ public sealed class ConversationContextLoggingTests
     private const int EmergencyTruncationEvaluated = 1016;
     private const int PinnedMessagePlaced = 1017;
     private const int ProviderCorrectionApplied = 1018;
+    private const int StrategyFailed = 1019;
 
     public static TheoryData<string, MessageRole, bool, int> RecordingMethods => new()
     {
@@ -288,6 +289,44 @@ public sealed class ConversationContextLoggingTests
         record.Property("MaxTokens").Should().Be(100);
     }
 
+    [Fact]
+    public async Task PrepareAsync_WhenTheStrategyThrows_LogsOneErrorWithTheExceptionAndRethrowsIt()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var failure = new InvalidOperationException("strategy failed");
+        using var context = CreateContext(logs, new StubCompactionStrategy((_, _) => throw failure), contextName: "research");
+        context.AddUserMessage(Text(60));
+
+        // Act
+        var act = () => context.PrepareAsync();
+
+        // Assert
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Should().BeSameAs(failure);
+        var record = logs.WithEventId(StrategyFailed).Should().ContainSingle().Subject;
+        record.Level.Should().Be(LogLevel.Error);
+        record.Exception.Should().BeSameAs(failure);
+        record.Property("ConversationId").Should().BeOfType<string>().Which.Should().NotBeEmpty();
+        record.Property("ContextName").Should().Be("research");
+        record.Property("Turn").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenTheStrategyIsCancelled_LogsNoErrorRecord()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, new StubCompactionStrategy((_, _) => throw new OperationCanceledException()));
+        context.AddUserMessage(Text(60));
+
+        // Act
+        var act = () => context.PrepareAsync();
+
+        // Assert
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        logs.Records.Should().NotContain(record => record.Level >= LogLevel.Error);
+    }
+
     [Theory]
     [MemberData(nameof(RecordingMethods))]
     public void RecordingMethod_LogsOneTraceRecordWithRolePinnedFlagAndSegmentCount(string method, MessageRole role, bool isPinned, int segmentCount)
@@ -320,6 +359,57 @@ public sealed class ConversationContextLoggingTests
 
         // Assert
         logs.WithEventId(MessageRecorded).Should().HaveCount(2);
+    }
+
+    [Theory]
+    [MemberData(nameof(RecordingMethods))]
+    public void RecordingMethod_WhenTheLoggerThrows_DoesNotThrowAndStoresTheMessageOnce(
+        string method, MessageRole role, bool isPinned, int segmentCount)
+    {
+        // Arrange
+        using var context = CreateContext(new ThrowingLoggerFactory(MessageRecorded), StubCompactionStrategy.Unchanged());
+
+        // Act
+        var act = () => Record(context, method);
+
+        // Assert
+        act.Should().NotThrow();
+        var message = context.History.Should().ContainSingle().Subject;
+        message.Role.Should().Be(role);
+        message.IsPinned.Should().Be(isPinned);
+        message.Segments.Should().HaveCount(segmentCount);
+    }
+
+    [Fact]
+    public void SetSystemPrompt_WhenReplacingTheExistingPromptAndTheLoggerThrows_DoesNotThrowAndStoresTheNewPromptOnce()
+    {
+        // Arrange
+        using var context = CreateContext(new ThrowingLoggerFactory(MessageRecorded), StubCompactionStrategy.Unchanged());
+        context.SetSystemPrompt(Text(10));
+
+        // Act
+        var act = () => context.SetSystemPrompt(Text(12));
+
+        // Assert
+        act.Should().NotThrow();
+        context.History.Should().ContainSingle().Which.Segments.Should().Equal(new TextContent(Text(12)));
+    }
+
+    [Fact]
+    public async Task RecordModelResponse_WithProviderInputTokensWhenTheLoggerThrows_DoesNotThrowAndStoresTheMessageOnce()
+    {
+        // Arrange
+        using var context = CreateContext(new ThrowingLoggerFactory(EstimateAnchored), StubCompactionStrategy.Unchanged());
+        context.AddUserMessage(Text(20));
+        await context.PrepareAsync();
+
+        // Act
+        var act = () => context.RecordModelResponse([new TextContent(Text(5))], providerInputTokens: 26);
+
+        // Assert
+        act.Should().NotThrow();
+        context.History.Should().HaveCount(2);
+        context.History.Count(message => message.Role == MessageRole.Model).Should().Be(1);
     }
 
     [Fact]
@@ -512,7 +602,7 @@ public sealed class ConversationContextLoggingTests
     }
 
     private static ConversationContext CreateContext(
-        CapturingLoggerFactory logs,
+        ILoggerFactory logs,
         ICompactionStrategy strategy,
         double? emergencyThreshold = 1.0,
         string contextName = ConversationDiagnostics.DefaultContextName)

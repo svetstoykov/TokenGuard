@@ -18,8 +18,10 @@ internal static class ReportFixture
     /// <param name="inputTokens">The provider input usage for the fixture.</param>
     /// <param name="after">The prepared token estimate for the fixture.</param>
     /// <param name="taskId">The manifest task identifier.</param>
+    /// <param name="cachedInputTokens">The cached input usage of the call, or <see langword="null" /> when the provider reported none.</param>
     /// <returns>A deterministic valid report.</returns>
-    public static RunReport Create(string arm = "treatment", long inputTokens = 100, long after = 80, string taskId = "task")
+    public static RunReport Create(string arm = "treatment", long inputTokens = 100, long after = 80, string taskId = "task",
+        long? cachedInputTokens = null)
     {
         var aggregator = new ReportAggregator();
         var task = aggregator.CreateTask(taskId, "small", "reply_received", true, 24, new SessionMeasurements
@@ -31,7 +33,8 @@ internal static class ReportFixture
             }],
             ProviderCalls = [new ProviderCallMeasurement
             {
-                PrepareIndex = 1, TranscriptIndex = 1, Status = "completed", InputTokens = inputTokens, OutputTokens = 5
+                PrepareIndex = 1, TranscriptIndex = 1, Status = "completed", InputTokens = inputTokens, OutputTokens = 5,
+                CachedInputTokens = cachedInputTokens
             }]
         }, [], 0, null, new AnswerScoringResult { Checks = [], Probe = null });
         return aggregator.CreateReport(new RunMetadata
@@ -49,6 +52,14 @@ internal static class ReportFixture
             ManifestSha256 = new string('b', 64), ManifestProvenance = "file"
         }, [task], [], false);
     }
+
+    /// <summary>Gets the path of the copied control report that the harness recorded in schema version 4.</summary>
+    /// <returns>The absolute path of the recorded report in the test output folder.</returns>
+    public static string RecordedSchemaVersionFourPath()
+    {
+        return Path.Combine(AppContext.BaseDirectory, "Reporting", "Fixtures", "run-report-20261010-083413-control.json");
+    }
+
     /// <summary>Creates a valid report with explicit scoring and opening-message evidence.</summary>
     /// <param name="checks">The check results.</param>
     /// <param name="probe">The optional probe result.</param>

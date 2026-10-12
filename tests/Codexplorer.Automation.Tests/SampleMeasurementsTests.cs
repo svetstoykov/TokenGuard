@@ -215,4 +215,17 @@ public sealed class SampleMeasurementsTests
         collector.Snapshot().ProviderCalls.Should().HaveCount(2);
         collector.Snapshot().ProviderCalls[1].Status.Should().Be("failed");
     }
+
+    /// <summary>Verifies a finished provider attempt keeps its reported cached input tokens, a reported zero included.</summary>
+    [Fact]
+    public void ProviderFinished_ReportedZeroCachedInputTokens_RecordsZero()
+    {
+        var collector = new SessionMeasurementCollector();
+        collector.Begin(1);
+        collector.ProviderStarted(1);
+
+        collector.ProviderFinished("completed", 100, 7, 0);
+
+        collector.Snapshot().ProviderCalls.Should().ContainSingle().Which.CachedInputTokens.Should().Be(0);
+    }
 }

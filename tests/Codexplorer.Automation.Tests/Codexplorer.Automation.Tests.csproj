@@ -17,5 +17,6 @@
   <ItemGroup>
     <None Update="Scoring/ScorerCases.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Scoring/Texts/**/*" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Reporting/Fixtures/**/*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

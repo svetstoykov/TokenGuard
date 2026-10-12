@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -244,6 +245,78 @@ public sealed class TokenGuardTelemetryTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenTheStrategyThrows_SetsErrorStatusOnThePrepareAndCompactActivities()
+    {
+        // Arrange
+        using var capture = new TelemetryCapture();
+        var failure = new InvalidOperationException("strategy failed");
+        using var context = CreateContext(new StubCompactionStrategy((_, _) => throw failure));
+        context.AddUserMessage(Text('a', 60));
+
+        // Act
+        var act = () => context.PrepareAsync();
+
+        // Assert
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Should().BeSameAs(failure);
+        var compact = capture.ActivitiesNamed(Compact).Should().ContainSingle().Subject;
+        var prepare = capture.ActivitiesNamed(Prepare).Should().ContainSingle().Subject;
+        compact.ParentSpanId.Should().Be(prepare.SpanId);
+        compact.Status.Should().Be(ActivityStatusCode.Error);
+        prepare.Status.Should().Be(ActivityStatusCode.Error);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenTheStrategyIsCancelled_LeavesThePrepareAndCompactActivitiesWithoutAnErrorStatus()
+    {
+        // Arrange
+        using var capture = new TelemetryCapture();
+        using var context = CreateContext(new StubCompactionStrategy((_, _) => throw new OperationCanceledException()));
+        context.AddUserMessage(Text('a', 60));
+
+        // Act
+        var act = () => context.PrepareAsync();
+
+        // Assert
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        capture.ActivitiesNamed(Compact).Should().ContainSingle().Which.Status.Should().Be(ActivityStatusCode.Unset);
+        capture.ActivitiesNamed(Prepare).Should().ContainSingle().Which.Status.Should().Be(ActivityStatusCode.Unset);
+    }
+
+    [Fact]
+    public async Task RecordModelResponse_WhenAMeterListenerThrows_DoesNotThrowAndStoresTheMessageOnce()
+    {
+        // Arrange
+        var contextName = NewContextName();
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == TokenGuardDiagnostics.MeterName && instrument.Name == "tokenguard.estimate.error_ratio")
+                    meterListener.EnableMeasurementEvents(instrument);
+            },
+        };
+        listener.SetMeasurementEventCallback<double>((_, _, tags, _) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (contextName.Equals(tag.Value))
+                    throw new InvalidOperationException("The meter listener failed.");
+            }
+        });
+        listener.Start();
+        using var context = CreateContext(contextName, summarizer: null);
+        context.AddUserMessage(Text('a', 20));
+        await context.PrepareAsync();
+
+        // Act
+        var act = () => context.RecordModelResponse([new TextContent(Text('b', 5))], providerInputTokens: 26);
+
+        // Assert
+        act.Should().NotThrow();
+        context.History.Count(message => message.Role == MessageRole.Model).Should().Be(1);
+    }
+
+    [Fact]
     public async Task PrepareAsync_WithoutAnyListener_CreatesNoActivityAndLeavesInstrumentsDisabled()
     {
         // Arrange
@@ -321,6 +394,9 @@ public sealed class TokenGuardTelemetryTests
 
         return new ConversationContext(CreateBudget(emergencyThreshold), counter, strategy, diagnostics);
     }
+
+    private static ConversationContext CreateContext(ICompactionStrategy strategy) =>
+        new(CreateBudget(emergencyThreshold: 1.0), new TextLengthTokenCounter(), strategy, new ConversationDiagnostics(NullLoggerFactory.Instance, NewContextName()));
 
     private static ContextBudget CreateBudget(double? emergencyThreshold) =>
         new(100, compactionThreshold: 0.5, emergencyThreshold: emergencyThreshold, overrunTolerance: 0.05);

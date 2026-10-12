@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Codexplorer.Automation.Scoring;
 using Codexplorer.Automation.Reporting;
 using Codexplorer.Measurements;
@@ -110,20 +111,123 @@ public sealed class ReportValidatorTests
     }
 
     /// <summary>
-    ///     Verifies that only schema version 4 is accepted.
+    ///     Verifies that a schema version other than 4 and 5 is rejected.
     /// </summary>
     /// <param name="schemaVersion">The unsupported schema version.</param>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
-    public void Validate_SchemaVersionOtherThanFour_ReturnsUnsupportedVersionError(int schemaVersion)
+    [InlineData(6)]
+    public void Validate_SchemaVersionOtherThanFourOrFive_ReturnsUnsupportedVersionError(int schemaVersion)
     {
         var report = ReportFixture.Create() with { SchemaVersion = schemaVersion };
 
         var errors = ReportValidator.Validate(report);
 
-        errors.Should().ContainSingle().Which.Should().Contain("expected 4");
+        errors.Should().ContainSingle().Which.Should().Contain("expected 4 or 5");
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 5 report with reported cached input tokens is valid.
+    /// </summary>
+    [Fact]
+    public void Validate_SchemaVersionFiveReportWithCachedInputTokens_ReturnsNoErrors()
+    {
+        var report = ReportFixture.Create(cachedInputTokens: 40);
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 4 report, which carries no cached input tokens, is valid.
+    /// </summary>
+    [Fact]
+    public void Validate_SchemaVersionFourReportWithoutCachedInputTokens_ReturnsNoErrors()
+    {
+        var report = ReportFixture.Create() with { SchemaVersion = 4 };
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 4 task without provider calls is valid although its recomputed cached total would be zero.
+    /// </summary>
+    [Fact]
+    public void Validate_SchemaVersionFourTaskWithoutProviderCalls_ReturnsNoErrors()
+    {
+        var aggregator = new ReportAggregator();
+        var template = ReportFixture.Create();
+        var measurements = ReportAggregator.ToMeasurements(template.Tasks[0]) with { ProviderCalls = [] };
+        var task = aggregator.CreateTask("task", "small", "failed", false, 24, measurements, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
+        task = task with { Metrics = task.Metrics with { ProviderCachedInputTokens = null } };
+        var current = aggregator.CreateReport(template.Run, [task], [], false);
+        var report = current with
+        {
+            SchemaVersion = 4, Totals = current.Totals with { Metrics = current.Totals.Metrics with { ProviderCachedInputTokens = null } }
+        };
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 4 report carrying cached input tokens is rejected.
+    /// </summary>
+    [Fact]
+    public void Validate_SchemaVersionFourReportWithCachedInputTokens_ReturnsError()
+    {
+        var report = ReportFixture.Create(cachedInputTokens: 40) with { SchemaVersion = 4 };
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().Contain(error => error.Contains("which a schema version 4 report cannot record"));
+    }
+
+    /// <summary>
+    ///     Verifies that a negative cached input token count is rejected.
+    /// </summary>
+    [Fact]
+    public void Validate_NegativeCachedInputTokens_ReturnsInvalidProviderCallError()
+    {
+        var report = ReportFixture.Create(cachedInputTokens: -1);
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().Contain(error => error.Contains("invalid provider call records"));
+    }
+
+    /// <summary>
+    ///     Verifies that a cached input token count above the call's input tokens is accepted.
+    /// </summary>
+    [Fact]
+    public void Validate_CachedInputTokensAboveInputTokens_ReturnsNoErrors()
+    {
+        var report = ReportFixture.Create(inputTokens: 100, cachedInputTokens: 150);
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     Verifies that the control report the harness recorded in schema version 4 is valid.
+    /// </summary>
+    [Fact]
+    public void Validate_RecordedSchemaVersionFourReport_ReturnsNoErrors()
+    {
+        var json = File.ReadAllText(ReportFixture.RecordedSchemaVersionFourPath());
+        var report = JsonSerializer.Deserialize<RunReport>(json, ReportJson.Options)!;
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().BeEmpty();
     }
 
     /// <summary>

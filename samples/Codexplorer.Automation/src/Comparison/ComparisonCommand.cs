@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Codexplorer.Automation.Reporting;
+using Codexplorer.Measurements;
 
 namespace Codexplorer.Automation.Comparison;
 
@@ -89,6 +90,7 @@ internal static class ComparisonCommand
             return 1;
         }
 
+        output.WriteLine($"Report schema version: baseline={baseline.SchemaVersion} candidate={candidate.SchemaVersion}");
         output.WriteLine($"Baseline partial: {baseline.Partial}");
         output.WriteLine($"Candidate partial: {candidate.Partial}");
         output.WriteLine("Baseline unrun tasks: " + string.Join(", ", baseline.UnrunTaskIds));
@@ -143,6 +145,7 @@ internal static class ComparisonCommand
         output.WriteLine("Baseline-only tasks: " + string.Join(", ", baselineTasks.Keys.Except(candidateTasks.Keys).Order(StringComparer.Ordinal)));
         output.WriteLine("Candidate-only tasks: " + string.Join(", ", candidateTasks.Keys.Except(baselineTasks.Keys).Order(StringComparer.Ordinal)));
         output.WriteLine("Estimator error unit: " + baseline.EstimatorErrorUnit);
+        PrintCachedInputAvailability(output, baseline, candidate);
         PrintMeasuredReduction(output, baseline, candidate, mismatches.Count == 0);
         if (limits.Count > 0 && (baseline.Partial || candidate.Partial || baseline.UnrunTaskIds.Count > 0 || candidate.UnrunTaskIds.Count > 0
             || baseline.Tasks.Any(task => !task.MeasurementsComplete) || candidate.Tasks.Any(task => !task.MeasurementsComplete)
@@ -162,6 +165,7 @@ internal static class ComparisonCommand
         {
             if (metric is "estimatorSignedMean" or "estimatorSignedP95" or "checksTotal" or "checksPassed" or "evaluatedTaskCount"
                 or "deliverableCompletedTaskCount" or "probeCount" or "passedProbeCount" or "canaryPresentCount"
+                or "providerCachedInputTokens"
                 || !baselineMetrics.TryGetValue(metric, out var previous)
                 || !candidateMetrics.TryGetValue(metric, out var current))
             {
@@ -194,17 +198,31 @@ internal static class ComparisonCommand
     {
         await using var stream = File.OpenRead(path);
         using var document = await JsonDocument.ParseAsync(stream).ConfigureAwait(false);
-        ValidateShape(document.RootElement, typeof(RunReport));
-        return document.RootElement.Deserialize<RunReport>(ReportJson.Options) ?? throw new JsonException();
+        var root = document.RootElement;
+        var schemaVersionFour = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("schemaVersion", out var version)
+            && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var number) && number == 4;
+        ValidateShape(root, typeof(RunReport), !schemaVersionFour);
+        return root.Deserialize<RunReport>(ReportJson.Options) ?? throw new JsonException();
     }
 
     /// <summary>
-    ///     Requires every writable contract property and rejects duplicate JSON object keys.
+    ///     Requires every writable contract property of the report's schema version and rejects duplicate JSON object keys.
     /// </summary>
+    /// <remarks>
+    ///     A schema version 4 report has no cached input token fields, so they must be absent from it and are read as
+    ///     <see langword="null" />. Every other report must carry them, with <see langword="null" /> for a value the provider did not report.
+    /// </remarks>
     /// <param name="element">The report JSON subtree.</param>
     /// <param name="type">The corresponding concrete contract type.</param>
-    /// <exception cref="JsonException">A required property is absent or the JSON shape is invalid.</exception>
-    private static void ValidateShape(JsonElement element, Type type)
+    /// <param name="recordsCachedInputTokens">Whether the report's schema version includes the cached input token fields.</param>
+    /// <exception cref="JsonException">
+    ///     A required property is absent.
+    ///     -or-
+    ///     A schema version 4 report carries a cached input token field.
+    ///     -or-
+    ///     The JSON shape is invalid.
+    /// </exception>
+    private static void ValidateShape(JsonElement element, Type type, bool recordsCachedInputTokens)
     {
         if (element.ValueKind == JsonValueKind.Null)
         {
@@ -237,7 +255,7 @@ internal static class ComparisonCommand
         {
             foreach (var item in element.EnumerateArray())
             {
-                ValidateShape(item, type.GetGenericArguments()[0]);
+                ValidateShape(item, type.GetGenericArguments()[0], recordsCachedInputTokens);
             }
 
             return;
@@ -254,12 +272,60 @@ internal static class ComparisonCommand
             throw new JsonException();
         foreach (var property in properties)
         {
-            if (!element.TryGetProperty(JsonNamingPolicy.CamelCase.ConvertName(property.Name), out var value))
+            var present = element.TryGetProperty(JsonNamingPolicy.CamelCase.ConvertName(property.Name), out var value);
+            var expected = recordsCachedInputTokens || !IsCachedInputTokenField(type, property.Name);
+            if (present != expected)
             {
                 throw new JsonException();
             }
 
-            ValidateShape(value, property.PropertyType);
+            if (present)
+            {
+                ValidateShape(value, property.PropertyType, recordsCachedInputTokens);
+            }
+        }
+    }
+
+    /// <summary>Recognizes the report fields that schema version 5 added for cached input tokens.</summary>
+    /// <param name="type">The contract type declaring the property.</param>
+    /// <param name="propertyName">The property name.</param>
+    /// <returns><see langword="true" /> if the property is a cached input token field; otherwise, <see langword="false" />.</returns>
+    private static bool IsCachedInputTokenField(Type type, string propertyName)
+    {
+        return (type == typeof(ProviderCallMeasurement) && propertyName == nameof(ProviderCallMeasurement.CachedInputTokens))
+            || (type == typeof(ReportMetrics) && propertyName == nameof(ReportMetrics.ProviderCachedInputTokens));
+    }
+
+    /// <summary>
+    ///     Prints why the cached input token totals cannot be compared when either report has none.
+    /// </summary>
+    /// <param name="output">The comparison output.</param>
+    /// <param name="baseline">The validated baseline report.</param>
+    /// <param name="candidate">The validated candidate report.</param>
+    private static void PrintCachedInputAvailability(TextWriter output, RunReport baseline, RunReport candidate)
+    {
+        static string? MissingReason(string label, RunReport report)
+        {
+            if (report.Totals.Metrics.ProviderCachedInputTokens is not null)
+            {
+                return null;
+            }
+
+            if (report.SchemaVersion == 4)
+            {
+                return $"{label} is a schema version 4 report, which records no cached input tokens";
+            }
+
+            var calls = report.Tasks.SelectMany(task => task.ProviderCalls).ToArray();
+            return $"{label} provider reported no cached input tokens for {calls.Count(call => call.CachedInputTokens is null)} of "
+                + $"{calls.Length} calls";
+        }
+
+        var reasons = new[] { MissingReason("baseline", baseline), MissingReason("candidate", candidate) }.Where(reason => reason is not null)
+            .ToArray();
+        if (reasons.Length > 0)
+        {
+            output.WriteLine("Cached input token comparison skipped: " + string.Join("; ", reasons) + ".");
         }
     }
 
@@ -463,7 +529,7 @@ internal static class ComparisonCommand
         return limits.TryAdd(value[..separator], limit);
     }
 
-    /// <summary>Recognizes distribution counters defined by report schema version 4.</summary>
+    /// <summary>Recognizes distribution counters defined by the report schema.</summary>
     /// <param name="metric">The full distribution metric name. Cannot be <see langword="null" />.</param>
     /// <returns>Whether the metric names a known prepare outcome or health signal.</returns>
     private static bool IsKnownDistributionMetric(string metric) => metric is
@@ -485,9 +551,12 @@ internal static class ComparisonCommand
         output.WriteLine("Decreases regress checkPassRate, deliverableCompletionRate, probePassRate; "
             + "increases regress invalidProbeCount, messagesMasked, messagesSummarized.");
         output.WriteLine("Informational exclusions: checksTotal, checksPassed, evaluatedTaskCount, deliverableCompletedTaskCount, "
-            + "probeCount, passedProbeCount, canaryPresentCount; signed estimator statistics.");
+            + "probeCount, passedProbeCount, canaryPresentCount, providerCachedInputTokens; signed estimator statistics.");
         output.WriteLine("Unavailable limited rates fail. Compare probePassRate only between the same arm's valid-probe populations.");
+        output.WriteLine("Schema version 4 and 5 reports compare with each other. A version 4 report records no cached input tokens, "
+            + "so that comparison is skipped and reported.");
         output.WriteLine("Metrics: " + string.Join(", ", typeof(ReportMetrics).GetProperties()
+            .Where(property => property.Name != nameof(ReportMetrics.ProviderCachedInputTokens))
             .Where(property => property.PropertyType == typeof(long) || property.PropertyType == typeof(long?)
                 || property.PropertyType == typeof(double?) && property.Name is not ("EstimatorSignedMean" or "EstimatorSignedP95"))
             .Select(property => JsonNamingPolicy.CamelCase.ConvertName(property.Name)))
