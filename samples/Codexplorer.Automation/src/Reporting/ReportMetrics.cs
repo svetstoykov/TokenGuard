@@ -89,6 +89,12 @@ internal sealed record ReportMetrics
     public required long? ProviderOutputTokens { get; init; }
 
     /// <summary>
+    ///     Gets total provider input read from the prompt cache, or <see langword="null" /> when any attempt lacks the count.
+    /// </summary>
+    /// <remarks>A schema version 4 report has no such field, so the value read from one is <see langword="null" />.</remarks>
+    public long? ProviderCachedInputTokens { get; init; }
+
+    /// <summary>
     ///     Gets the provider attempts lacking input usage.
     /// </summary>
     public required long ProviderMissingInputUsageCalls { get; init; }

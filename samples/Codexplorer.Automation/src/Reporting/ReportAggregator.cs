@@ -73,7 +73,7 @@ internal sealed class ReportAggregator : IReportAggregator
         var errors = ReportValidator.GetCollectionErrors(metadata, tasks, unrunTaskIds);
         return new RunReport
         {
-            SchemaVersion = 4, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
+            SchemaVersion = 5, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
             Partial = partial || unrunTaskIds.Count > 0 || tasks.Any(task => task.Outcome is "failed" or "cancelled"),
             Totals = new RunTotals
             {
@@ -143,6 +143,7 @@ internal sealed class ReportAggregator : IReportAggregator
             PeakPreparedTokens = completed.Select(prepare => prepare.TokensAfter ?? 0).DefaultIfEmpty().Max(),
             ProviderInputTokens = SumUsage(providers.Select(call => call.InputTokens).ToArray(), providers.Count),
             ProviderOutputTokens = SumUsage(providers.Select(call => call.OutputTokens).ToArray(), providers.Count),
+            ProviderCachedInputTokens = SumUsage(providers.Select(call => call.CachedInputTokens).ToArray(), providers.Count),
             ProviderMissingInputUsageCalls = providers.Count(call => call.InputTokens is null),
             ProviderMissingOutputUsageCalls = providers.Count(call => call.OutputTokens is null),
             MessagesCompacted = completed.Sum(prepare => prepare.MessagesCompacted), MessagesDropped = measurements.MessagesDropped,

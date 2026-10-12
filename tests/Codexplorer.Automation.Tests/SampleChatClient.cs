@@ -40,9 +40,13 @@ internal sealed class SampleChatClient : ChatClient
     /// </param>
     /// <param name="toolCall">Whether the response requests a tool.</param>
     /// <param name="toolName">The name of the requested tool.</param>
+    /// <param name="cachedTokens">
+    ///     The cached input tokens reported in <c>prompt_tokens_details</c>, or <see langword="null" /> to omit that block.
+    /// </param>
     /// <returns>The provider response.</returns>
-    public static ChatCompletion Completion(string? text = null, bool toolCall = false, string toolName = "inspect")
+    public static ChatCompletion Completion(string? text = null, bool toolCall = false, string toolName = "inspect", int? cachedTokens = null)
     {
+        var details = cachedTokens is null ? "" : ",\"prompt_tokens_details\":{\"cached_tokens\":" + cachedTokens + ",\"cache_write_tokens\":0}";
         var content = System.Text.Json.JsonSerializer.Serialize(text ?? (toolCall ? "working" : "answer"));
         var message = toolCall
             ? "{\"role\":\"assistant\",\"content\":" + content + ",\"tool_calls\":[{\"id\":\"tool_1\",\"type\":\"function\","
@@ -50,7 +54,7 @@ internal sealed class SampleChatClient : ChatClient
             : "{\"role\":\"assistant\",\"content\":" + content + "}";
         var json = "{\"id\":\"test\",\"object\":\"chat.completion\",\"created\":1700000000,\"model\":\"test\",\"choices\":[{\"index\":0,"
             + "\"finish_reason\":\"" + (toolCall ? "tool_calls" : "stop") + "\",\"message\":" + message
-            + "}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":7,\"total_tokens\":107}}";
+            + "}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":7,\"total_tokens\":107" + details + "}}";
         return ModelReaderWriter.Read<ChatCompletion>(BinaryData.FromString(json))!;
     }
 }

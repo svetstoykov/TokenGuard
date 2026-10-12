@@ -73,6 +73,51 @@ public sealed class ReportAggregatorTests
     }
 
     /// <summary>
+    ///     Verifies that cached input tokens are summed when every provider call reports them, a reported zero included.
+    /// </summary>
+    [Fact]
+    public void CreateTask_EveryCallReportsCachedInputTokens_SumsThem()
+    {
+        var measurements = CachedInputMeasurements(30, 0);
+
+        var result = new ReportAggregator().CreateTask(
+            "task", "small", "reply_received", true, 24, measurements, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
+
+        result.Metrics.ProviderCachedInputTokens.Should().Be(30);
+    }
+
+    /// <summary>
+    ///     Verifies that the cached input total is unavailable when one provider call lacks the count.
+    /// </summary>
+    [Fact]
+    public void CreateTask_OneCallLacksCachedInputTokens_TotalIsUnavailable()
+    {
+        var measurements = CachedInputMeasurements(30, null);
+
+        var result = new ReportAggregator().CreateTask(
+            "task", "small", "reply_received", true, 24, measurements, [], 0, null,
+            new AnswerScoringResult { Checks = [], Probe = null });
+
+        result.Metrics.ProviderCachedInputTokens.Should().BeNull();
+        result.Metrics.ProviderInputTokens.Should().Be(200);
+    }
+
+    /// <summary>
+    ///     Verifies that the run total sums the cached input tokens of every task.
+    /// </summary>
+    [Fact]
+    public void CreateReport_TasksReportCachedInputTokens_SumsThemAcrossTasks()
+    {
+        var first = ReportFixture.Create(taskId: "first", cachedInputTokens: 30);
+        var second = ReportFixture.Create(taskId: "second", cachedInputTokens: 12);
+
+        var result = new ReportAggregator().CreateReport(first.Run, [first.Tasks[0], second.Tasks[0]], [], false);
+
+        result.Totals.Metrics.ProviderCachedInputTokens.Should().Be(42);
+    }
+
+    /// <summary>
     ///     Verifies that zero based transcript index retains its measured turn offset.
     /// </summary>
     [Fact]
@@ -274,4 +319,19 @@ public sealed class ReportAggregatorTests
         report.Totals.Metrics.EditCallsFailed.Should().Be(4);
         ReportValidator.Validate(report).Should().BeEmpty();
     }
+
+    private static SessionMeasurements CachedInputMeasurements(params long?[] cachedInputTokens) => new()
+    {
+        Complete = true,
+        PrepareRecords = cachedInputTokens.Select((_, index) => new PrepareMeasurement
+        {
+            Index = index + 1, Turn = index + 1, Status = "completed", OpeningMessagePresent = true, Outcome = "Ready",
+            TokensBefore = 100, TokensAfter = 100
+        }).ToArray(),
+        ProviderCalls = cachedInputTokens.Select((cached, index) => new ProviderCallMeasurement
+        {
+            TranscriptIndex = index + 1, PrepareIndex = index + 1, Status = "completed", InputTokens = 100, OutputTokens = 2,
+            CachedInputTokens = cached
+        }).ToArray()
+    };
 }

@@ -245,7 +245,8 @@ internal sealed class ExplorerSession : IExplorerSession
                 // A reply with no text and no tool call cannot be recorded in the conversation, so the call counts as failed.
                 var replyIsEmpty = toolCalls.Length == 0 && string.IsNullOrWhiteSpace(assistantText);
                 var callStatus = replyIsEmpty ? "failed" : "completed";
-                this._collector?.ProviderFinished(callStatus, completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount);
+                this._collector?.ProviderFinished(callStatus, completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount,
+                    completion.Usage?.InputTokenDetails?.CachedTokenCount);
 
                 if (!replyIsEmpty)
                 {

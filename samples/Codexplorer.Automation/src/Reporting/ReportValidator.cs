@@ -17,9 +17,9 @@ internal static class ReportValidator
     public static IReadOnlyList<string> Validate(RunReport report)
     {
         var errors = new List<string>();
-        if (report.SchemaVersion != 4)
+        if (report.SchemaVersion is not (4 or 5))
         {
-            errors.Add("Unsupported report schema version; expected 4.");
+            errors.Add("Unsupported report schema version; expected 4 or 5.");
             return errors;
         }
 
@@ -38,6 +38,13 @@ internal static class ReportValidator
             return errors;
         }
 
+        // A schema version 4 report records no cached input tokens, so its recomputed metrics carry none either.
+        var recordsCachedInputTokens = report.SchemaVersion >= 5;
+        if (!recordsCachedInputTokens && report.Totals.Metrics.ProviderCachedInputTokens is not null)
+        {
+            errors.Add("Report totals carry cached input tokens, which a schema version 4 report cannot record.");
+        }
+
         var aggregator = new ReportAggregator();
         foreach (var task in report.Tasks)
         {
@@ -47,6 +54,12 @@ internal static class ReportValidator
             {
                 errors.Add("Task contains a null required section.");
                 return errors;
+            }
+
+            if (!recordsCachedInputTokens && (task.Metrics.ProviderCachedInputTokens is not null
+                || task.ProviderCalls.Any(call => call?.CachedInputTokens is not null)))
+            {
+                errors.Add($"Task '{task.TaskId}' carries cached input tokens, which a schema version 4 report cannot record.");
             }
 
             ValidateTask(task, errors);
@@ -60,6 +73,11 @@ internal static class ReportValidator
                 new TaskSessionRecord(task.SessionId, task.SessionDirectory, task.ArtifactsAtStart, task.ArtifactsAtEnd),
                 new AnswerScoringResult { Checks = task.Checks, Probe = task.Probe })
                 with { RepositoryCommit = task.RepositoryCommit };
+            if (!recordsCachedInputTokens)
+            {
+                expected = expected with { Metrics = expected.Metrics with { ProviderCachedInputTokens = null } };
+            }
+
             if (!JsonElement.DeepEquals(JsonSerializer.SerializeToElement(task, ReportJson.Options),
                 JsonSerializer.SerializeToElement(expected, ReportJson.Options)))
             {
@@ -70,8 +88,10 @@ internal static class ReportValidator
         if (errors.Count == 0)
         {
             var expected = aggregator.CreateReport(report.Run, report.Tasks, report.UnrunTaskIds, report.Partial);
+            var expectedTotals = recordsCachedInputTokens ? expected.Totals
+                : expected.Totals with { Metrics = expected.Totals.Metrics with { ProviderCachedInputTokens = null } };
             if (!JsonElement.DeepEquals(JsonSerializer.SerializeToElement(report.Totals, ReportJson.Options),
-                JsonSerializer.SerializeToElement(expected.Totals, ReportJson.Options)))
+                JsonSerializer.SerializeToElement(expectedTotals, ReportJson.Options)))
             {
                 errors.Add("Report totals are inconsistent with task measurements.");
             }
@@ -220,7 +240,8 @@ internal static class ReportValidator
         }
 
         if (task.ProviderCalls.Any(call => call is null || call.TranscriptIndex < 0 || call.Status is not ("completed" or "failed" or "cancelled")
-            || call.InputTokens < 0 || call.OutputTokens < 0 || !task.PrepareRecords.Any(prepare => prepare.Index == call.PrepareIndex))
+            || call.InputTokens < 0 || call.OutputTokens < 0 || call.CachedInputTokens < 0
+            || !task.PrepareRecords.Any(prepare => prepare.Index == call.PrepareIndex))
             || task.ProviderCalls.Select(call => call.TranscriptIndex).Distinct().Count() != task.ProviderCalls.Count
             || task.ProviderCalls.Select(call => call.PrepareIndex).Distinct().Count() != task.ProviderCalls.Count)
         {

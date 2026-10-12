@@ -313,7 +313,7 @@ to assess cost rather than assuming each call adds only a few thousand tokens.
 
 ### Run reports and comparison
 
-Every manifest run writes UTF-8 schema-version-4 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
+Every manifest run writes UTF-8 schema-version-5 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
 Manifest and checkout identity validation happen before the run folder is created, so a preflight error surfaces its diagnostics
 and leaves the output directory untouched.
 Run these commands from the TokenGuard repository root after building both sample projects:
@@ -332,7 +332,7 @@ Run metadata records the commit and dirty flag at run start, UTC timestamps, eff
 TokenGuard log level, arm, and the SHA-256 hash of the immutable manifest bytes executed. Inline tasks use deterministic JSON
 serialization with explicit inline provenance. Reports exclude prompts, answers, tool content, raw configuration, secrets, and exception messages.
 
-Schema version 4 includes these location fields:
+Schema versions 4 and 5 include these location fields:
 
 | Where | Field | Meaning |
 | --- | --- | --- |
@@ -384,6 +384,12 @@ retain individual prepare/transcript pairs and call status; the task offset is p
 usage comes from provider responses, including responses subsequently rejected as empty. Missing usage has explicit nullable totals
 and missing-usage-call counts; totals containing missing usage are null. A null value is unavailable, not a measured zero.
 
+Schema version 5 records the input tokens the provider read from its prompt cache. Each entry of a task's `providerCalls` carries
+`cachedInputTokens`, read from `prompt_tokens_details.cached_tokens` of the agent model's response; the count is part of that call's
+`inputTokens`. It is `null` when the call returned no usage or no `prompt_tokens_details` block, and `0` when the provider reported
+a cache miss. `metrics.providerCachedInputTokens`, on each task and in the run totals, is the sum over the started provider calls, or
+`null` when any of them lacks the count. Summarizer and helper responses record no cached count.
+
 Collection runs at every log level. The structured end-of-conversation summary is checked after disposal. `matched`, `mismatched`,
 and `unavailable` distinguish a successful cross-check, an invalid collection, and a suppressed or absent summary.
 Set `Logging:LogLevel:TokenGuard` to `Information` or lower to retain the summary; Debug output is not required for report collection.
@@ -421,7 +427,12 @@ dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.c
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare --help
 ```
 
-The command accepts schema version 4 reports only; reports of an earlier version must be re-recorded, not relabelled. It validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
+The command accepts schema version 4 and 5 reports; reports of an earlier version must be re-recorded, not relabelled.
+A version 4 report must have exactly the version 4 shape: the cached input token fields are absent from it and read as unavailable,
+and a version 4 report that carries either field is rejected. A version 5 report must carry both. The two versions compare with each
+other without `--allow-incompatible`. The command prints both schema versions, and when either report has no cached input total it
+prints that the cached-token comparison is skipped and why; every other metric is compared as usual.
+It validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
 including distributions and unavailable values. It lists tasks present in only one report and categorical completion changes.
 It also prints each report's partial flag and unrun task IDs.
 By default, models, effective budget/summarization/generation settings, task budgets, and manifest hash must match.
@@ -440,7 +451,8 @@ Limits require non-partial runs, complete task measurements, no unrun tasks, and
 to explicitly permit limits against incomplete or differing coverage; the command prints a coverage warning when doing so.
 Comparisons without limits can display differing task coverage without that override.
 An increase regresses token/count metrics and absolute estimator error; a decrease regresses protocol completion rate and
-estimated reduction. Signed estimator error statistics are informational and cannot have limits. Unknown names, unavailable
+estimated reduction. Signed estimator error statistics and `providerCachedInputTokens` are informational and cannot have limits.
+Unknown names, unavailable
 metrics, invalid or negative limits, incompatible reports, and exceeded limits return nonzero. Numeric output uses invariant formatting.
 Absent known entries in `prepareOutcomeCounts` and `healthSignalCounts` count as zero on both sides, so clean runs accept
 limits such as `--limit prepareOutcomeCounts.CannotCompact=0 --limit healthSignalCounts.RepeatedOverBudget=0`.
