@@ -9,6 +9,12 @@ namespace TokenGuard.Tests.Strategies;
 
 public sealed class SlidingWindowStrategyTests
 {
+    private const int GrowthAvailableTokens = 1_000;
+    private const int GrowthHighMark = 800;
+    private const int GrowthStepTokens = 200;
+    private const int GrowthExchanges = 60;
+    private const int ExchangeTokens = 50;
+
     [Fact]
     public async Task CompactAsync_WithEmptyMessageList_ReturnsEmptyList()
     {
@@ -84,7 +90,7 @@ public sealed class SlidingWindowStrategyTests
 
         // Assert
         Assert.Same(messages, compacted.Messages);
-        Assert.Equal(10, tokenCounter.CountCalls);
+        Assert.Equal(5, tokenCounter.CountCalls);
         Assert.True(tokenCounter.WasCounted(messages[2]));
         Assert.True(tokenCounter.WasCounted(messages[0]));
         Assert.Equal(9, compacted.TokensBefore);
@@ -118,7 +124,7 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
-        Assert.Equal(15, tokenCounter.CountCalls);
+        Assert.Equal(10, tokenCounter.CountCalls);
         Assert.Same(messages[1], compacted.Messages[1]);
         Assert.Same(messages[2], compacted.Messages[2]);
         Assert.Same(messages[3], compacted.Messages[3]);
@@ -155,7 +161,7 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
-        Assert.Equal(15, tokenCounter.CountCalls);
+        Assert.Equal(10, tokenCounter.CountCalls);
         Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
         Assert.Same(messages[1], compacted.Messages[1]);
         Assert.Same(messages[2], compacted.Messages[2]);
@@ -272,7 +278,7 @@ public sealed class SlidingWindowStrategyTests
         var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(masked.Segments));
         Assert.Equal("call_1", toolResult.ToolCallId);
         Assert.Equal("calculator", toolResult.ToolName);
-        Assert.Equal("[Tool result cleared — calculator, call_1]", toolResult.Content);
+        Assert.Equal("[Tool result removed to save context — calculator, call_1. Call the tool again if you need this content.]", toolResult.Content);
         Assert.Equal(8, compacted.TokensBefore);
         Assert.Equal(5, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
@@ -336,7 +342,7 @@ public sealed class SlidingWindowStrategyTests
         var maskedToolResult = Assert.IsType<ToolResultContent>(compactedBlocks[1]);
         Assert.Equal("call_1", maskedToolResult.ToolCallId);
         Assert.Equal("tool", maskedToolResult.ToolName);
-        Assert.Equal("[Tool result cleared — tool, call_1]", maskedToolResult.Content);
+        Assert.Equal("[Tool result removed to save context — tool, call_1. Call the tool again if you need this content.]", maskedToolResult.Content);
         Assert.Equal("suffix", Assert.IsType<TextContent>(compactedBlocks[2]).Content);
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
@@ -390,10 +396,10 @@ public sealed class SlidingWindowStrategyTests
         // Assert
         var firstMasked = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[1].Segments));
         Assert.Equal("read_file", firstMasked.ToolName);
-        Assert.Equal("[Tool result cleared — read_file, call_1]", firstMasked.Content);
+        Assert.Equal("[Tool result removed to save context — read_file, call_1. Call the tool again if you need this content.]", firstMasked.Content);
         var secondMasked = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[3].Segments));
         Assert.Equal("grep", secondMasked.ToolName);
-        Assert.Equal("[Tool result cleared — grep, call_1]", secondMasked.Content);
+        Assert.Equal("[Tool result removed to save context — grep, call_1. Call the tool again if you need this content.]", secondMasked.Content);
     }
 
     [Fact]
@@ -417,7 +423,7 @@ public sealed class SlidingWindowStrategyTests
         var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[0].Segments));
         Assert.Equal("call_missing", toolResult.ToolCallId);
         Assert.Equal("result-tool", toolResult.ToolName);
-        Assert.Equal("[Tool result cleared — result-tool, call_missing]", toolResult.Content);
+        Assert.Equal("[Tool result removed to save context — result-tool, call_missing. Call the tool again if you need this content.]", toolResult.Content);
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
@@ -458,6 +464,198 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_WithCustomPlaceholderFormat_MasksWithThatFormat()
+    {
+        // Arrange
+        var messages = new List<ContextMessage>
+        {
+            CreateToolResultMessage("call_1", "read_file", "file text"),
+            ContextMessage.FromText(MessageRole.User, "recent") with { TokenCount = 6 },
+        };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20, placeholderFormat: "[cleared: {0} / {1}]");
+        var strategy = new SlidingWindowStrategy(new TrackingTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[0].Segments));
+        Assert.Equal("[cleared: read_file / call_1]", toolResult.Content);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenHistoryGrowsByOneToolExchangeAtATime_MovesBoundaryAtMostOncePerStep()
+    {
+        // Arrange
+        var strategy = new SlidingWindowStrategy(new TrackingTokenCounter(), new SlidingWindowOptions(windowSize: 2));
+        var history = new List<ContextMessage>();
+        var maskedCounts = new List<int>();
+
+        // Act
+        for (var exchange = 0; exchange < GrowthExchanges; exchange++)
+        {
+            AddToolExchange(history, exchange);
+            var compacted = await strategy.CompactAsync(history.ToList(), GrowthAvailableTokens);
+            maskedCounts.Add(CountMasked(compacted.Messages));
+        }
+
+        // Assert
+        var moves = Enumerable.Range(1, maskedCounts.Count - 1).Count(i => maskedCounts[i] != maskedCounts[i - 1]);
+        var tokensGrownWhileMasking = (GrowthExchanges * ExchangeTokens) - GrowthHighMark;
+        Assert.True(maskedCounts[^1] > 0);
+        Assert.InRange(moves, 2, (tokensGrownWhileMasking / GrowthStepTokens) + 1);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenBoundaryHoldsBetweenTwoCalls_ReturnsEarlierResultAsPrefixOfLaterResult()
+    {
+        // Arrange
+        var strategy = new SlidingWindowStrategy(new TrackingTokenCounter(), new SlidingWindowOptions(windowSize: 2));
+        var history = new List<ContextMessage>();
+        var views = new List<IReadOnlyList<string>>();
+        var maskedCounts = new List<int>();
+
+        // Act
+        for (var exchange = 0; exchange < GrowthExchanges; exchange++)
+        {
+            AddToolExchange(history, exchange);
+            var compacted = await strategy.CompactAsync(history.ToList(), GrowthAvailableTokens);
+            views.Add(Render(compacted.Messages));
+            maskedCounts.Add(CountMasked(compacted.Messages));
+        }
+
+        // Assert
+        var heldAfterMaskingStarted = 0;
+
+        for (var i = 1; i < views.Count; i++)
+        {
+            if (maskedCounts[i] != maskedCounts[i - 1])
+            {
+                continue;
+            }
+
+            Assert.Equal(views[i - 1], views[i].Take(views[i - 1].Count));
+            heldAfterMaskingStarted += maskedCounts[i] > 0 ? 1 : 0;
+        }
+
+        Assert.True(heldAfterMaskingStarted > 0);
+    }
+
+    [Fact]
+    public async Task CompactAsync_ForSameMessages_ReturnsSameResultWhetherCalledAfterEachAdditionOrOnce()
+    {
+        // Arrange
+        var options = new SlidingWindowOptions(windowSize: 2);
+        var drivenStrategy = new SlidingWindowStrategy(new TrackingTokenCounter(), options);
+        var history = new List<ContextMessage>();
+        var drivenView = Render([]);
+
+        for (var exchange = 0; exchange < GrowthExchanges; exchange++)
+        {
+            AddToolExchange(history, exchange);
+            drivenView = Render((await drivenStrategy.CompactAsync(history.ToList(), GrowthAvailableTokens)).Messages);
+        }
+
+        var freshStrategy = new SlidingWindowStrategy(new TrackingTokenCounter(), options);
+
+        // Act
+        var compactedOnce = await freshStrategy.CompactAsync(history, GrowthAvailableTokens);
+
+        // Assert
+        Assert.Equal(drivenView, Render(compactedOnce.Messages));
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenHistoryGrowsByOneToolExchangeAtATime_NeverReturnsMoreTokensThanMaskingUpToHighMark()
+    {
+        // Arrange
+        var strategy = new SlidingWindowStrategy(new TrackingTokenCounter(), new SlidingWindowOptions(windowSize: 2));
+        var history = new List<ContextMessage>();
+        var tokensAfter = new List<int>();
+        var tokensAfterMaskingUpToHighMark = new List<int>();
+
+        // Act
+        for (var exchange = 0; exchange < GrowthExchanges; exchange++)
+        {
+            AddToolExchange(history, exchange);
+            tokensAfter.Add((await strategy.CompactAsync(history.ToList(), GrowthAvailableTokens)).TokensAfter);
+            tokensAfterMaskingUpToHighMark.Add(CountTokensWhenMaskedBefore(history, FindProtectedStart(history, 2, GrowthHighMark)));
+        }
+
+        // Assert
+        Assert.All(tokensAfter.Zip(tokensAfterMaskingUpToHighMark), pair => Assert.True(pair.First <= pair.Second));
+    }
+
+    [Theory]
+    [InlineData(new[] { 15, 15, 15, 15, 15, 15, 15, 15, 15, 15 }, 6)]
+    [InlineData(new[] { 10, 10, 10, 10, 10, 10, 50, 10, 10 }, 7)]
+    [InlineData(new[] { 10, 10, 10, 10, 10, 10, 10, 50, 10 }, 6)]
+    [InlineData(new[] { 10, 10, 10, 50, 10, 10, 10, 10, 10, 10 }, 4)]
+    public async Task CompactAsync_WhenHistoryExceedsHighMark_PlacesBoundaryOnLastStepLineBetweenHighAndLowMarkWalks(
+        int[] tokenCounts,
+        int expectedBoundary)
+    {
+        // Arrange
+        var messages = tokenCounts
+            .Select((tokens, i) => CreateToolResultMessage($"call_{i}", "read_file", $"payload-{i}") with { TokenCount = tokens })
+            .ToList();
+
+        var strategy = new SlidingWindowStrategy(new TrackingTokenCounter(), new SlidingWindowOptions(windowSize: 1));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 100);
+
+        // Assert
+        var boundary = CountMasked(compacted.Messages);
+        Assert.InRange(boundary, FindProtectedStart(messages, 1, 80), FindProtectedStart(messages, 1, 60));
+        Assert.Equal(expectedBoundary, boundary);
+        Assert.All(compacted.Messages.Skip(boundary).Zip(messages.Skip(boundary)), pair => Assert.Same(pair.Second, pair.First));
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenNewestWindowAloneExceedsLowMark_MasksUpToHighMarkBoundary()
+    {
+        // Arrange
+        var messages = new List<ContextMessage>
+        {
+            CreateToolResultMessage("call_0", "read_file", "payload-0") with { TokenCount = 30 },
+            CreateToolResultMessage("call_1", "grep", "payload-1") with { TokenCount = 5 },
+            ContextMessage.FromText(MessageRole.Model, "older text") with { TokenCount = 50 },
+            ContextMessage.FromText(MessageRole.User, "newest text") with { TokenCount = 50 },
+        };
+
+        var strategy = new SlidingWindowStrategy(new TrackingTokenCounter(), new SlidingWindowOptions(windowSize: 2));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 100);
+
+        // Assert
+        Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
+        Assert.Equal(CompactionState.Masked, compacted.Messages[1].State);
+        Assert.Same(messages[2], compacted.Messages[2]);
+        Assert.Same(messages[3], compacted.Messages[3]);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenHistoryFitsUnderHighMarkButExceedsLowMark_MasksNothing()
+    {
+        // Arrange
+        var messages = Enumerable.Range(0, 4)
+            .Select(i => CreateToolResultMessage($"call_{i}", "read_file", $"payload-{i}") with { TokenCount = 20 })
+            .ToList();
+
+        var strategy = new SlidingWindowStrategy(new TrackingTokenCounter(), new SlidingWindowOptions(windowSize: 1));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 100);
+
+        // Assert
+        Assert.Same(messages, compacted.Messages);
+        Assert.Equal(0, compacted.MessagesAffected);
+    }
+
+    [Fact]
     public void SlidingWindowOptions_Default_ReturnsExpectedValues()
     {
         // Arrange
@@ -468,7 +666,7 @@ public sealed class SlidingWindowStrategyTests
         // Assert
         Assert.Equal(10, options.WindowSize);
         Assert.Equal(0.80, options.ProtectedWindowFraction);
-        Assert.Equal("[Tool result cleared — {0}, {1}]", options.PlaceholderFormat);
+        Assert.Equal("[Tool result removed to save context — {0}, {1}. Call the tool again if you need this content.]", options.PlaceholderFormat);
     }
 
     [Fact]
@@ -482,7 +680,7 @@ public sealed class SlidingWindowStrategyTests
         // Assert
         Assert.Equal(10, options.WindowSize);
         Assert.Equal(0.80, options.ProtectedWindowFraction);
-        Assert.Equal("[Tool result cleared — {0}, {1}]", options.PlaceholderFormat);
+        Assert.Equal("[Tool result removed to save context — {0}, {1}. Call the tool again if you need this content.]", options.PlaceholderFormat);
     }
 
     [Theory]
@@ -547,6 +745,75 @@ public sealed class SlidingWindowStrategyTests
             Role = MessageRole.User,
             Segments = [new ToolResultContent(toolCallId, toolName, payload)],
         };
+    }
+
+    /// <summary>
+    /// Appends one tool exchange of <see cref="ExchangeTokens"/> tokens: a model tool call and its result.
+    /// </summary>
+    /// <param name="history">The history to append to.</param>
+    /// <param name="exchange">The zero-based number of the exchange, used in the tool call identifier.</param>
+    private static void AddToolExchange(List<ContextMessage> history, int exchange)
+    {
+        var toolCallId = $"call_{exchange}";
+
+        history.Add(new ContextMessage
+        {
+            Role = MessageRole.Model,
+            Segments = [new ToolUseContent(toolCallId, "read_file", "{}")],
+            TokenCount = 10,
+        });
+        history.Add(CreateToolResultMessage(toolCallId, "read_file", $"payload-{exchange}") with { TokenCount = ExchangeTokens - 10 });
+    }
+
+    private static int CountMasked(IReadOnlyList<ContextMessage> messages)
+    {
+        return messages.Count(message => message.State == CompactionState.Masked);
+    }
+
+    /// <summary>
+    /// Renders each message as text so two results can be compared by content.
+    /// </summary>
+    /// <param name="messages">The messages to render.</param>
+    /// <returns>One line per message holding its role, state, and segment content.</returns>
+    private static IReadOnlyList<string> Render(IReadOnlyList<ContextMessage> messages)
+    {
+        return messages
+            .Select(message => $"{message.Role}|{message.State}|{string.Join("|", message.Segments.Select(segment => segment.ToString()))}")
+            .ToList();
+    }
+
+    /// <summary>
+    /// Finds the first message protected by a backward walk that keeps a floor of newest messages and then a token allowance.
+    /// </summary>
+    /// <param name="messages">The history, oldest first, with <see cref="ContextMessage.TokenCount"/> set on every message.</param>
+    /// <param name="windowSize">The number of newest messages that are always protected.</param>
+    /// <param name="allowance">The most tokens the protected messages may hold once the floor is met.</param>
+    /// <returns>The index of the first protected message.</returns>
+    private static int FindProtectedStart(IReadOnlyList<ContextMessage> messages, int windowSize, int allowance)
+    {
+        var protectedTokens = 0;
+        var start = messages.Count;
+
+        while (start > 0 && (messages.Count - start < windowSize || protectedTokens + messages[start - 1].TokenCount!.Value <= allowance))
+        {
+            start--;
+            protectedTokens += messages[start].TokenCount!.Value;
+        }
+
+        return start;
+    }
+
+    /// <summary>
+    /// Totals a history as if every tool result before an index were masked to a one-token placeholder message.
+    /// </summary>
+    /// <param name="messages">The history, oldest first, with <see cref="ContextMessage.TokenCount"/> set on every message.</param>
+    /// <param name="boundary">The index of the first message that keeps its content.</param>
+    /// <returns>The token total of the history masked up to <paramref name="boundary"/>.</returns>
+    private static int CountTokensWhenMaskedBefore(IReadOnlyList<ContextMessage> messages, int boundary)
+    {
+        return messages
+            .Select((message, i) => i < boundary && message.Segments.Any(segment => segment is ToolResultContent) ? 1 : message.TokenCount!.Value)
+            .Sum();
     }
 
     private sealed class TrackingTokenCounter : ITokenCounter

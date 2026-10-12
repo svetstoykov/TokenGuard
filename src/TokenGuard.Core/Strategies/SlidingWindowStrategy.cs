@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
@@ -19,13 +20,19 @@ namespace TokenGuard.Core.Strategies;
 ///         placeholders to reduce retained context size.
 ///     </para>
 ///     <para>
-///         The strategy walks backward from the newest message in the compactable slice supplied by
-///         <c>CompactAsync</c> and always protects at least <see cref="SlidingWindowOptions.WindowSize"/> messages when that many are
-///         available. After that floor is satisfied, the protected segment continues growing while the token allowance
-///         derived from <c>availableTokens</c> and
-///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> still permits more messages. Messages before that
-///         boundary keep their ordering and structure, but any <see cref="ToolResultContent"/> blocks are converted into
-///         text placeholders and the message state is marked as <see cref="CompactionState.Masked"/>.
+///         The strategy always protects at least <see cref="SlidingWindowOptions.WindowSize"/> newest messages of the
+///         compactable slice supplied by <c>CompactAsync</c>. Nothing is masked while the whole slice fits in
+///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> of <c>availableTokens</c>, the high mark. Above
+///         it, the protected part holds between the high mark and one step below it, where a step is one quarter of
+///         the high mark. Messages before the boundary keep their ordering and structure, but the content of every
+///         <see cref="ToolResultContent"/> block is replaced with a placeholder and the message state is marked as
+///         <see cref="CompactionState.Masked"/>.
+///     </para>
+///     <para>
+///         The boundary moves in steps and holds between them, so the result of one call is the start of the result
+///         of the next call until the history has grown by about a step. The boundary is derived from the history
+///         and the budget alone: the strategy keeps no state between calls, and the same messages always give the
+///         same result.
 ///     </para>
 /// </remarks>
 internal sealed class SlidingWindowStrategy : ICompactionStrategy
@@ -88,10 +95,11 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <remarks>
     ///     <para>
     ///         This method preserves the original ordering of <paramref name="messages"/> while calculating a protected
-    ///         tail from the newest compactable message backward. The protected boundary always includes at least
-    ///         <see cref="SlidingWindowOptions.WindowSize"/> newest messages when available, and then expands further while
-    ///         the token allowance produced from <paramref name="availableTokens"/> and
-    ///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> is not exceeded.
+    ///         tail from the newest compactable message backward. The protected tail always includes at least
+    ///         <see cref="SlidingWindowOptions.WindowSize"/> newest messages when available. Masking starts once the
+    ///         history exceeds <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> of
+    ///         <paramref name="availableTokens"/>; the tail then holds between that bound and one step below it, and its
+    ///         start moves one step at a time as the history grows.
     ///     </para>
     ///     <para>
     ///         Callers are expected to exclude pinned messages before invoking this method. As a result, every entry in
@@ -129,31 +137,21 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         ArgumentNullException.ThrowIfNull(messages);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var tokensBefore = CountTokens(messages, this._tokenCounter);
+        var tokenCounts = new int[messages.Count];
 
-        var maxProtectedTokens = (int)Math.Floor(availableTokens * this._options.ProtectedWindowFraction);
-        var protectedCount = 0;
-        var protectedTokens = 0;
-        var boundary = messages.Count;
-
-        for (var i = messages.Count - 1; i >= 0; i--)
+        for (var i = 0; i < messages.Count; i++)
         {
-            var candidateTokens = messages[i].TokenCount ?? this._tokenCounter.Count(messages[i]);
-
-            if (protectedCount >= this._options.WindowSize && protectedTokens + candidateTokens > maxProtectedTokens)
-            {
-                break;
-            }
-
-            protectedTokens += candidateTokens;
-            protectedCount++;
-            boundary = i;
+            tokenCounts[i] = messages[i].TokenCount ?? this._tokenCounter.Count(messages[i]);
         }
 
-        if (protectedCount == messages.Count)
+        var tokensBefore = tokenCounts.Sum();
+        var highMark = (int)Math.Floor(availableTokens * this._options.ProtectedWindowFraction);
+        var highBoundary = FindProtectedStart(tokenCounts, this._options.WindowSize, highMark);
+
+        if (highBoundary == 0)
         {
             SlidingWindowLog.SlidingWindowApplied(
-                this._logger, messages.Count, availableTokens, tokensBefore, tokensBefore, this._options.WindowSize, protectedCount, 0);
+                this._logger, messages.Count, availableTokens, tokensBefore, tokensBefore, this._options.WindowSize, messages.Count, 0);
 
             return Task.FromResult(new CompactionResult(
                 messages,
@@ -163,6 +161,8 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
                 nameof(SlidingWindowStrategy)));
         }
 
+        var boundary = FindSteppedBoundary(tokenCounts, this._options.WindowSize, highMark, highBoundary);
+        var protectedCount = messages.Count - boundary;
         var result = new ContextMessage[messages.Count];
         var messagesAffected = 0;
         var toolResultsMasked = 0;
@@ -234,6 +234,86 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)
     {
         return messages.Sum(message => message.TokenCount ?? tokenCounter.Count(message));
+    }
+
+    /// <summary>
+    ///     Finds the index of the oldest message that a backward walk from the newest message protects.
+    /// </summary>
+    /// <remarks>
+    ///     The walk protects the newest <paramref name="windowSize"/> messages whatever they cost, and then keeps
+    ///     going while the protected tokens stay within <paramref name="allowance"/>.
+    /// </remarks>
+    /// <param name="tokenCounts">The token count of each message, oldest first.</param>
+    /// <param name="windowSize">The number of newest messages that are always protected.</param>
+    /// <param name="allowance">The most tokens the protected messages may hold once the floor is met.</param>
+    /// <returns>The index of the first protected message, or the message count when there are no messages.</returns>
+    private static int FindProtectedStart(int[] tokenCounts, int windowSize, int allowance)
+    {
+        var protectedTokens = 0;
+        var start = tokenCounts.Length;
+
+        for (var i = tokenCounts.Length - 1; i >= 0; i--)
+        {
+            if (tokenCounts.Length - start >= windowSize && protectedTokens + tokenCounts[i] > allowance)
+            {
+                break;
+            }
+
+            protectedTokens += tokenCounts[i];
+            start = i;
+        }
+
+        return start;
+    }
+
+    /// <summary>
+    ///     Finds the masking boundary, which moves in steps so that consecutive results share their start.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         The step is <see cref="SlidingWindowDefaults.MaskingStepFraction"/> of <paramref name="highMark"/>, and
+    ///         the low mark is the high mark minus one step. Step lines are fixed positions in the history: index 0, and
+    ///         the first message boundary at or after each multiple of the step, counted in tokens from the oldest
+    ///         message. The boundary is the last step line at or before the index the walk reaches with the low mark as
+    ///         its allowance.
+    ///     </para>
+    ///     <para>
+    ///         The boundary depends only on the token counts and the marks, so the same history always gives the same
+    ///         boundary and it stays in place while the history grows by less than a step. It is never before
+    ///         <paramref name="highBoundary"/>, which keeps a result from growing past the high mark. A step of zero
+    ///         tokens gives <paramref name="highBoundary"/>.
+    ///     </para>
+    /// </remarks>
+    /// <param name="tokenCounts">The token count of each message, oldest first.</param>
+    /// <param name="windowSize">The number of newest messages that are always protected.</param>
+    /// <param name="highMark">The most tokens the protected messages may hold once the floor is met.</param>
+    /// <param name="highBoundary">The index the walk reaches with <paramref name="highMark"/> as its allowance.</param>
+    /// <returns>The index of the first message that is returned unchanged.</returns>
+    private static int FindSteppedBoundary(int[] tokenCounts, int windowSize, int highMark, int highBoundary)
+    {
+        var stepTokens = (int)Math.Floor(highMark * SlidingWindowDefaults.MaskingStepFraction);
+
+        if (stepTokens <= 0)
+        {
+            return highBoundary;
+        }
+
+        var lowBoundary = FindProtectedStart(tokenCounts, windowSize, highMark - stepTokens);
+        var lastStepLine = 0;
+        var tokensBeforeIndex = 0;
+
+        for (var i = 1; i <= lowBoundary; i++)
+        {
+            var stepsBefore = tokensBeforeIndex / stepTokens;
+            tokensBeforeIndex += tokenCounts[i - 1];
+
+            if (tokensBeforeIndex / stepTokens > stepsBefore)
+            {
+                lastStepLine = i;
+            }
+        }
+
+        return Math.Max(lastStepLine, highBoundary);
     }
 
     /// <summary>

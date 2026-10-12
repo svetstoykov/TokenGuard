@@ -61,8 +61,14 @@ public readonly record struct SlidingWindowOptions
     public int WindowSize { get; }
 
     /// <summary>
-    /// Gets the fraction of available tokens reserved for the protected newest-message window.
+    /// Gets the largest fraction of available tokens the protected newest-message window may hold.
     /// </summary>
+    /// <remarks>
+    /// Nothing is masked while the compactable history fits in this fraction. Above it, the protected window holds
+    /// between this bound and one step below it, where a step is one quarter of the bound: the masking boundary stays
+    /// in place while the history grows and moves one step at a time. The default is 0.80, which gives a step of 0.20
+    /// of the available tokens.
+    /// </remarks>
     public double ProtectedWindowFraction { get; }
 
     /// <summary>

@@ -5,7 +5,8 @@ namespace TokenGuard.Core.Defaults;
 /// </summary>
 /// <remarks>
 /// The default profile always preserves at least the newest 10 messages, allows that protected window to grow until it
-/// reaches 80% of available tokens, and replaces older tool results with a standardized placeholder string.
+/// reaches 80% of available tokens, moves the masking boundary in steps of a quarter of that allowance, and replaces
+/// older tool results with a standardized placeholder string.
 /// </remarks>
 internal static class SlidingWindowDefaults
 {
@@ -21,7 +22,12 @@ internal static class SlidingWindowDefaults
     internal const double ProtectedWindowFraction = 0.80;
 
     /// <summary>
+    /// Gets the share of the protected-window allowance by which the masking boundary moves at a time.
+    /// </summary>
+    internal const double MaskingStepFraction = 0.25;
+
+    /// <summary>
     /// Gets the default placeholder format used when masking older tool results.
     /// </summary>
-    internal const string PlaceholderFormat = "[Tool result cleared — {0}, {1}]";
+    internal const string PlaceholderFormat = "[Tool result removed to save context — {0}, {1}. Call the tool again if you need this content.]";
 }

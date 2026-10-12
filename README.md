@@ -267,6 +267,10 @@ Three ordered tiers:
 **1. Observation masking.** The sliding-window strategy walks backward through compactable history and masks older
 `ToolResultContent` payloads outside the protected tail. Recent messages stay intact and structure is preserved.
 
+A masked tool result is gone from the request, and the model can get it back only by calling the tool again. Say so in
+your system prompt, and do not tell the model to avoid re-reading: the default placeholder reads
+`[Tool result removed to save context — read_file, call_abc123. Call the tool again if you need this content.]`
+
 **2. LLM summarization** *(opt-in — register with `UseLlmSummarization(...)`)*. If masking still leaves the compactable
 history over budget, TokenGuard asks your LLM to collapse the older prefix into one summary message. The recent tail
 stays verbatim. While the history ends with a tool result, the user message that opened that tool loop also stays

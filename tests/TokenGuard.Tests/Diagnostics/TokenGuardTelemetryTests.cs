@@ -314,8 +314,9 @@ public sealed class TokenGuardTelemetryTests
             : new LlmSummarizationStrategy(
                 summarizer, counter, new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 5, maxSummaryTokens: 50),
                 loggers.CreateLogger<LlmSummarizationStrategy>(), diagnostics);
+        var masking = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20, placeholderFormat: "[Tool result cleared — {0}, {1}]");
         var strategy = new TieredCompactionStrategy(
-            counter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20), summarization,
+            counter, masking, summarization,
             loggers.CreateLogger<TieredCompactionStrategy>(), loggers.CreateLogger<SlidingWindowStrategy>());
 
         return new ConversationContext(CreateBudget(emergencyThreshold), counter, strategy, diagnostics);
