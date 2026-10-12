@@ -255,7 +255,12 @@ public sealed class AnthropicExtensionsTests
         // Arrange
         IReadOnlyList<ContextMessage> messages =
         [
-            new ContextMessage { Role = MessageRole.Model, State = CompactionState.Summarized, Segments = [new TextContent("summary of earlier turns")] },
+            new ContextMessage
+            {
+                Role = MessageRole.Model,
+                State = CompactionState.Summarized,
+                Segments = [new TextContent("summary of earlier turns")],
+            },
             ContextMessage.FromText(MessageRole.User, "continue"),
         ];
 
@@ -347,7 +352,11 @@ public sealed class AnthropicExtensionsTests
             new ContextMessage
             {
                 Role = MessageRole.Model,
-                Segments = [new ToolUseContent("call_masked", "search", "{\"query\":\"token guard\"}"), new ToolUseContent("call_unmasked", "fetch", "{\"id\":2}")],
+                Segments =
+                [
+                    new ToolUseContent("call_masked", "search", "{\"query\":\"token guard\"}"),
+                    new ToolUseContent("call_unmasked", "fetch", "{\"id\":2}"),
+                ],
             },
             new ContextMessage
             {
