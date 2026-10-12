@@ -181,14 +181,36 @@ That means the strategy budget in the current implementation is computed as `Max
 It walks backward from the newest compactable message and builds a protected tail:
 
 - it always protects at least `SlidingWindowOptions.WindowSize` newest messages
-- after that floor is satisfied, it keeps expanding the tail while token cost stays within
-  `availableTokens * ProtectedWindowFraction`
+- after that floor is satisfied, it keeps expanding the tail while token cost stays within an allowance
+
+Nothing is masked while the whole compactable history fits in the high mark, `availableTokens * ProtectedWindowFraction`
+(80% by default). Once the history exceeds it, the boundary between masked and whole messages moves in steps:
+
+- the step is one quarter of the high mark, 20% of `availableTokens` by default, and is not configurable
+- the low mark is the high mark minus one step, 60% by default
+- step lines are fixed positions in the history: index 0, and the first message boundary at or after each multiple of
+  the step, counted in tokens from the oldest compactable message
+- the boundary is the last step line at or before the point the walk reaches with the low mark as its allowance
+- the boundary is never placed before the point the walk reaches with the high mark as its allowance, so the protected
+  tail holds between the low mark and the high mark
+
+Between two steps the boundary stays where it is, so a prepared view is the previous view plus the new messages at the
+end. A provider prompt cache or a local model server can then reuse the whole previous request. The boundary moves
+about once per step of growth. When the newest `WindowSize` messages alone exceed the low mark, the boundary follows
+the high-mark walk and can move on every call.
+
+The boundary is derived from the history and the budget on every call. Nothing is remembered between calls, so the
+same messages always give the same view, whether they were recorded one by one or restored at once. Step lines depend
+on `availableTokens`, so pinning a new message or changing the system prompt can move them once.
 
 Messages before the boundary stay in place, but older `ToolResultContent` segments are replaced with placeholders.
 
 ```text
-[Tool result cleared — read_file, call_abc123]
+[Tool result removed to save context — read_file, call_abc123. Call the tool again if you need this content.]
 ```
+
+The placeholder tells the model how to get the content back. A system prompt should say the same, and should not forbid
+calling a tool again for content the model has already seen.
 
 Only the `Content` string changes. The segment **stays** `ToolResultContent`. That detail is crucial because provider
 adapters dispatch on segment type.
@@ -478,8 +500,8 @@ dependency injection. It does not expose `WithTokenCounter(...)`, `WithStrategy(
 | Property | Default | Meaning |
 |---|---|---|
 | `WindowSize` | 10 | Minimum newest compactable messages always preserved |
-| `ProtectedWindowFraction` | 0.80 | Max fraction of `availableTokens` the protected tail may consume after the floor is satisfied |
-| `PlaceholderFormat` | `"[Tool result cleared — {0}, {1}]"` | Placeholder format for masked tool results |
+| `ProtectedWindowFraction` | 0.80 | Max fraction of `availableTokens` the protected tail may consume after the floor is satisfied; the tail holds between this bound and one step (a quarter of it) below |
+| `PlaceholderFormat` | `"[Tool result removed to save context — {0}, {1}. Call the tool again if you need this content.]"` | Placeholder format for masked tool results; `{0}` is the tool name and `{1}` the tool call ID |
 
 ### `LlmSummarizationOptions`
 

@@ -286,7 +286,7 @@ public sealed class OpenAIExtensionsTests
                 State = CompactionState.Masked,
                 Segments =
                 [
-                    new ToolResultContent("call_1", "search", "[Tool result cleared - search, call_1]"),
+                    new ToolResultContent("call_1", "search", "[Tool result removed to save context — search, call_1. Call the tool again if you need this content.]"),
                 ],
             },
         ];
@@ -303,7 +303,7 @@ public sealed class OpenAIExtensionsTests
 
         var tool = result[1].Should().BeOfType<ToolChatMessage>().Subject;
         tool.ToolCallId.Should().Be("call_1");
-        tool.Content[0].Text.Should().Be("[Tool result cleared - search, call_1]");
+        tool.Content[0].Text.Should().Be("[Tool result removed to save context — search, call_1. Call the tool again if you need this content.]");
     }
 
     [Fact]
@@ -327,7 +327,7 @@ public sealed class OpenAIExtensionsTests
                 State = CompactionState.Masked,
                 Segments =
                 [
-                    new ToolResultContent("call_masked", "search", "[Tool result cleared - search, call_masked]"),
+                    new ToolResultContent("call_masked", "search", "[Tool result removed to save context — search, call_masked. Call the tool again if you need this content.]"),
                 ],
             },
             new ContextMessage
@@ -377,7 +377,7 @@ public sealed class OpenAIExtensionsTests
                 State = CompactionState.Masked,
                 Segments =
                 [
-                    new ToolResultContent("call_masked", "search", "[Tool result cleared - search, call_masked]"),
+                    new ToolResultContent("call_masked", "search", "[Tool result removed to save context — search, call_masked. Call the tool again if you need this content.]"),
                 ],
             },
             new ContextMessage

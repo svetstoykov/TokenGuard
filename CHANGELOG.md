@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in its message, for example `OpenAI summarization returned an empty answer. Finish reason: length; output tokens: 20;
   reasoning tokens: 19.` The exception is attached to event 1013 (`SummarizationFailed`) and returned as
   `PrepareResult.SummarizationError`.
+- Tool-result masking moves its boundary in steps. Nothing is masked until the compactable history exceeds
+  `SlidingWindowOptions.ProtectedWindowFraction` of the available tokens (80% by default), as before. Above that, the
+  boundary used to be worked out again on every call and crept forward as the history grew; it now sits on a step line
+  and holds until the history has grown by about one step, a quarter of that fraction (20% of the available tokens by
+  default). Between two steps a prepared view is the previous view plus the new messages, so a provider prompt cache or
+  a local model server can reuse the whole previous request. A prepared view masks further back at a step, so it
+  differs from the one 1.1.0 produces for the same history, and the unmasked tail holds between 60% and 80% of the
+  available tokens instead of staying close to 80%. The step is not configurable and no public member changed.
+- The default `SlidingWindowOptions.PlaceholderFormat` is `[Tool result removed to save context — {0}, {1}. Call the
+  tool again if you need this content.]` instead of `[Tool result cleared — {0}, {1}]`, so masked results carry the new
+  text. `{0}` is still the tool name and `{1}` the tool call ID. A custom format is unaffected. The new text is longer,
+  so a masked result costs a few more tokens than before.
 
 ### Fixed
 

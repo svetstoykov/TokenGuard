@@ -47,7 +47,7 @@ public sealed class ConversationContextIntegrationTests
 
         var compactedToolResult = compactedMessages.FirstOrDefault(m =>
             m.Role == MessageRole.Tool &&
-            m.Segments.Any(c => c is ToolResultContent tc && tc.Content.Contains("[Tool result cleared", StringComparison.OrdinalIgnoreCase)));
+            m.Segments.Any(c => c is ToolResultContent tc && tc.Content.Contains("[Tool result removed to save context", StringComparison.OrdinalIgnoreCase)));
 
         compactedToolResult.Should().NotBeNull(
             because: "old oversized tool output should be masked during compaction");

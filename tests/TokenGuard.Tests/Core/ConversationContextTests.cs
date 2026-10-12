@@ -487,7 +487,7 @@ public sealed class ConversationContextTests
             State = CompactionState.Masked,
             Segments =
             [
-                new ToolResultContent("call_masked", "search", "[Tool result cleared - search, call_masked]"),
+                new ToolResultContent("call_masked", "search", "[Tool result removed to save context — search, call_masked. Call the tool again if you need this content.]"),
             ],
         };
 
