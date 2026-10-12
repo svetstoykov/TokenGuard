@@ -271,8 +271,8 @@ public sealed class SlidingWindowStrategyTests
         var masked = compacted.Messages[0];
         var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(masked.Segments));
         Assert.Equal("call_1", toolResult.ToolCallId);
-        Assert.Equal("call_1", toolResult.ToolName);
-        Assert.Equal("[Tool result cleared — call_1, call_1]", toolResult.Content);
+        Assert.Equal("calculator", toolResult.ToolName);
+        Assert.Equal("[Tool result cleared — calculator, call_1]", toolResult.Content);
         Assert.Equal(8, compacted.TokensBefore);
         Assert.Equal(5, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
@@ -335,8 +335,8 @@ public sealed class SlidingWindowStrategyTests
         Assert.Equal("prefix", Assert.IsType<TextContent>(compactedBlocks[0]).Content);
         var maskedToolResult = Assert.IsType<ToolResultContent>(compactedBlocks[1]);
         Assert.Equal("call_1", maskedToolResult.ToolCallId);
-        Assert.Equal("call_1", maskedToolResult.ToolName);
-        Assert.Equal("[Tool result cleared — call_1, call_1]", maskedToolResult.Content);
+        Assert.Equal("tool", maskedToolResult.ToolName);
+        Assert.Equal("[Tool result cleared — tool, call_1]", maskedToolResult.Content);
         Assert.Equal("suffix", Assert.IsType<TextContent>(compactedBlocks[2]).Content);
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
@@ -369,27 +369,18 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
-    public async Task CompactAsync_PlaceholderUsesResolvedToolName_WhenMatchingToolUseExistsInAnyMessage()
+    public async Task CompactAsync_WhenTwoToolCallsShareAnId_EachMaskedResultKeepsItsOwnToolName()
     {
         // Arrange
-        var toolUseMessage = new ContextMessage
-        {
-            Role = MessageRole.Model,
-            Segments = [new ToolUseContent("call_1", "calculator", "{}")],
-        };
-
-        var toolResultMessage = new ContextMessage
-        {
-            Role = MessageRole.User,
-            Segments = [new ToolResultContent("call_1", "ignored-name", "42")],
-        };
-
+        var firstToolUse = new ContextMessage { Role = MessageRole.Model, Segments = [new ToolUseContent("call_1", "read_file", "{}")] };
+        var firstToolResult = CreateToolResultMessage("call_1", "read_file", "file text");
+        var secondToolUse = new ContextMessage { Role = MessageRole.Model, Segments = [new ToolUseContent("call_1", "grep", "{}")] };
+        var secondToolResult = CreateToolResultMessage("call_1", "grep", "matches");
         var protectedMessage = ContextMessage.FromText(MessageRole.User, "recent");
-        var messages = new List<ContextMessage> { toolUseMessage, toolResultMessage, protectedMessage };
+        var messages = new List<ContextMessage> { firstToolUse, firstToolResult, secondToolUse, secondToolResult, protectedMessage };
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(protectedMessage, 7);
-        tokenCounter.Set(toolResultMessage, 7);
 
         var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
@@ -397,17 +388,16 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
-        var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[1].Segments));
-        Assert.Equal("call_1", toolResult.ToolCallId);
-        Assert.Equal("calculator", toolResult.ToolName);
-        Assert.Equal("[Tool result cleared — calculator, call_1]", toolResult.Content);
-        Assert.Equal(15, compacted.TokensBefore);
-        Assert.Equal(9, compacted.TokensAfter);
-        Assert.Equal(1, compacted.MessagesAffected);
+        var firstMasked = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[1].Segments));
+        Assert.Equal("read_file", firstMasked.ToolName);
+        Assert.Equal("[Tool result cleared — read_file, call_1]", firstMasked.Content);
+        var secondMasked = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[3].Segments));
+        Assert.Equal("grep", secondMasked.ToolName);
+        Assert.Equal("[Tool result cleared — grep, call_1]", secondMasked.Content);
     }
 
     [Fact]
-    public async Task CompactAsync_PlaceholderFallsBackToToolCallId_WhenNoToolUseExists()
+    public async Task CompactAsync_PlaceholderUsesToolNameOfResult_WhenNoToolUseExists()
     {
         // Arrange
         var exposed = CreateToolResultMessage("call_missing", "result-tool", "payload");
@@ -426,8 +416,8 @@ public sealed class SlidingWindowStrategyTests
         // Assert
         var toolResult = Assert.IsType<ToolResultContent>(Assert.Single(compacted.Messages[0].Segments));
         Assert.Equal("call_missing", toolResult.ToolCallId);
-        Assert.Equal("call_missing", toolResult.ToolName);
-        Assert.Equal("[Tool result cleared — call_missing, call_missing]", toolResult.Content);
+        Assert.Equal("result-tool", toolResult.ToolName);
+        Assert.Equal("[Tool result cleared — result-tool, call_missing]", toolResult.Content);
         Assert.Equal(12, compacted.TokensBefore);
         Assert.Equal(7, compacted.TokensAfter);
         Assert.Equal(1, compacted.MessagesAffected);
