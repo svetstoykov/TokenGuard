@@ -4,7 +4,7 @@ OpenAI adapter package for TokenGuard on .NET 10. It converts prepared TokenGuar
 
 ```csharp
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(25_000)
+    .WithMaxTokens(40_000)
     .UseLlmSummarization(chatClient));
 
 var prepared = await conversation.PrepareAsync(cancellationToken);
@@ -38,7 +38,7 @@ dotnet add package TokenGuard.Extensions.OpenAI
 using TokenGuard.Extensions.OpenAI;
 
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(25_000)
+    .WithMaxTokens(40_000)
     .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 12))
     .UseLlmSummarization(chatClient));
 ```

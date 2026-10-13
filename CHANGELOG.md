@@ -51,6 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller cancelled is not remembered.
 - Documentation states that a summarizer call has no time limit of its own: it is bounded only by the cancellation
   token passed to `PrepareAsync()` and by the provider client's network timeout.
+- The examples in the root README and the three package READMEs use a 40,000-token window, so compaction starts at
+  32,000 tokens. The OpenAI quick start is one program that runs as pasted into a new console project, with its package
+  list, and the Observability section of the README has a program that prints log records, activities, and metrics and
+  names the console logging provider and the console exporter it needs.
+- Documentation states the overrun tolerance where it describes over-budget outcomes: a prepared request up to
+  `MaxTokens` plus the tolerance (5% of `MaxTokens` by default) is `Compacted` or `Ready`, and only one above that is
+  `CompactionInsufficient` or `CannotCompact`. It also states that preparing a context with no messages returns an
+  empty `Ready` result, so the caller records at least one user message before the first model call.
 - A masked tool result is labelled with the tool name recorded on that result. The name used to be looked up by tool
   call ID across the whole history, so when two tool calls shared an ID both placeholders named the later tool. The
   masked `ToolResultContent.ToolName` and the `{0}` argument of `SlidingWindowOptions.PlaceholderFormat` are now the

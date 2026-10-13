@@ -110,13 +110,90 @@ dotnet add package TokenGuard.Extensions.OpenAI      # or Anthropic
 
 ## Quick start
 
-### 1. Register at startup
+The program below is a complete agent loop against OpenAI with one tool. Create a console project and add three
+packages:
+
+```bash
+dotnet new console -n TokenGuardQuickStart
+cd TokenGuardQuickStart
+dotnet add package TokenGuard.Core
+dotnet add package TokenGuard.Extensions.OpenAI
+dotnet add package Microsoft.Extensions.DependencyInjection
+```
+
+Replace the contents of `Program.cs` with the program, set the `OPENAI_API_KEY` environment variable, and run
+`dotnet run`. The OpenAI SDK arrives through `TokenGuard.Extensions.OpenAI`.
 
 ```csharp
+using Microsoft.Extensions.DependencyInjection;
+using OpenAI.Chat;
+using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Enums;
+using TokenGuard.Core.Extensions;
+using TokenGuard.Extensions.OpenAI;
+
+var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+    ?? throw new InvalidOperationException("Set the OPENAI_API_KEY environment variable.");
+var chatClient = new ChatClient("gpt-5.4-nano", apiKey);
+var chatOptions = new ChatCompletionOptions
+{
+    Tools = { ChatTool.CreateFunctionTool("list_failing_tests", "Lists the tests that fail in the repository.") },
+};
+
+var services = new ServiceCollection();
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(25_000)
+    .WithMaxTokens(40_000)
     .WithCompactionThreshold(0.80));
+
+using var serviceProvider = services.BuildServiceProvider();
+using var conversationContext = serviceProvider
+    .GetRequiredService<IConversationContextFactory>()
+    .Create();
+
+conversationContext.SetSystemPrompt("You are a precise coding assistant.");
+conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
+conversationContext.AddUserMessage("Summarize the failing tests.");
+
+while (true)
+{
+    var prepared = await conversationContext.PrepareAsync();
+
+    if (prepared.Outcome == PrepareOutcome.CannotCompact)
+        throw new InvalidOperationException(prepared.BudgetFailureReason);
+
+    ChatCompletion response = await chatClient.CompleteChatAsync(prepared.Messages.ForOpenAI(), chatOptions);
+
+    conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+
+    if (response.ToolCalls.Count == 0)
+    {
+        Console.WriteLine(response.Content[0].Text);
+        break;
+    }
+
+    foreach (var toolCall in response.ToolCalls)
+    {
+        var result = ExecuteTool(toolCall);
+        conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
+    }
+}
+
+static string ExecuteTool(ChatToolCall toolCall) => toolCall.FunctionName switch
+{
+    "list_failing_tests" => "OrderTests.Total_IncludesTax failed: expected 108.00 but was 100.00.",
+    _ => $"Unknown tool {toolCall.FunctionName}.",
+};
 ```
+
+`PrepareAsync()` returns a `PrepareResult`, not just a message list. `PrepareResult.Messages` is the prepared snapshot
+to send to the provider. `ConversationContext.History` remains unchanged.
+
+`PrepareAsync()` returns what was recorded, so a context with no messages gives an empty `Ready` result: record at least
+one user message before the first model call.
+
+### Register at startup
+
+The program registers a 40,000-token window with `AddConversationContext(...)`, so compaction starts at 32,000 tokens.
 
 Default built-in pipeline starts compaction at **80%**, always runs sliding-window masking first, and keeps LLM summarization
 off until you register it explicitly.
@@ -142,72 +219,23 @@ Sliding-window masking is always active. Add provider-backed summarization throu
 
 ```csharp
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(25_000)
+    .WithMaxTokens(40_000)
     .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 12))
     .UseLlmSummarization(chatClient));
 ```
 
 ```csharp
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(25_000)
+    .WithMaxTokens(40_000)
     .UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest"));
 ```
 
-### 2. Create a context per conversation
-
-```csharp
-using var conversationContext = serviceProvider
-    .GetRequiredService<IConversationContextFactory>()
-    .Create();
-```
+### Create a context per conversation
 
 Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, so separate contexts can
 be used concurrently. A single context is for one caller at a time and nothing enforces that: if you record tool results
 from parallel tool calls on one context, serialize the calls yourself. Use `Create("analysis")` when you want a named
 profile.
-
-### 3. Run the loop
-
-The loop continues with the `conversationContext` created in step 2.
-
-```csharp
-using OpenAI.Chat;
-using TokenGuard.Core.Enums;
-using TokenGuard.Extensions.OpenAI;
-
-conversationContext.SetSystemPrompt("You are a precise coding assistant.");
-conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
-conversationContext.AddUserMessage("Summarize the failing tests.");
-
-while (true)
-{
-    var prepared = await conversationContext.PrepareAsync(cancellationToken);
-
-    if (prepared.Outcome == PrepareOutcome.CannotCompact)
-        throw new InvalidOperationException(prepared.BudgetFailureReason);
-
-    ChatCompletion response = await chatClient.CompleteChatAsync(
-        prepared.Messages.ForOpenAI(),
-        chatOptions,
-        cancellationToken);
-
-    conversationContext.RecordModelResponse(
-        response.ResponseSegments(),
-        response.InputTokens());
-
-    if (response.ToolCalls.Count == 0)
-        break;
-
-    foreach (var toolCall in response.ToolCalls)
-    {
-        var result = toolExecutor.Execute(toolCall);
-        conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
-    }
-}
-```
-
-`PrepareAsync()` returns a `PrepareResult`, not just a message list. `PrepareResult.Messages` is the prepared snapshot
-to send to the provider. `ConversationContext.History` remains unchanged.
 
 ---
 
@@ -287,8 +315,10 @@ A turn group is one unpinned user message and everything recorded after it up to
 model replies, tool calls, and tool results that answer it. Groups come from the messages themselves, so a history
 recorded in one go is grouped like the same history recorded turn by turn. An older group is dropped whole. The newest
 group, still in progress, keeps its user message and loses its oldest tool exchanges first, and a tool call always goes
-together with its results. If the preserved messages alone exceed the budget, the outcome is `CompactionInsufficient` or
-`CannotCompact`, never `Compacted`.
+together with its results. If the preserved messages alone exceed `MaxTokens` by more than the overrun tolerance (5% of
+`MaxTokens` by default, set with `WithOverrunTolerance(...)`), the outcome is `CompactionInsufficient`, or
+`CannotCompact` when nothing was masked, summarized, or dropped. An overrun within the tolerance counts as fitting, and
+the outcome is `Compacted`, or `Ready` when no message changed.
 
 ---
 
@@ -408,13 +438,43 @@ Provider-reported input tokens still help when they are available:
 ## Observability
 
 Logs go to the container's `ILoggerFactory` for contexts created by `IConversationContextFactory` resolved from the
-container, or to `WithLoggerFactory(...)` without DI. Tracing and metrics subscribe by name:
+container, or to `WithLoggerFactory(...)` without DI. Tracing and metrics subscribe by name.
+
+TokenGuard prints nothing by itself. The program below writes its log records, activities, and metrics to the console
+without calling a model. Besides `TokenGuard.Core` and `Microsoft.Extensions.DependencyInjection` it needs the console
+logging provider, `Microsoft.Extensions.Logging.Console`, and the OpenTelemetry console exporter,
+`OpenTelemetry.Exporter.Console`:
 
 ```csharp
-builder.Services.AddOpenTelemetry()
-    .WithTracing(t => t.AddSource(TokenGuardDiagnostics.ActivitySourceName))
-    .WithMetrics(m => m.AddMeter(TokenGuardDiagnostics.MeterName));
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
+using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Diagnostics;
+using TokenGuard.Core.Extensions;
+
+using var tracerProvider = Sdk.CreateTracerProviderBuilder()
+    .AddSource(TokenGuardDiagnostics.ActivitySourceName)
+    .AddConsoleExporter()
+    .Build();
+using var meterProvider = Sdk.CreateMeterProviderBuilder()
+    .AddMeter(TokenGuardDiagnostics.MeterName)
+    .AddConsoleExporter()
+    .Build();
+
+var services = new ServiceCollection();
+services.AddLogging(logging => logging.AddConsole().SetMinimumLevel(LogLevel.Debug));
+services.AddConversationContext(builder => builder.WithMaxTokens(40_000));
+
+using var serviceProvider = services.BuildServiceProvider();
+using var conversationContext = serviceProvider.GetRequiredService<IConversationContextFactory>().Create();
+
+conversationContext.AddUserMessage("Summarize the failing tests.");
+await conversationContext.PrepareAsync();
 ```
+
 None of it contains conversation content. See [Observability](docs/observability.md) for event IDs, instruments, and levels.
 
 ## Without DI
@@ -424,7 +484,7 @@ If you're not using a container, construct a factory directly:
 ```csharp
 var factory = new ConversationContextFactory(
     new ConversationConfigBuilder()
-        .WithMaxTokens(25_000)
+        .WithMaxTokens(40_000)
         .WithCompactionThreshold(0.80)
         .Build());
 

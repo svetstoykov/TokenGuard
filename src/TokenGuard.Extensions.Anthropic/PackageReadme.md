@@ -4,7 +4,7 @@ Anthropic adapter package for TokenGuard on .NET 10. It converts prepared TokenG
 
 ```csharp
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(25_000)
+    .WithMaxTokens(40_000)
     .UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest"));
 
 var prepared = await conversation.PrepareAsync(cancellationToken);
@@ -35,7 +35,7 @@ dotnet add package TokenGuard.Extensions.Anthropic
 using TokenGuard.Extensions.Anthropic;
 
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(25_000)
+    .WithMaxTokens(40_000)
     .UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest"));
 ```
 

@@ -43,38 +43,33 @@ dotnet add package TokenGuard.Extensions.OpenAI
 
 ## Quick start
 
-### 1. Register at startup
+The program below is a complete agent loop against OpenAI with one tool. In a new console project, add the two packages above and `Microsoft.Extensions.DependencyInjection`, replace the contents of `Program.cs` with the program, set the `OPENAI_API_KEY` environment variable, and run `dotnet run`.
 
 ```csharp
+using Microsoft.Extensions.DependencyInjection;
+using OpenAI.Chat;
+using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Enums;
+using TokenGuard.Core.Extensions;
+using TokenGuard.Extensions.OpenAI;
+
+var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+    ?? throw new InvalidOperationException("Set the OPENAI_API_KEY environment variable.");
+var chatClient = new ChatClient("gpt-5.4-nano", apiKey);
+var chatOptions = new ChatCompletionOptions
+{
+    Tools = { ChatTool.CreateFunctionTool("list_failing_tests", "Lists the tests that fail in the repository.") },
+};
+
+var services = new ServiceCollection();
 services.AddConversationContext(builder => builder
-    .WithMaxTokens(25_000)
+    .WithMaxTokens(40_000)
     .WithCompactionThreshold(0.80));
-```
 
-Default built-in pipeline starts compaction at **80%**, always runs sliding-window masking first, and keeps LLM summarization off until you register it explicitly.
-
-Emergency truncation is **on by default at 1.0**. It fires only at the absolute token limit and acts as a last-resort safety net after the normal compaction pipeline has already run.
-
-Override with `WithEmergencyThreshold(0.95)` to trigger earlier, or call `WithoutEmergencyThreshold()` to disable it entirely.
-
-### 2. Create a context per conversation
-
-```csharp
+using var serviceProvider = services.BuildServiceProvider();
 using var conversationContext = serviceProvider
     .GetRequiredService<IConversationContextFactory>()
     .Create();
-```
-
-Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, so separate contexts can be used concurrently. A single context is for one caller at a time and nothing enforces that: if you record tool results from parallel tool calls on one context, serialize the calls yourself.
-
-### 3. Run the loop
-
-The loop continues with the `conversationContext` created in step 2.
-
-```csharp
-using OpenAI.Chat;
-using TokenGuard.Core.Enums;
-using TokenGuard.Extensions.OpenAI;
 
 conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
@@ -82,32 +77,52 @@ conversationContext.AddUserMessage("Summarize the failing tests.");
 
 while (true)
 {
-    var prepared = await conversationContext.PrepareAsync(cancellationToken);
+    var prepared = await conversationContext.PrepareAsync();
 
     if (prepared.Outcome == PrepareOutcome.CannotCompact)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
-    ChatCompletion response = await chatClient.CompleteChatAsync(
-        prepared.Messages.ForOpenAI(),
-        chatOptions,
-        cancellationToken);
+    ChatCompletion response = await chatClient.CompleteChatAsync(prepared.Messages.ForOpenAI(), chatOptions);
 
-    conversationContext.RecordModelResponse(
-        response.ResponseSegments(),
-        response.InputTokens());
+    conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
 
     if (response.ToolCalls.Count == 0)
+    {
+        Console.WriteLine(response.Content[0].Text);
         break;
+    }
 
     foreach (var toolCall in response.ToolCalls)
     {
-        var result = toolExecutor.Execute(toolCall);
+        var result = ExecuteTool(toolCall);
         conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
     }
 }
+
+static string ExecuteTool(ChatToolCall toolCall) => toolCall.FunctionName switch
+{
+    "list_failing_tests" => "OrderTests.Total_IncludesTax failed: expected 108.00 but was 100.00.",
+    _ => $"Unknown tool {toolCall.FunctionName}.",
+};
 ```
 
 `PrepareAsync()` returns a `PrepareResult`, not just a message list. `PrepareResult.Messages` is the prepared snapshot to send to the provider. `ConversationContext.History` remains unchanged.
+
+`PrepareAsync()` returns what was recorded, so a context with no messages gives an empty `Ready` result: record at least one user message before the first model call.
+
+### Register at startup
+
+The program registers a 40,000-token window with `AddConversationContext(...)`, so compaction starts at 32,000 tokens.
+
+Default built-in pipeline starts compaction at **80%**, always runs sliding-window masking first, and keeps LLM summarization off until you register it explicitly.
+
+Emergency truncation is **on by default at 1.0**. It fires only at the absolute token limit and acts as a last-resort safety net after the normal compaction pipeline has already run.
+
+Override with `WithEmergencyThreshold(0.95)` to trigger earlier, or call `WithoutEmergencyThreshold()` to disable it entirely.
+
+### Create a context per conversation
+
+Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, so separate contexts can be used concurrently. A single context is for one caller at a time and nothing enforces that: if you record tool results from parallel tool calls on one context, serialize the calls yourself.
 
 ## Observability
 
