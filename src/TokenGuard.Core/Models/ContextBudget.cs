@@ -131,7 +131,16 @@ public readonly record struct ContextBudget
     /// </summary>
     public int? EmergencyTriggerTokens => this.EmergencyThreshold.HasValue
         ? (int)Math.Floor(this.MaxTokens * this.EmergencyThreshold.Value)
-        : null; 
+        : null;
+
+    /// <summary>
+    /// Gets a value indicating whether this value was created by the constructor.
+    /// </summary>
+    /// <value>
+    /// <see langword="true"/> if the constructor produced this value; <see langword="false"/> for
+    /// <c>default(ContextBudget)</c>, whose <see cref="MaxTokens"/> is zero.
+    /// </value>
+    internal bool IsInitialized => this.MaxTokens > 0;
 
     /// <summary>
     /// Creates a <see cref="ContextBudget"/> that uses the library's default threshold policy.

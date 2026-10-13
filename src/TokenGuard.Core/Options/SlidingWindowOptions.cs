@@ -40,6 +40,17 @@ public readonly record struct SlidingWindowOptions
     /// <param name="windowSize">The minimum number of newest messages to preserve unchanged before the token cap can stop the backward walk.</param>
     /// <param name="protectedWindowFraction">The fraction of <see cref="ContextBudget.MaxTokens"/> reserved for the protected newest-message window.</param>
     /// <param name="placeholderFormat">The composite format string used when replacing older tool results, where <c>{0}</c> is the tool name and <c>{1}</c> is the tool call identifier.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="windowSize"/> is not greater than zero.
+    /// -or-
+    /// <paramref name="protectedWindowFraction"/> is not a finite number or is outside the range (0.0, 1.0).
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="placeholderFormat"/> is <see langword="null"/> or whitespace.
+    /// -or-
+    /// <paramref name="placeholderFormat"/> is not a valid composite format string, or uses an index other than
+    /// <c>{0}</c> and <c>{1}</c>.
+    /// </exception>
     public SlidingWindowOptions(
         int windowSize = SlidingWindowDefaults.WindowSize,
         double protectedWindowFraction = SlidingWindowDefaults.ProtectedWindowFraction,
@@ -100,6 +111,17 @@ public readonly record struct SlidingWindowOptions
         if (string.IsNullOrWhiteSpace(value))
         {
             throw new ArgumentException("PlaceholderFormat cannot be null or whitespace.", paramName);
+        }
+
+        try
+        {
+            _ = string.Format(value, "tool_name", "tool_call_id");
+        }
+        catch (FormatException exception)
+        {
+            throw new ArgumentException(
+                "PlaceholderFormat must be a composite format string that uses only {0} (the tool name) and {1} (the tool call identifier).",
+                paramName, exception);
         }
 
         return value;
