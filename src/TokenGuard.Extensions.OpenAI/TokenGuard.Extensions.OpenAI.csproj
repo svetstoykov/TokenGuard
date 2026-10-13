@@ -19,7 +19,7 @@
         <Authors>Svetlozar Stoykov</Authors>
         <Company>Svetlozar Stoykov</Company>
         <Copyright>Copyright (c) 2026 Svetlozar Stoykov</Copyright>
-        <Description>OpenAI integration for TokenGuard on .NET 10. Converts prepared TokenGuard messages to OpenAI chat messages and lets TokenGuard use OpenAI to summarize older history when context gets tight.</Description>
+        <Description>OpenAI integration for TokenGuard on .NET 10. Converts prepared TokenGuard messages to OpenAI chat messages and lets TokenGuard use OpenAI to summarize older history when context gets tight. Targets net10.0 only.</Description>
         <PackageTags>tokenguard;openai;gpt;llm;ai;agents;context-management;token-budget;prompt-management;dotnet</PackageTags>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageProjectUrl>https://github.com/svetstoykov/TokenGuard</PackageProjectUrl>
