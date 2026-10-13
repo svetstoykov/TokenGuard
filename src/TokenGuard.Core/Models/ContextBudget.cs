@@ -83,6 +83,11 @@ public readonly record struct ContextBudget
     /// after the primary compaction strategy has already run.
     /// </para>
     /// <para>
+    /// The emergency pass keeps a summary message and every message after it. A prepared view that starts with a summary
+    /// is returned with nothing dropped, and one that is still above the budget surfaces as
+    /// <see cref="Enums.PrepareOutcome.CompactionInsufficient"/>.
+    /// </para>
+    /// <para>
     /// When <see langword="null"/>, the runtime skips the emergency pass entirely after the primary compaction strategy
     /// runs. A conversation that still exceeds the budget at that point surfaces as
     /// <see cref="Enums.PrepareOutcome.CompactionInsufficient"/> or <see cref="Enums.PrepareOutcome.CannotCompact"/> instead of

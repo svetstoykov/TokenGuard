@@ -168,6 +168,33 @@ public sealed class ConversationContextTurnGroupTests
         result.Messages.Select(Describe).Should().Equal("Summary", "User:user-3", "Model:model-3", "User:user-4", "Model:call_1", "Tool:call_1");
     }
 
+    [Fact]
+    public async Task PrepareAsync_WhenTheViewHoldsASummaryAndTheTailIsAboveTheEmergencyLimit_DropsNothing()
+    {
+        // Arrange
+        var summary = ContextMessage.FromText(MessageRole.Model, Text("summary", 20)) with { State = CompactionState.Summarized };
+        var strategy = new StubCompactionStrategy((messages, _) => new CompactionResult(
+            [summary, .. messages.Skip(2)], messages.Sum(m => m.TokenCount ?? 0), 20 + messages.Skip(2).Sum(m => m.TokenCount ?? 0), 2,
+            StubCompactionStrategy.Name));
+        using var context = new ConversationContext(new ContextBudget(100, 0.5, emergencyThreshold: 1.0), new TextLengthTokenCounter(), strategy);
+        context.AddUserMessage(Text("user-1", 20));
+        context.RecordModelResponse([new TextContent(Text("model-1", 20))]);
+        context.AddUserMessage(Text("user-2", 30));
+        context.RecordModelResponse([new TextContent(Text("model-2", 30))]);
+        context.AddUserMessage(Text("user-3", 30));
+        context.RecordModelResponse([new TextContent(Text("model-3", 30))]);
+        context.AddUserMessage(Text("user-4", 30));
+
+        // Act
+        var result = await context.PrepareAsync();
+
+        // Assert
+        result.Messages.Select(Describe).Should().Equal("Summary", "User:user-2", "Model:model-2", "User:user-3", "Model:model-3", "User:user-4");
+        result.MessagesDropped.Should().Be(0);
+        result.TokensAfterCompaction.Should().Be(170);
+        result.Outcome.Should().Be(PrepareOutcome.CompactionInsufficient);
+    }
+
     private static IConversationContext CreateDefaultContext(int maxTokens) =>
         new ConversationContextFactory(new ConversationConfigBuilder().WithMaxTokens(maxTokens).Build()).Create();
 

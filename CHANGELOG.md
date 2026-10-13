@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Planned as 1.3.0.
+
+### Fixed
+
+- Behavior change: text that holds half of a surrogate pair, such as tool output cut at a character limit in the middle
+  of an emoji, is counted with that character as one replacement character. Recording it used to throw
+  `ArgumentOutOfRangeException` after the message was stored, and every later `PrepareAsync()` call on that context
+  threw as well. TokenGuard does not rewrite the content; the provider SDK decides what is sent for such text.
+- Behavior change: a recording call counts the message before it stores it, so a call that fails while counting leaves
+  the history and the pinned token total as they were.
+- Behavior change: `SlidingWindowOptions` throws `ArgumentException` when `placeholderFormat` is not a valid composite
+  format string or uses an index other than `{0}` and `{1}`. Such a format used to be accepted and then threw
+  `FormatException` from `PrepareAsync()` the first time a tool result was masked.
+- Behavior change: `ConversationContextFactory` and `AddNamed()` throw `ArgumentException` for a configuration whose
+  budget is `default(ContextBudget)`, which has a `MaxTokens` of zero and used to be accepted.
+- XML documentation: `TokenCountSafetyMode.Balanced` is named as the mode the built-in counter uses, the budget is
+  described without a response reserve that does not exist, and the emergency threshold states that a summary message
+  and everything after it are kept.
+
 ## [1.2.0] - 2026-10-13
 
 Released packages: `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and `TokenGuard.Extensions.Anthropic`, all at

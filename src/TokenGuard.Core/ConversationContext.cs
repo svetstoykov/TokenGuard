@@ -34,7 +34,7 @@ namespace TokenGuard.Core;
 /// requiring a separate role-based preservation path.
 /// </para>
 /// <para>
-/// Token counts are estimated through the configured <see cref="ITokenCounter"/> and cached on
+/// Token counts are estimated by the built-in heuristic <see cref="ITokenCounter"/> and cached on
 /// each recorded <see cref="ContextMessage"/>. If the provider later reports an exact input token count,
 /// that value can be supplied through <see cref="RecordModelResponse(IEnumerable{ContentSegment}, int?)"/>
 /// so future preparation stays better aligned with the provider's own counting behavior.
@@ -88,8 +88,7 @@ public sealed class ConversationContext : IConversationContext
     /// that define how requests are prepared.
     /// </summary>
     /// <param name="budget">
-    /// Defines the token limits for the conversation, including when compaction starts and how
-    /// many tokens should remain reserved for the next response.
+    /// Defines the token limits for the conversation, including when compaction and emergency truncation start.
     /// </param>
     /// <param name="counter">
     /// Counts tokens for individual messages. This should match the target provider as closely
@@ -817,6 +816,11 @@ public sealed class ConversationContext : IConversationContext
     /// When the prepared list ends with a tool result, the user message that opened that tool loop is kept as well, so
     /// the model still sees the request it is working on. The tool exchanges between that message and the floor are
     /// dropped oldest first like any other candidate.
+    /// </para>
+    /// <para>
+    /// When the prepared list holds a summary message, the floor starts at that message, so the summary and every message
+    /// after it are kept. Only unpinned messages before the summary are candidates. A list that starts with its summary
+    /// has none, and the method returns it unchanged even when it is above the emergency trigger.
     /// </para>
     /// <para>
     /// Candidates are removed oldest first. The loop stops as soon as the running token total
