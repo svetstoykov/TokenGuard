@@ -663,7 +663,7 @@ Repository tools read the cloned repo, and one of them edits it:
 | `file_tree` | Fast project map |
 | `list_directory` | Inspect one folder |
 | `find_files` | Match filenames by glob |
-| `grep` | Search content with regex |
+| `grep` | Search content with regex. Returns at most `100` matches, cuts each returned line at `200` characters, and holds one result to `16000` characters; a truncated result says how many matches were left out |
 | `read_file` | Read smaller text files |
 | `read_range` | Read exact line windows from larger files |
 | `edit_file` | Replace one exact occurrence of `oldText` with `newText` in an existing file |
@@ -672,6 +672,9 @@ Repository tools read the cloned repo, and one of them edits it:
 the file as it was. The result names the path and the line range that changed, without the file contents. The tool cannot
 create, delete, or rename files, refuses paths under `.git`, and rejects a path that leaves the clone. After an edit, an earlier
 read of the file that is still in the conversation describes contents that no longer exist.
+
+Every tool rejects an argument its schema does not declare: the call returns an error that names the argument and lists the
+declared parameters, and the tool does not run.
 
 Web tools have no root:
 
