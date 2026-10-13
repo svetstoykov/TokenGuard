@@ -82,10 +82,13 @@ internal static class AnthropicQuickStart
                     Tools = [readFile],
                 },
                 cancellationToken);
+            var segments = response.ResponseSegments();
 
-            conversationContext.RecordModelResponse(
-                response.ResponseSegments(),
-                response.InputTokens());
+            // A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+            if (segments.Count == 0)
+                throw new InvalidOperationException("The model returned an empty reply.");
+
+            conversationContext.RecordModelResponse(segments, response.InputTokens());
 
             var toolCalls = response.ToolUseSegments();
 

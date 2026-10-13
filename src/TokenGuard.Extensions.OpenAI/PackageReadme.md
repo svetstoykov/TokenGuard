@@ -11,7 +11,13 @@ var prepared = await conversation.PrepareAsync(cancellationToken);
 var messages = prepared.Messages.ForOpenAI();
 
 ChatCompletion response = await chatClient.CompleteChatAsync(messages, cancellationToken: cancellationToken);
-conversation.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+var segments = response.ResponseSegments();
+
+// A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+if (segments.Count == 0)
+    throw new InvalidOperationException("The model returned an empty reply.");
+
+conversation.RecordModelResponse(segments, response.InputTokens());
 ```
 
 Use this package when you want TokenGuard to stay provider-agnostic in core and speak OpenAI at the edge.
@@ -65,10 +71,13 @@ ChatCompletion response = await chatClient.CompleteChatAsync(
     messages,
     chatOptions,
     cancellationToken);
+var segments = response.ResponseSegments();
 
-conversation.RecordModelResponse(
-    response.ResponseSegments(),
-    response.InputTokens());
+// A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+if (segments.Count == 0)
+    throw new InvalidOperationException("The model returned an empty reply.");
+
+conversation.RecordModelResponse(segments, response.InputTokens());
 ```
 
 `ForOpenAI()` sends every text segment of a message as its own content part and validates tool-call and tool-result structure. It throws before the request goes out if a message holds content OpenAI cannot carry for its role, if a tool result has no preceding tool call, or if tool calls have no results, including at the end of the list. A tool call whose arguments are empty is recorded with `{}`.

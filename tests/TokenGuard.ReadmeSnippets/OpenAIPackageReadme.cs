@@ -41,7 +41,13 @@ internal static class OpenAIPackageReadme
         var messages = prepared.Messages.ForOpenAI();
 
         ChatCompletion response = await chatClient.CompleteChatAsync(messages, cancellationToken: cancellationToken);
-        conversation.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+        var segments = response.ResponseSegments();
+
+        // A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+        if (segments.Count == 0)
+            throw new InvalidOperationException("The model returned an empty reply.");
+
+        conversation.RecordModelResponse(segments, response.InputTokens());
         // </OpenAIOverview>
     }
 
@@ -77,10 +83,13 @@ internal static class OpenAIPackageReadme
             messages,
             chatOptions,
             cancellationToken);
+        var segments = response.ResponseSegments();
 
-        conversation.RecordModelResponse(
-            response.ResponseSegments(),
-            response.InputTokens());
+        // A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+        if (segments.Count == 0)
+            throw new InvalidOperationException("The model returned an empty reply.");
+
+        conversation.RecordModelResponse(segments, response.InputTokens());
         // </OpenAISend>
     }
 }

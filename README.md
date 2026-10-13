@@ -195,12 +195,17 @@ for (var turn = 1; turn <= maxTurns; turn++)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
     ChatCompletion response = await chatClient.CompleteChatAsync(prepared.Messages.ForOpenAI(), chatOptions);
+    var segments = response.ResponseSegments();
 
-    conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+    // A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+    if (segments.Count == 0)
+        throw new InvalidOperationException("The model returned an empty reply.");
+
+    conversationContext.RecordModelResponse(segments, response.InputTokens());
 
     if (response.ToolCalls.Count == 0)
     {
-        Console.WriteLine(response.Content[0].Text);
+        Console.WriteLine(string.Join(Environment.NewLine, response.TextSegments().Select(segment => segment.Content)));
         return;
     }
 
@@ -226,10 +231,13 @@ to send to the provider. `ConversationContext.History` remains unchanged.
 `PrepareAsync()` returns what was recorded, so a context with no messages gives an empty `Ready` result: record at least
 one user message before the first model call.
 
-The loop stops in three ways. It returns when the model answers without a tool call. It throws when the outcome is
+The loop stops in four ways. It returns when the model answers without a tool call. It throws when the outcome is
 `CompactionInsufficient` or `CannotCompact`, because in both the prepared request is still over the budget;
-[Compaction statuses](#compaction-statuses) describes each and what to change. It ends after `maxTurns` model calls, so
-a model that keeps calling tools cannot run without a limit.
+[Compaction statuses](#compaction-statuses) describes each and what to change. It throws when the model returns an
+empty reply. It ends after `maxTurns` model calls, so a model that keeps calling tools cannot run without a limit.
+
+An empty reply, one with no text and no tool call, is not recorded: `RecordModelResponse` throws `ArgumentException`
+for a reply with no segments. Check the segments first and decide whether to retry the call or stop.
 
 ### Register at startup
 
@@ -534,10 +542,13 @@ for (var turn = 1; turn <= maxTurns; turn++)
             Tools = [readFile],
         },
         cancellationToken);
+    var segments = response.ResponseSegments();
 
-    conversationContext.RecordModelResponse(
-        response.ResponseSegments(),
-        response.InputTokens());
+    // A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+    if (segments.Count == 0)
+        throw new InvalidOperationException("The model returned an empty reply.");
+
+    conversationContext.RecordModelResponse(segments, response.InputTokens());
 
     var toolCalls = response.ToolUseSegments();
 

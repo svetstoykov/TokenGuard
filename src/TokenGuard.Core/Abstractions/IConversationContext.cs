@@ -156,6 +156,11 @@ public interface IConversationContext : IDisposable
     /// that compact, until the next provider report replaces it. <see cref="PrepareResult.TokensAfterCompaction"/>
     /// describes how it is scaled to a smaller payload.
     /// </para>
+    /// <para>
+    /// A reply with no segments, one with no text and no tool call, is not recorded: the call throws
+    /// <see cref="ArgumentException"/> and the history stays as it was. Check the segments before calling, and retry the
+    /// model call or stop the loop when there are none.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> contains no segments.</exception>

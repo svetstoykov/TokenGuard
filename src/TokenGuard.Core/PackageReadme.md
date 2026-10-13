@@ -87,12 +87,17 @@ for (var turn = 1; turn <= maxTurns; turn++)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
     ChatCompletion response = await chatClient.CompleteChatAsync(prepared.Messages.ForOpenAI(), chatOptions);
+    var segments = response.ResponseSegments();
 
-    conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+    // A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+    if (segments.Count == 0)
+        throw new InvalidOperationException("The model returned an empty reply.");
+
+    conversationContext.RecordModelResponse(segments, response.InputTokens());
 
     if (response.ToolCalls.Count == 0)
     {
-        Console.WriteLine(response.Content[0].Text);
+        Console.WriteLine(string.Join(Environment.NewLine, response.TextSegments().Select(segment => segment.Content)));
         return;
     }
 
@@ -116,7 +121,7 @@ static string ExecuteTool(ChatToolCall toolCall) => toolCall.FunctionName switch
 
 `PrepareAsync()` returns what was recorded, so a context with no messages gives an empty `Ready` result: record at least one user message before the first model call.
 
-The loop returns when the model answers without a tool call, throws when the outcome is `CompactionInsufficient` or `CannotCompact`, and ends after `maxTurns` model calls.
+The loop returns when the model answers without a tool call, throws when the outcome is `CompactionInsufficient` or `CannotCompact`, throws when the model returns an empty reply, and ends after `maxTurns` model calls. An empty reply is not recorded: `RecordModelResponse` throws `ArgumentException` for a reply with no segments, so check the segments first.
 
 ### Register at startup
 

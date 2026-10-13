@@ -40,12 +40,17 @@ for (var turn = 1; turn <= maxTurns; turn++)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
     ChatCompletion response = await chatClient.CompleteChatAsync(prepared.Messages.ForOpenAI(), chatOptions);
+    var segments = response.ResponseSegments();
 
-    conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+    // A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+    if (segments.Count == 0)
+        throw new InvalidOperationException("The model returned an empty reply.");
+
+    conversationContext.RecordModelResponse(segments, response.InputTokens());
 
     if (response.ToolCalls.Count == 0)
     {
-        Console.WriteLine(response.Content[0].Text);
+        Console.WriteLine(string.Join(Environment.NewLine, response.TextSegments().Select(segment => segment.Content)));
         return;
     }
 

@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The quick starts in the README and on the package pages stop on both over-budget outcomes, `CompactionInsufficient`
   and `CannotCompact`, and end after a set number of model calls.
+- Every published example checks for a reply with no segments before it calls `RecordModelResponse`, which throws
+  `ArgumentException` for one. The README and the XML documentation of `RecordModelResponse` state the rule.
 - The README carries the complete Anthropic program and lists `Microsoft.Extensions.DependencyInjection` in the install
   lines. It gains a table of terms and a paragraph on choosing a budget.
 - The NuGet page of `TokenGuard.Core` gains sections on the prepare result and its outcomes, pinned messages, LLM
