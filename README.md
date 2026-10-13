@@ -57,46 +57,51 @@ object. `PrepareAsync()` returns a `PrepareResult` describing what should go to 
 
 ## Benchmark
 
-The figures below come from 20 Codexplorer sessions run on 12 May 2026 with `openai/gpt-5.4-nano`, one session per
-repository-analysis task in
-[`samples/Codexplorer.Automation/src/tasks/initial-corpus.json`](samples/Codexplorer.Automation/src/tasks/initial-corpus.json).
-The corpus spans small, medium, and large tasks, and the sessions ran for 27 to 111 turns.
+Two benchmarks were measured against a control run without compaction, using the Codexplorer sample agent with
+`qwen/qwen3.7-flash`. They differ in task, session length, and window, so the results are stated separately and are not
+combined into one figure.
 
-> **Across 1,325 turns, the requests TokenGuard prepared held an estimated 87.4% fewer prompt tokens than the uncompacted history of the same sessions.**
+### Short verifiable tasks
 
-| Benchmark setup | Value |
-|---|---|
-| Workload | 20 Codexplorer tasks across mixed difficulty levels |
-| Batch | 20 sessions, 12 May 2026 |
-| Session length | 27 to 111 turns |
-| Model | `openai/gpt-5.4-nano` |
-| Context budget | 20,000 tokens |
-| Soft threshold | 16,000 tokens (80%) |
-| Hard cap | 20,000 tokens |
-| Total turns | 1,325, one prepare call each |
+Ten tasks on three repositories from
+[`verifiable-corpus.json`](samples/Codexplorer.Automation/src/tasks/verifiable-corpus.json), sessions of at most 58 model
+calls, a 50,000-token window, TokenGuard 1.1.0. Three treatment runs against one control run.
 
-| | Uncompacted history (estimated) | Prepared by TokenGuard (estimated) |
-|---|---:|---:|
-| Cumulative prompt tokens | 128,188,640 | **16,158,138** |
-| Estimated tokens saved | — | **112,030,502** |
-| Reduction | — | **87.4%** |
-| Prepare calls with outcome `Ready` or `Compacted` | — | **1,270 / 1,325 (95.8%)** |
-| Prepare calls with outcome `CompactionInsufficient` | — | **55 / 1,325 (4.2%)** |
-| Prepare calls with outcome `CannotCompact` | — | **0** |
+- **41% to 45% fewer agent input tokens** than the control: 10.09 to 10.75 million against 18.32 million.
+- Checks passed: 31 of 31, 31 of 31, and 29 of 31, against 31 of 31 in the control. The two lost checks belong to one
+  task whose session never compacted.
+- No request the provider billed was larger than the window.
+- At a 20,000-token window the same corpus lost 10 of 31 checks. A window that is too small costs correctness.
 
-How to read these figures:
+### Long sessions
 
-- Every session ran with TokenGuard. No run without TokenGuard was measured for this batch, so the first column is an
-  estimate of the uncompacted history taken from the same sessions, not a measured control.
-- Both token columns are TokenGuard's own estimates. The provider reported 15,930,640 input tokens for the prepared
-  requests.
-- The outcome rows count prepare calls by their `PrepareOutcome`. They say whether the prepared request fit the budget,
-  not whether the model's answer was correct.
-- A long session's uncompacted history is expected to outgrow a fixed context window. This batch does not measure how
-  often that would have happened.
+Six edit-and-re-read tasks from the `long-sessions-*.json` corpora in
+[`samples/Codexplorer.Automation/src/tasks`](samples/Codexplorer.Automation/src/tasks), with 100,000 to 300,000 tokens of
+history and windows of 50,000, 65,000, and 100,000 tokens, on the code released as TokenGuard 1.2.0. One run per arm
+and history size.
 
-The calculation is described in
-[How the benchmark figures are calculated](docs/deep-dive/context-management.md#how-the-benchmark-figures-are-calculated).
+- **69.7% fewer input tokens** than the control, summarizer input included: 41.8 million against 138.1 million.
+- Facts recorded correctly: 55 of 59 with compaction, 58 of 59 without. One miss is a file masked before the model had
+  written its value down; the other three are model errors, one of them shared with the control.
+- The provider billed $1.52 against $5.46. Tokens and money are separate results: compaction changes earlier messages,
+  which changes how much of the input is billed at the cache-read price. In the compacted runs 80% of agent input was
+  billed as cached input, and once masking had started, 78% to 93% of each request was an unchanged start of the
+  previous one.
+- At the 50,000-token window three requests went out over the window, one billed at 236,670 tokens, after three `grep`
+  results of about 260,000 tokens each. TokenGuard cannot fit a single tool result that is larger than the window; the
+  prepare returns `CompactionInsufficient`.
+
+### How to read these figures
+
+- One model, one provider, and one control run per corpus. Each long-session figure is a single run.
+- The money figure applies to this model on this provider. Another provider's cache pricing gives a different bill.
+- Expect no saving in a session whose history stays near the compaction trigger: nothing is masked below it.
+- Choosing a window is reasoning, not a measurement: the window must hold the largest single turn of tool results plus
+  the pinned content, with room left for history. Two points are measured on the verifiable corpus: 20,000 tokens
+  fails and 50,000 holds.
+
+Run IDs and the method are in
+[Benchmark results](docs/deep-dive/context-management.md#14-benchmark-results).
 
 ---
 
