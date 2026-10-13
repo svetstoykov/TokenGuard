@@ -22,6 +22,11 @@ namespace TokenGuard.Core.Summarization;
 /// stay verbatim, medium payloads become stable excerpts, and very large payloads collapse to metadata only. This
 /// preserves high-signal results while preventing prompt growth from scaling linearly with tool output size.
 /// </para>
+/// <para>
+/// A user prompt is built to a request token budget. When the transcript is above it, long text segments are shortened
+/// the same way from the oldest message on, and then the oldest exchanges are left out and counted in one line at the
+/// top of the transcript.
+/// </para>
 /// </remarks>
 internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatter
 {
@@ -89,7 +94,7 @@ internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatt
     }
 
     /// <inheritdoc />
-    public string BuildUserPrompt(IReadOnlyList<ContextMessage> messages, int targetTokens)
+    public string BuildUserPrompt(IReadOnlyList<ContextMessage> messages, int targetTokens, int requestTokenBudget)
     {
         ArgumentNullException.ThrowIfNull(messages);
 
@@ -98,12 +103,15 @@ internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatt
             throw new ArgumentOutOfRangeException(nameof(targetTokens), "targetTokens must be greater than zero.");
         }
 
-        return $"""
-                Limit: <= {targetTokens} tokens.
+        var frame = $"""
+                     Limit: <= {targetTokens} tokens.
 
-                Transcript:
-                {this.FormatTranscript(messages)}
-                """;
+                     Transcript:
+
+                     """;
+        var transcriptBudget = (long)requestTokenBudget - this.CountText(ConversationSummaryPrompt.SystemPrompt) - this.CountText(frame);
+
+        return frame + this.FormatTranscript(messages, transcriptBudget);
     }
 
     /// <inheritdoc />
@@ -111,42 +119,126 @@ internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatt
     {
         ArgumentNullException.ThrowIfNull(messages);
 
+        return this.FormatTranscript(messages, long.MaxValue);
+    }
+
+    /// <summary>
+    /// Formats the transcript and shortens it until its estimated size is within a token budget.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A transcript above the budget is reduced in two steps, and each step stops as soon as the transcript fits. First,
+    /// text segments are shortened from the oldest message on, the way tool results are: an excerpt above the full-size
+    /// threshold and metadata only above the excerpt threshold. Then whole exchanges are left out from the oldest on, and
+    /// one line at the top says how many. An exchange is a user message and everything up to the next user message.
+    /// </para>
+    /// <para>
+    /// The newest exchange always stays, so the transcript is above the budget when that exchange alone is. The size is
+    /// the sum of the per-message counts, which is at or above the count of the joined transcript for a counter that
+    /// adds a fixed cost per message.
+    /// </para>
+    /// </remarks>
+    /// <param name="messages">The ordered source messages. Cannot be <see langword="null"/>.</param>
+    /// <param name="tokenBudget">The largest transcript size in tokens.</param>
+    /// <returns>The compact transcript.</returns>
+    private string FormatTranscript(IReadOnlyList<ContextMessage> messages, long tokenBudget)
+    {
         if (messages.Count == 0)
         {
             return "(empty)";
         }
 
-        StringBuilder builder = new();
+        var entries = new string[messages.Count];
+        var costs = new int[messages.Count];
+        long total = 0;
 
         for (var i = 0; i < messages.Count; i++)
         {
-            var message = messages[i];
-            builder.Append('[')
-                .Append(i + 1)
-                .Append('|')
-                .Append(FormatRole(message.Role))
-                .AppendLine("]");
+            entries[i] = this.FormatMessage(i, messages[i], shortenLongText: false);
+            costs[i] = this.CountText(entries[i]);
+            total += costs[i];
+        }
 
-            foreach (var segment in message.Segments)
+        for (var i = 0; i < messages.Count && total > tokenBudget; i++)
+        {
+            if (!messages[i].Segments.Any(static segment => segment is TextContent))
             {
-                this.AppendSegment(builder, segment);
+                continue;
             }
 
-            if (i < messages.Count - 1)
+            var shortened = this.FormatMessage(i, messages[i], shortenLongText: true);
+            var shortenedCost = this.CountText(shortened);
+
+            if (shortenedCost < costs[i])
             {
-                builder.AppendLine();
+                total += shortenedCost - costs[i];
+                entries[i] = shortened;
+                costs[i] = shortenedCost;
             }
+        }
+
+        var firstKept = 0;
+        var omittedExchanges = 0;
+        var omissionLine = string.Empty;
+
+        while (total + this.CountText(omissionLine) > tokenBudget)
+        {
+            var nextExchange = FindNextExchangeStart(messages, firstKept);
+
+            if (nextExchange == messages.Count)
+            {
+                break;
+            }
+
+            for (var i = firstKept; i < nextExchange; i++)
+            {
+                total -= costs[i];
+            }
+
+            firstKept = nextExchange;
+            omittedExchanges++;
+            omissionLine = FormatOmissionLine(omittedExchanges);
+        }
+
+        StringBuilder builder = new(omissionLine);
+
+        for (var i = firstKept; i < messages.Count; i++)
+        {
+            builder.Append(entries[i]);
         }
 
         return builder.ToString().TrimEnd('\r', '\n');
     }
 
-    private void AppendSegment(StringBuilder builder, ContentSegment segment)
+    /// <summary>
+    /// Formats one message as its header line, its segments, and the blank line that separates it from the next message.
+    /// </summary>
+    private string FormatMessage(int index, ContextMessage message, bool shortenLongText)
+    {
+        StringBuilder builder = new();
+        builder.Append('[')
+            .Append(index + 1)
+            .Append('|')
+            .Append(FormatRole(message.Role))
+            .AppendLine("]");
+
+        foreach (var segment in message.Segments)
+        {
+            this.AppendSegment(builder, segment, shortenLongText);
+        }
+
+        return builder.AppendLine().ToString();
+    }
+
+    private int CountText(string text) =>
+        string.IsNullOrWhiteSpace(text) ? 0 : this._tokenCounter.Count(ContextMessage.FromText(MessageRole.User, text));
+
+    private void AppendSegment(StringBuilder builder, ContentSegment segment, bool shortenLongText)
     {
         switch (segment)
         {
             case TextContent text:
-                builder.Append("t:").AppendLine(text.Content);
+                this.AppendText(builder, text, shortenLongText);
                 break;
             case ToolUseContent toolUse:
                 builder.Append("u:")
@@ -166,9 +258,27 @@ internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatt
         }
     }
 
+    private void AppendText(StringBuilder builder, TextContent text, bool shortenLongText)
+    {
+        builder.Append("t:");
+
+        if (shortenLongText)
+        {
+            var metadata = this.Measure(text.Content, this._tokenCounter.Count(ContextMessage.FromContent(MessageRole.User, text)));
+
+            if (metadata.EstimatedTokens > this._options.FullToolResultMaxTokens)
+            {
+                this.AppendShortened(builder, metadata);
+                return;
+            }
+        }
+
+        builder.AppendLine(text.Content);
+    }
+
     private void AppendToolResult(StringBuilder builder, ToolResultContent toolResult)
     {
-        var metadata = this.MeasureToolResult(toolResult);
+        var metadata = this.Measure(toolResult.Content, this._tokenCounter.Count(ContextMessage.FromContent(MessageRole.Tool, toolResult)));
 
         builder.Append("r:")
             .Append(toolResult.ToolName)
@@ -188,6 +298,14 @@ internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatt
             return;
         }
 
+        this.AppendShortened(builder, metadata);
+    }
+
+    /// <summary>
+    /// Appends the shortened form of a payload: an excerpt up to the excerpt threshold, and metadata only above it.
+    /// </summary>
+    private void AppendShortened(StringBuilder builder, ContentMetadata metadata)
+    {
         if (metadata.EstimatedTokens <= this._options.ExcerptToolResultMaxTokens)
         {
             builder.Append("excerpt(tokens=")
@@ -238,18 +356,34 @@ internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatt
         }
     }
 
-    private ToolResultMetadata MeasureToolResult(ToolResultContent toolResult)
+    private ContentMetadata Measure(string content, int tokenCount)
     {
-        var lines = SplitLines(toolResult.Content);
-        var tokenCount = this._tokenCounter.Count(ContextMessage.FromContent(MessageRole.Tool, toolResult));
+        var lines = SplitLines(content);
 
-        return new ToolResultMetadata(
-            tokenCount,
-            lines.Count,
-            toolResult.Content.Length,
-            GuessContentKind(lines),
-            lines);
+        return new ContentMetadata(tokenCount, lines.Count, content.Length, GuessContentKind(lines), lines);
     }
+
+    /// <summary>
+    /// Finds where the exchange after the one starting at <paramref name="start"/> begins.
+    /// </summary>
+    /// <param name="messages">The ordered source messages.</param>
+    /// <param name="start">The index of the first message of the current exchange.</param>
+    /// <returns>The index of the next user message, or the message count when the exchange is the newest one.</returns>
+    private static int FindNextExchangeStart(IReadOnlyList<ContextMessage> messages, int start)
+    {
+        for (var i = start + 1; i < messages.Count; i++)
+        {
+            if (messages[i].Role == MessageRole.User)
+            {
+                return i;
+            }
+        }
+
+        return messages.Count;
+    }
+
+    private static string FormatOmissionLine(int omittedExchanges) =>
+        $"[{omittedExchanges} earlier {(omittedExchanges == 1 ? "exchange" : "exchanges")} omitted]{Environment.NewLine}{Environment.NewLine}";
 
     private static List<string> SplitLines(string content)
     {
@@ -414,7 +548,7 @@ internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatt
         };
     }
 
-    private sealed record ToolResultMetadata(
+    private sealed record ContentMetadata(
         int EstimatedTokens,
         int LineCount,
         int CharacterCount,

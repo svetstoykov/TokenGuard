@@ -470,6 +470,7 @@ public sealed class TieredCompactionStrategyTests
         public Task<string> SummarizeAsync(
             IReadOnlyList<ContextMessage> messages,
             int targetTokens,
+            int requestTokenBudget,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -496,6 +497,7 @@ public sealed class TieredCompactionStrategyTests
         public Task<string> SummarizeAsync(
             IReadOnlyList<ContextMessage> messages,
             int targetTokens,
+            int requestTokenBudget,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -518,6 +520,7 @@ public sealed class TieredCompactionStrategyTests
         public Task<string> SummarizeAsync(
             IReadOnlyList<ContextMessage> messages,
             int targetTokens,
+            int requestTokenBudget,
             CancellationToken cancellationToken = default)
         {
             this.CallCount++;
