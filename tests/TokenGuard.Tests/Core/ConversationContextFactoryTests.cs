@@ -1,229 +1,268 @@
 using FluentAssertions;
-using System.Reflection;
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
+using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
+using TokenGuard.Core.Models.Content;
+using TokenGuard.Core.Options;
+using TokenGuard.Core.TokenCounting;
+using TokenGuard.Tests.Diagnostics;
 
 namespace TokenGuard.Tests.Core;
 
 public sealed class ConversationContextFactoryTests
 {
+    private const int SmallMaxTokens = 60;
+
     [Fact]
-    public void Create_ReturnsNewInstanceOnEachCall()
+    public void Constructor_WhenConfigurationIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        IConversationContextFactory factory = CreateFactory();
+
+        // Act
+        Action act = () => _ = new ConversationContextFactory(null!);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("config");
+    }
+
+    [Fact]
+    public void Create_ReturnsContextsThatShareNoHistory()
+    {
+        // Arrange
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default());
+
+        // Act
+        using var first = factory.Create();
+        using var second = factory.Create();
+        first.AddUserMessage("recorded in the first context only");
+
+        // Assert
+        second.Should().NotBeSameAs(first);
+        first.History.Should().ContainSingle();
+        second.History.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Create_InvokesTheStrategyFactoryWithAFreshTokenCounterOnEachCall()
+    {
+        // Arrange
+        var counters = new List<ITokenCounter>();
+        var factory = new ConversationContextFactory(new ConversationContextConfiguration(
+            ContextBudget.For(100_000),
+            counter =>
+            {
+                counters.Add(counter);
+                return StubCompactionStrategy.Unchanged();
+            }));
 
         // Act
         using var first = factory.Create();
         using var second = factory.Create();
 
         // Assert
-        first.Should().NotBeSameAs(second);
+        counters.Should().HaveCount(2);
+        counters[0].Should().NotBeSameAs(counters[1]);
     }
 
     [Fact]
-    public void Create_InvokesFreshDependenciesOnEachCall()
+    public void Create_PassesACounterThatCountsLikeTheBuiltInEstimatorToTheStrategyFactory()
     {
         // Arrange
-        var strategyCalls = 0;
+        const string text = "The quick brown fox reads `src/Program.cs` and returns { \"lines\": 42 }.";
+        ITokenCounter? supplied = null;
         var factory = new ConversationContextFactory(new ConversationContextConfiguration(
             ContextBudget.For(100_000),
-            _ =>
+            counter =>
             {
-                strategyCalls++;
-                return new StubCompactionStrategy();
+                supplied = counter;
+                return StubCompactionStrategy.Unchanged();
             }));
 
         // Act
-        using var first = (ConversationContext)factory.Create();
-        using var second = (ConversationContext)factory.Create();
-        var firstCounter = GetPrivateField<ITokenCounter>(first, "_counter");
-        var secondCounter = GetPrivateField<ITokenCounter>(second, "_counter");
+        using var context = factory.Create();
 
         // Assert
-        strategyCalls.Should().Be(2);
-        firstCounter.Should().NotBeSameAs(secondCounter);
-        GetPrivateField<ICompactionStrategy>(first, "_strategy").Should().NotBeSameAs(GetPrivateField<ICompactionStrategy>(second, "_strategy"));
+        supplied.Should().NotBeNull();
+        supplied!.Count(ContextMessage.FromText(MessageRole.User, text))
+            .Should().Be(new EstimatedTokenCounter().Count(ContextMessage.FromText(MessageRole.User, text)));
     }
 
     [Fact]
-    public void Create_WhenStrategyFactoryIsReplacedOnBuiltConfiguration_UsesTheReplacement()
+    public async Task Create_WhenStrategyFactoryIsReplacedOnBuiltConfiguration_PreparesWithTheReplacement()
     {
         // Arrange
-        var replacement = new StubCompactionStrategy();
-        var configuration = ConversationConfigBuilder.Default() with { StrategyFactory = _ => replacement };
+        var configuration = ConversationConfigBuilder.Default(SmallMaxTokens) with { StrategyFactory = _ => StubCompactionStrategy.KeepNewest(1) };
         var factory = new ConversationContextFactory(configuration);
+        using var context = factory.Create();
+        RecordTwoTurns(context);
 
         // Act
-        using var context = (ConversationContext)factory.Create();
+        var result = await context.PrepareAsync();
 
         // Assert
-        GetPrivateField<ICompactionStrategy>(context, "_strategy").Should().BeSameAs(replacement);
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.Messages.Should().ContainSingle().Which.Should().BeSameAs(context.History[^1]);
     }
 
     [Fact]
-    public void Create_ReturnedInstanceIsNotDisposed()
+    public async Task Create_GivesEachContextItsOwnSummaryCheckpoint()
     {
         // Arrange
-        IConversationContextFactory factory = CreateFactory();
+        var summarizer = ScriptedSummarizer.Returning("Earlier turns covered the release notes.");
+        var builder = new ConversationConfigBuilder().WithMaxTokens(SmallMaxTokens);
+        builder.SetLlmSummarizer(() => summarizer, "Test", new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 40));
+        var factory = new ConversationContextFactory(builder.Build());
+        using var first = factory.Create();
+        using var second = factory.Create();
+        RecordTwoTurns(first);
+        RecordTwoTurns(second);
 
         // Act
-        using var ctx = factory.Create();
+        var firstResult = await first.PrepareAsync();
+        var secondResult = await second.PrepareAsync();
 
         // Assert
-        _ = ctx.History;
+        firstResult.Messages[0].State.Should().Be(CompactionState.Summarized);
+        secondResult.Messages[0].State.Should().Be(CompactionState.Summarized);
+        summarizer.Calls.Should().Be(2);
     }
 
     [Fact]
-    public void CreateNamed_UsesRegisteredConfigurationBudget()
+    public async Task CreateNamed_PreparesWithTheConfigurationRegisteredUnderThatName()
     {
         // Arrange
-        var config = new ConversationConfigBuilder()
-            .WithMaxTokens(200_000)
-            .Build();
-
-        IConversationContextFactory factory = CreateFactory()
-            .AddNamed("large", config);
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default())
+            .AddNamed("small", new ConversationConfigBuilder().WithMaxTokens(SmallMaxTokens).Build());
+        using var defaultContext = factory.Create();
+        using var namedContext = factory.Create("small");
+        RecordTwoTurns(defaultContext);
+        RecordTwoTurns(namedContext);
 
         // Act
-        using var ctx = factory.Create("large");
+        var defaultResult = await defaultContext.PrepareAsync();
+        var namedResult = await namedContext.PrepareAsync();
 
         // Assert
-        ctx.Should().NotBeNull();
-        ctx.History.Should().BeEmpty();
+        defaultResult.Outcome.Should().Be(PrepareOutcome.Ready);
+        defaultResult.Messages.Should().HaveCount(3);
+        namedResult.Outcome.Should().Be(PrepareOutcome.Compacted);
+        namedResult.MessagesDropped.Should().Be(2);
+        namedResult.Messages.Should().ContainSingle().Which.Should().BeSameAs(namedContext.History[^1]);
     }
 
     [Fact]
-    public void CreateNamed_ReturnsNewInstanceOnEachCall()
+    public void CreateNamed_ReturnsContextsThatShareNoHistory()
     {
         // Arrange
-        var config = new ConversationConfigBuilder()
-            .WithMaxTokens(50_000)
-            .Build();
-
-        IConversationContextFactory factory = CreateFactory()
-            .AddNamed("small", config);
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default())
+            .AddNamed("small", new ConversationConfigBuilder().WithMaxTokens(50_000).Build());
 
         // Act
         using var first = factory.Create("small");
         using var second = factory.Create("small");
+        first.AddUserMessage("recorded in the first context only");
 
         // Assert
-        first.Should().NotBeSameAs(second);
+        second.Should().NotBeSameAs(first);
+        first.History.Should().ContainSingle();
+        second.History.Should().BeEmpty();
     }
 
     [Fact]
-    public void CreateNamed_WithUnregisteredName_ThrowsInvalidOperationException()
+    public void CreateNamed_WithUnregisteredName_ThrowsInvalidOperationExceptionNamingIt()
     {
         // Arrange
-        IConversationContextFactory factory = CreateFactory();
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default());
 
         // Act
         Action act = () => factory.Create("unknown");
 
         // Assert
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*unknown*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*unknown*");
     }
 
     [Fact]
-    public void AddNamed_IsFluentAndReturnsSameFactory()
+    public void CreateNamed_WithNameThatDiffersOnlyInCase_ThrowsInvalidOperationException()
     {
         // Arrange
-        var config = new ConversationConfigBuilder()
-            .WithMaxTokens(100_000)
-            .Build();
-
-        var factory = CreateFactory();
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default())
+            .AddNamed("analysis", ConversationConfigBuilder.Default());
 
         // Act
-        var returned = factory.AddNamed("default", config);
+        Action act = () => factory.Create("Analysis");
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Analysis*");
+    }
+
+    [Fact]
+    public async Task AddNamed_WhenTheNameIsAlreadyRegistered_ReplacesTheConfiguration()
+    {
+        // Arrange
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default())
+            .AddNamed("profile", new ConversationConfigBuilder().WithMaxTokens(SmallMaxTokens).Build())
+            .AddNamed("profile", ConversationConfigBuilder.Default());
+        using var context = factory.Create("profile");
+        RecordTwoTurns(context);
+
+        // Act
+        var result = await context.PrepareAsync();
+
+        // Assert
+        result.Outcome.Should().Be(PrepareOutcome.Ready);
+    }
+
+    [Fact]
+    public void AddNamed_ReturnsTheSameFactory()
+    {
+        // Arrange
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default());
+
+        // Act
+        var returned = factory.AddNamed("default", ConversationConfigBuilder.Default());
 
         // Assert
         returned.Should().BeSameAs(factory);
     }
 
     [Fact]
-    public void Build_WithoutMaxTokens_ThrowsInvalidOperationException()
+    public void AddNamed_WhenNameIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        var builder = new ConversationConfigBuilder();
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default());
 
         // Act
-        Action act = () => builder.Build();
+        Action act = () => factory.AddNamed(null!, ConversationConfigBuilder.Default());
 
         // Assert
-        act.Should().Throw<InvalidOperationException>();
+        act.Should().Throw<ArgumentNullException>().WithParameterName("name");
     }
 
     [Fact]
-    public void Build_ReturnsRecipeMatchingConfigurationDefaults()
+    public void AddNamed_WhenConfigurationIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        const int maxTokens = 75_000;
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default());
 
         // Act
-        var config = new ConversationConfigBuilder()
-            .WithMaxTokens(maxTokens)
-            .Build();
+        Action act = () => factory.AddNamed("profile", null!);
 
         // Assert
-        config.Budget.MaxTokens.Should().Be(maxTokens);
-        config.StrategyFactory.Should().NotBeNull();
+        act.Should().Throw<ArgumentNullException>().WithParameterName("config");
     }
 
-    private static TestConversationContextFactory CreateFactory() => new();
-
-    private sealed class TestConversationContextFactory : IConversationContextFactory
+    /// <summary>
+    ///     Records a user message, a model reply, and a second user message that together exceed the compaction trigger of a
+    ///     <see cref="SmallMaxTokens" /> window while the last message alone fits in it.
+    /// </summary>
+    /// <param name="context">The context to record into.</param>
+    private static void RecordTwoTurns(IConversationContext context)
     {
-        private ConversationContextConfiguration _default = new ConversationConfigBuilder()
-            .WithMaxTokens(100_000)
-            .Build();
-
-        private readonly Dictionary<string, ConversationContextConfiguration> _named = new(StringComparer.Ordinal);
-
-        public IConversationContext Create() =>
-            CreateContext(_default);
-
-        public IConversationContext Create(string name)
-        {
-            if (!_named.TryGetValue(name, out var config))
-                throw new InvalidOperationException($"No configuration registered for context name '{name}'.");
-
-            return CreateContext(config);
-        }
-
-        public TestConversationContextFactory AddNamed(string name, ConversationContextConfiguration config)
-        {
-            ArgumentNullException.ThrowIfNull(name);
-            ArgumentNullException.ThrowIfNull(config);
-            _named[name] = config;
-            return this;
-        }
-
-        private static ConversationContext CreateContext(ConversationContextConfiguration config)
-        {
-            var counter = new TokenGuard.Core.TokenCounting.EstimatedTokenCounter();
-            return new ConversationContext(config.Budget, counter, config.StrategyFactory(counter));
-        }
-    }
-
-    private static T GetPrivateField<T>(ConversationContext context, string fieldName)
-    {
-        var field = typeof(ConversationContext).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-        field.Should().NotBeNull();
-
-        return (T)field!.GetValue(context)!;
-    }
-
-    private sealed class StubCompactionStrategy : ICompactionStrategy
-    {
-        public Task<CompactionResult> CompactAsync(
-            IReadOnlyList<ContextMessage> messages,
-            int availableTokens,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new CompactionResult(messages, 0, 0, 0, nameof(StubCompactionStrategy)));
+        context.AddUserMessage("Please list every change that went into the last release and say which of them touched the public surface.");
+        context.RecordModelResponse(
+            [new TextContent("The last release renamed two options, removed one obsolete overload, and added a builder method for logging.")]);
+        context.AddUserMessage("Thanks. Which of those three changes would break a caller that upgrades without recompiling?");
     }
 }
