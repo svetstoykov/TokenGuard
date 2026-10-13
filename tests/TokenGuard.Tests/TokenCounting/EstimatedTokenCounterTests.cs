@@ -5,12 +5,82 @@ using TokenGuard.Core.TokenCounting;
 
 namespace TokenGuard.Tests.TokenCounting;
 
+/// <summary>
+///     Checks the estimator against token counts recorded from a real tokenizer.
+/// </summary>
+/// <remarks>
+///     Every expected value comes from <see cref="TokenCountReferenceFixture" />. The fixture states a tolerance for each
+///     text kind; an estimate outside it is a failure.
+/// </remarks>
 public class EstimatedTokenCounterTests
 {
     private readonly EstimatedTokenCounter _counter = new();
 
+    /// <summary>
+    ///     Gets the name of every sample in the reference fixture.
+    /// </summary>
+    public static TheoryData<string> SampleIds => new(TokenCountReferenceFixture.Samples.Select(sample => sample.Id));
+
+    /// <summary>
+    ///     Gets every text kind in the reference fixture.
+    /// </summary>
+    public static TheoryData<string> Kinds => new(TokenCountReferenceFixture.Samples.Select(sample => sample.Kind).Distinct());
+
+    [Theory]
+    [MemberData(nameof(SampleIds))]
+    public void Count_ForAReferenceSample_IsWithinTheToleranceOfItsKind(string sampleId)
+    {
+        // Arrange
+        var sample = TokenCountReferenceFixture.Sample(sampleId);
+        var tolerance = TokenCountReferenceFixture.Tolerances[sample.Kind];
+
+        // Act
+        var estimate = this._counter.Count(sample.Message);
+
+        // Assert
+        var reference = sample.ReferenceTokens;
+        Assert.True(tolerance.Allows(estimate, reference), Describe(sample.Id, sample.Kind, estimate, reference, tolerance));
+    }
+
+    [Theory]
+    [MemberData(nameof(Kinds))]
+    public void Count_ForEveryReferenceSampleOfAKindTogether_IsWithinTheToleranceOfTheirSummedReferenceCounts(string kind)
+    {
+        // Arrange
+        var samples = TokenCountReferenceFixture.Samples.Where(sample => sample.Kind == kind).ToArray();
+        var reference = samples.Sum(sample => sample.ReferenceTokens);
+        var tolerance = TokenCountReferenceFixture.Tolerances[kind];
+
+        // Act
+        var estimate = this._counter.Count(samples.Select(sample => sample.Message));
+
+        // Assert
+        Assert.True(tolerance.Allows(estimate, reference), Describe("all samples", kind, estimate, reference, tolerance));
+    }
+
+    [Theory]
+    [InlineData(TokenCountSafetyMode.Balanced, 1.00)]
+    [InlineData(TokenCountSafetyMode.Safe, 1.05)]
+    [InlineData(TokenCountSafetyMode.Conservative, 1.10)]
+    [InlineData((TokenCountSafetyMode)99, 1.05)]
+    public void Count_WithASafetyMode_IsWithinTheToleranceOfTheReferenceCountRaisedByTheMarginOfThatMode(TokenCountSafetyMode mode, double margin)
+    {
+        // Arrange
+        var counter = new EstimatedTokenCounter(mode);
+
+        // Act
+        var outside = TokenCountReferenceFixture.Samples
+            .Select(sample => (Sample: sample, Estimate: counter.Count(sample.Message), Reference: sample.ReferenceTokens * margin))
+            .Where(counted => !TokenCountReferenceFixture.Tolerances[counted.Sample.Kind].Allows(counted.Estimate, counted.Reference, slackTokens: 1))
+            .Select(counted => $"{counted.Sample.Id}: estimate {counted.Estimate}, reference with margin {counted.Reference:F1}")
+            .ToArray();
+
+        // Assert
+        Assert.Empty(outside);
+    }
+
     [Fact]
-    public void EmptyMessageList_ReturnsZero()
+    public void Count_ForAnEmptyMessageList_ReturnsZero()
     {
         // Arrange
         var messages = Array.Empty<ContextMessage>();
@@ -23,127 +93,27 @@ public class EstimatedTokenCounterTests
     }
 
     [Fact]
-    public void SingleTextMessage_ReturnsHeuristicEstimatePlusOverhead()
+    public void Count_WhenTheMessageIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        var message = ContextMessage.FromText(MessageRole.User, "Hello");
 
         // Act
-        var result = this._counter.Count(message);
+        Action act = () => this._counter.Count((ContextMessage)null!);
 
         // Assert
-        Assert.Equal(5, result);
+        Assert.Throws<ArgumentNullException>(act);
     }
 
     [Fact]
-    public void EmptyTextContent_IsRejectedByMessageModelBeforeCounting()
+    public void Count_WhenTheMessageListIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        // Act
-        var exception = Assert.Throws<ArgumentException>(() => ContextMessage.FromText(MessageRole.User, string.Empty));
-
-        // Assert
-        Assert.Equal("Content", exception.ParamName);
-    }
-
-    [Fact]
-    public void WhitespaceOnlyTextContent_IsRejectedByMessageModelBeforeCounting()
-    {
-        // Arrange
-        // Act
-        var exception = Assert.Throws<ArgumentException>(() => ContextMessage.FromText(MessageRole.User, "    "));
-
-        // Assert
-        Assert.Equal("Content", exception.ParamName);
-    }
-
-    [Fact]
-    public void UnicodeSupplementaryCharacters_UseEmojiClusterEstimate()
-    {
-        // Arrange
-        var message = ContextMessage.FromText(MessageRole.User, "🎵🎵");
 
         // Act
-        var result = this._counter.Count(message);
+        Action act = () => this._counter.Count((IEnumerable<ContextMessage>)null!);
 
         // Assert
-        Assert.Equal(8, result);
-    }
-
-    [Fact]
-    public void ComplexEmojiCluster_UsesSingleClusterEstimate()
-    {
-        // Arrange
-        var message = ContextMessage.FromText(MessageRole.User, "👨‍👩‍👧‍👦");
-
-        // Act
-        var result = this._counter.Count(message);
-
-        // Assert
-        Assert.Equal(7, result);
-    }
-
-    [Fact]
-    public void AccentedLatinText_UsesLatinWordHeuristic()
-    {
-        // Arrange
-        var message = ContextMessage.FromText(MessageRole.User, "naïve café");
-
-        // Act
-        var result = this._counter.Count(message);
-
-        // Assert
-        Assert.Equal(6, result);
-    }
-
-    [Fact]
-    public void CyrillicWord_IsCountedAsGroupedUnicodeWord()
-    {
-        // Arrange
-        var message = ContextMessage.FromText(MessageRole.User, "привет");
-
-        // Act
-        var result = this._counter.Count(message);
-
-        // Assert
-        Assert.Equal(6, result);
-    }
-
-    [Fact]
-    public void MultiBlockMessage_AccumulatesSegmentEstimates()
-    {
-        // Arrange
-        var message = new ContextMessage
-        {
-            Role = MessageRole.Model,
-            Segments = [
-                new TextContent("Hello"),
-                new ToolUseContent("call_1", "calc", "{}")
-            ]
-        };
-
-        // Act
-        var result = this._counter.Count(message);
-
-        // Assert
-        Assert.Equal(21, result);
-    }
-
-    [Fact]
-    public void CountEnumerable_EqualsSumOfIndividualCalls()
-    {
-        // Arrange
-        var msg1 = ContextMessage.FromText(MessageRole.User, "One");
-        var msg2 = ContextMessage.FromText(MessageRole.Model, "Two");
-        var messages = new[] { msg1, msg2 };
-
-        // Act
-        var totalResult = this._counter.Count(messages);
-        var individualSum = this._counter.Count(msg1) + this._counter.Count(msg2);
-
-        // Assert
-        Assert.Equal(10, totalResult);
-        Assert.Equal(individualSum, totalResult);
+        Assert.Throws<ArgumentNullException>(act);
     }
 
     [Fact]
@@ -183,77 +153,7 @@ public class EstimatedTokenCounterTests
         Assert.Equal(100, result);
     }
 
-    [Fact]
-    public void ExplicitSafetyMode_AppliesRequestedMarginToEstimatedCounts()
-    {
-        // Arrange
-        var message = ContextMessage.FromText(MessageRole.User, "one two three four five six seven");
-        var balancedCounter = new EstimatedTokenCounter(TokenCountSafetyMode.Balanced);
-        var safeCounter = new EstimatedTokenCounter(TokenCountSafetyMode.Safe);
-        var conservativeCounter = new EstimatedTokenCounter(TokenCountSafetyMode.Conservative);
-
-        // Act
-        var balancedResult = balancedCounter.Count(message);
-        var safeResult = safeCounter.Count(message);
-        var conservativeResult = conservativeCounter.Count(message);
-
-        // Assert
-        Assert.Equal(11, balancedResult);
-        Assert.Equal(12, safeResult);
-        Assert.Equal(13, conservativeResult);
-    }
-
-    [Fact]
-    public void ToolResultContent_CountsIdentifiersNameAndPayload()
-    {
-        // Arrange
-        var message = ContextMessage.FromContent(MessageRole.User, new ToolResultContent("call_1", "calc", "42"));
-
-        // Act
-        var result = this._counter.Count(message);
-
-        // Assert
-        Assert.Equal(21, result);
-    }
-
-    [Fact]
-    public void LongAsciiWord_UsesChunkedWordEstimate()
-    {
-        // Arrange
-        var message = ContextMessage.FromText(MessageRole.User, "tokenization");
-
-        // Act
-        var result = this._counter.Count(message);
-
-        // Assert
-        Assert.Equal(7, result);
-    }
-
-    [Fact]
-    public void CodeLikePayload_CountsPunctuationAndIdentifiersSeparately()
-    {
-        // Arrange
-        var message = ContextMessage.FromText(MessageRole.User, "{\"snake_case\":true}");
-
-        // Act
-        var result = this._counter.Count(message);
-
-        // Assert
-        Assert.Equal(9, result);
-    }
-
-    [Fact]
-    public void ToolUseJsonPayload_CountsNestedStructure()
-    {
-        // Arrange
-        var message = ContextMessage.FromContent(
-            MessageRole.Model,
-            new ToolUseContent("call_1", "search", "{\"path\":\"src/app.cs\",\"line\":42,\"flags\":[\"a\",\"b\"]}"));
-
-        // Act
-        var result = this._counter.Count(message);
-
-        // Assert
-        Assert.Equal(37, result);
-    }
+    private static string Describe(string sampleId, string kind, int estimate, int reference, TokenCountTolerance tolerance) =>
+        $"{sampleId} ({kind}): estimate {estimate}, reference {reference}, error {TokenCountTolerance.Error(estimate, reference):+0.0%;-0.0%}, "
+        + $"tolerance {tolerance}.";
 }

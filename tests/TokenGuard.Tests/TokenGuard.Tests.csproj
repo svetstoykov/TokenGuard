@@ -21,6 +21,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="TokenCounting\EstimatedTokenCounterReferenceCounts.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\TokenGuard.Core\TokenGuard.Core.csproj" />
     <ProjectReference Include="..\..\src\TokenGuard.Extensions.OpenAI\TokenGuard.Extensions.OpenAI.csproj" />
     <ProjectReference Include="..\..\src\TokenGuard.Extensions.Anthropic\TokenGuard.Extensions.Anthropic.csproj" />
