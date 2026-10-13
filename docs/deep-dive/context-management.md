@@ -215,6 +215,12 @@ calling a tool again for content the model has already seen.
 Only the `Content` string changes. The segment **stays** `ToolResultContent`. That detail is crucial because provider
 adapters dispatch on segment type.
 
+A tool result is replaced only when masking saves tokens. A result whose estimated tokens are not above those of its
+placeholder, such as `ok`, an exit code or `File written`, keeps its content, and a message whose results all stay is
+returned as it is. The comparison uses the configured `PlaceholderFormat`, so a longer custom placeholder leaves more
+short results in place. The check is made per tool result after the boundary is found, so it never moves the boundary
+or a step line. `MessagesCompacted` and the masked-result log records count only what was replaced.
+
 If masking changed the segment to `TextContent`, the OpenAI adapter would silently skip the tool message, leaving the
 preceding assistant tool call without a matching tool result. Provider request would be invalid.
 

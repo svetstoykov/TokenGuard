@@ -24,9 +24,14 @@ namespace TokenGuard.Core.Strategies;
 ///         compactable slice supplied by <c>CompactAsync</c>. Nothing is masked while the whole slice fits in
 ///         <see cref="SlidingWindowOptions.ProtectedWindowFraction"/> of <c>availableTokens</c>, the high mark. Above
 ///         it, the protected part holds between the high mark and one step below it, where a step is one quarter of
-///         the high mark. Messages before the boundary keep their ordering and structure, but the content of every
-///         <see cref="ToolResultContent"/> block is replaced with a placeholder and the message state is marked as
-///         <see cref="CompactionState.Masked"/>.
+///         the high mark. Messages before the boundary keep their ordering and structure, but the content of each
+///         <see cref="ToolResultContent"/> block that costs more tokens than its placeholder is replaced with that
+///         placeholder, and the message state is marked as <see cref="CompactionState.Masked"/>.
+///     </para>
+///     <para>
+///         A tool result whose estimated tokens are not above those of its placeholder is returned as it is, because
+///         masking it would save nothing and lose its content. A message whose tool results all stay is returned as
+///         the same instance. The boundary is found before this check and does not depend on it.
 ///     </para>
 ///     <para>
 ///         The boundary moves in steps and holds between them, so the result of one call is the start of the result
@@ -107,10 +112,16 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///         <paramref name="availableTokens"/> already reflects any pinned-message cost deducted by the caller.
     ///     </para>
     ///     <para>
-    ///         Messages before the protected boundary are only changed when they contain <see cref="ToolResultContent"/>.
-    ///         Each such block is replaced with a <see cref="TextContent"/> placeholder built from
-    ///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>, and the returned message clears
-    ///         <see cref="ContextMessage.TokenCount"/> so token estimation can be recomputed against the masked content.
+    ///         Messages before the protected boundary are only changed when they contain a <see cref="ToolResultContent"/>
+    ///         that costs more estimated tokens than the placeholder built for it from
+    ///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>. The content of each such block is replaced with
+    ///         that placeholder, and the returned message clears <see cref="ContextMessage.TokenCount"/> so token
+    ///         estimation can be recomputed against the masked content. Every other tool result keeps its content, and
+    ///         a message with no replaced result is returned as the same instance.
+    ///     </para>
+    ///     <para>
+    ///         <see cref="CompactionResult.MessagesAffected"/> counts the messages in which at least one tool result was
+    ///         replaced.
     ///     </para>
     /// </remarks>
     /// <param name="messages">
@@ -170,7 +181,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         for (var i = 0; i < boundary; i++)
         {
-            result[i] = MaskToolResultsIfNeeded(messages[i], this._options.PlaceholderFormat);
+            result[i] = this.MaskToolResultsIfNeeded(messages[i], tokenCounts[i]);
 
             if (messages[i].State == CompactionState.Original && result[i].State == CompactionState.Masked)
             {
@@ -202,7 +213,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     }
 
     /// <summary>
-    ///     Writes one trace record for each tool result masked in a message and counts them.
+    ///     Writes one trace record for each tool result replaced in a message and counts them.
     /// </summary>
     /// <remarks>
     ///     Call this only when debug logging is enabled. The per-message token counts are computed only when trace
@@ -211,7 +222,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <param name="messageIndex">The index of the message in the compactable history.</param>
     /// <param name="original">The message before masking.</param>
     /// <param name="masked">The message after masking.</param>
-    /// <returns>The number of tool results masked in the message.</returns>
+    /// <returns>The number of tool results replaced in the message.</returns>
     private int LogMaskedToolResults(int messageIndex, ContextMessage original, ContextMessage masked)
     {
         var traceEnabled = this._logger.IsEnabled(LogLevel.Trace);
@@ -219,9 +230,9 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         var tokensAfter = traceEnabled ? this._tokenCounter.Count(masked) : 0;
         var toolResults = 0;
 
-        foreach (var segment in masked.Segments)
+        for (var i = 0; i < masked.Segments.Count; i++)
         {
-            if (segment is not ToolResultContent toolResult)
+            if (masked.Segments[i] is not ToolResultContent toolResult || ReferenceEquals(toolResult, original.Segments[i]))
                 continue;
 
             toolResults++;
@@ -229,6 +240,83 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         }
 
         return toolResults;
+    }
+
+    /// <summary>
+    ///     Replaces the content of each tool result in a message that costs more tokens than its placeholder.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         The placeholder names the tool recorded on the result itself, so each masked result keeps its own
+    ///         <see cref="ToolResultContent.ToolName"/> and <see cref="ToolResultContent.ToolCallId"/> even when another
+    ///         tool call in the history has the same identifier.
+    ///     </para>
+    ///     <para>
+    ///         The gain of one result is the difference between two counts of the same message: one with that result
+    ///         whole and one with its placeholder. A message with one tool result compares
+    ///         <paramref name="messageTokens"/> with the count of its masked copy. A message with several compares the
+    ///         copy that has every result masked with a copy that has one result put back, once per result.
+    ///     </para>
+    /// </remarks>
+    /// <param name="contextMessage">The message to mask.</param>
+    /// <param name="messageTokens">The token count of <paramref name="contextMessage"/> as it is.</param>
+    /// <returns>
+    ///     The same message when no tool result was replaced; otherwise, a copy in the state
+    ///     <see cref="CompactionState.Masked"/> with a cleared token count.
+    /// </returns>
+    private ContextMessage MaskToolResultsIfNeeded(ContextMessage contextMessage, int messageTokens)
+    {
+        var content = contextMessage.Segments;
+        var toolResultCount = content.Count(segment => segment is ToolResultContent);
+
+        if (toolResultCount == 0)
+        {
+            return contextMessage;
+        }
+
+        var maskedContent = new ContentSegment[content.Count];
+
+        for (var i = 0; i < content.Count; i++)
+        {
+            maskedContent[i] = content[i] is ToolResultContent toolResult
+                ? toolResult with { Content = string.Format(this._options.PlaceholderFormat, toolResult.ToolName, toolResult.ToolCallId) }
+                : content[i];
+        }
+
+        var masked = contextMessage with { Segments = maskedContent, State = CompactionState.Masked, TokenCount = null };
+        var maskedTokens = this._tokenCounter.Count(masked);
+
+        if (toolResultCount == 1)
+        {
+            return messageTokens > maskedTokens ? masked : contextMessage;
+        }
+
+        var resultContent = maskedContent.ToArray();
+        var replacedCount = toolResultCount;
+
+        for (var i = 0; i < content.Count; i++)
+        {
+            if (content[i] is not ToolResultContent)
+                continue;
+
+            var placeholder = maskedContent[i];
+            maskedContent[i] = content[i];
+            var tokensWithResult = this._tokenCounter.Count(masked with { Segments = maskedContent });
+            maskedContent[i] = placeholder;
+
+            if (tokensWithResult > maskedTokens)
+                continue;
+
+            resultContent[i] = content[i];
+            replacedCount--;
+        }
+
+        if (replacedCount == 0)
+        {
+            return contextMessage;
+        }
+
+        return replacedCount == toolResultCount ? masked : masked with { Segments = resultContent };
     }
 
     private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)
@@ -314,55 +402,5 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         }
 
         return Math.Max(lastStepLine, highBoundary);
-    }
-
-    /// <summary>
-    ///     Replaces the content of every tool result in a message with a placeholder.
-    /// </summary>
-    /// <remarks>
-    ///     The placeholder names the tool recorded on the result itself, so each masked result keeps its own
-    ///     <see cref="ToolResultContent.ToolName"/> and <see cref="ToolResultContent.ToolCallId"/> even when another
-    ///     tool call in the history has the same identifier.
-    /// </remarks>
-    /// <param name="contextMessage">The message to mask.</param>
-    /// <param name="placeholderFormat">The format that receives the tool name as <c>{0}</c> and the tool call identifier as <c>{1}</c>.</param>
-    /// <returns>The same message when it holds no tool result; otherwise, a masked copy.</returns>
-    private static ContextMessage MaskToolResultsIfNeeded(ContextMessage contextMessage, string placeholderFormat)
-    {
-        var content = contextMessage.Segments;
-        var hasToolResult = false;
-
-        foreach (var contentSegment in content)
-        {
-            if (contentSegment is not ToolResultContent) continue;
-
-            hasToolResult = true;
-            break;
-        }
-
-        if (!hasToolResult)
-        {
-            return contextMessage;
-        }
-
-        var replacedContent = new ContentSegment[content.Count];
-
-        for (var i = 0; i < content.Count; i++)
-        {
-            if (content[i] is ToolResultContent toolResult)
-            {
-                replacedContent[i] = toolResult with { Content = string.Format(placeholderFormat, toolResult.ToolName, toolResult.ToolCallId) };
-                continue;
-            }
-
-            replacedContent[i] = content[i];
-        }
-
-        return contextMessage with
-        {
-            Segments = replacedContent,
-            State = CompactionState.Masked,
-            TokenCount = null,
-        };
     }
 }
