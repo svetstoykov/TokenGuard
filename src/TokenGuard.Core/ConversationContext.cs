@@ -321,6 +321,8 @@ public sealed class ConversationContext : IConversationContext
     /// The exact input token count reported by the provider for the request that produced this
     /// response. When supplied, this value is used to correct future token estimates so
     /// <see cref="PrepareAsync(CancellationToken)"/> can stay aligned with the provider's counting behavior.
+    /// <see langword="null"/> or a value of zero or less means the provider reported no usage, and the correction
+    /// already in use stays in place.
     /// </param>
     /// <remarks>
     /// <para>
@@ -1320,11 +1322,13 @@ public sealed class ConversationContext : IConversationContext
     /// </para>
     /// </remarks>
     /// <param name="providerInputTokens">
-    /// The exact provider-reported input token total for the most recently prepared payload.
+    /// The exact provider-reported input token total for the most recently prepared payload. <see langword="null"/>
+    /// or a value of zero or less is treated as no report: the correction, the health signals, the log, and the
+    /// error-ratio measurement stay as they were.
     /// </param>
     private void ApplyAnchor(int? providerInputTokens)
     {
-        if (!providerInputTokens.HasValue)
+        if (providerInputTokens is not > 0)
             return;
 
         this._anchorCorrection = providerInputTokens.Value - this._lastPreparedMessageTokens;
@@ -1338,12 +1342,9 @@ public sealed class ConversationContext : IConversationContext
                 this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, providerInputTokens.Value,
                 this._lastEstimatedTotalTokens, this._anchorCorrection);
 
-            if (providerInputTokens.Value > 0)
-            {
-                TokenGuardTelemetry.EstimateErrorRatio.Record(
-                    (double)(providerInputTokens.Value - this._lastEstimatedTotalTokens) / providerInputTokens.Value,
-                    this._diagnostics.ContextNameTag);
-            }
+            TokenGuardTelemetry.EstimateErrorRatio.Record(
+                (double)(providerInputTokens.Value - this._lastEstimatedTotalTokens) / providerInputTokens.Value,
+                this._diagnostics.ContextNameTag);
         }
         catch (Exception)
         {

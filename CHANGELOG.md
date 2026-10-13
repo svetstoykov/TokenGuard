@@ -17,6 +17,10 @@ Planned as 1.3.0.
   threw as well. TokenGuard does not rewrite the content; the provider SDK decides what is sent for such text.
 - Behavior change: a recording call counts the message before it stores it, so a call that fails while counting leaves
   the history and the pinned token total as they were.
+- Behavior change: `RecordModelResponse` treats a provider input token count of zero or less like `null`: the message
+  is recorded and the provider correction stays as it was. Such a report used to be stored as a correction that
+  cancelled the whole estimate, so `PrepareAsync()` returned a history above the compaction trigger as `Ready`. It is
+  also left out of the `EstimateAnchored` log event.
 - Behavior change: `SlidingWindowOptions` throws `ArgumentException` when `placeholderFormat` is not a valid composite
   format string or uses an index other than `{0}` and `{1}`. Such a format used to be accepted and then threw
   `FormatException` from `PrepareAsync()` the first time a tool result was masked.
