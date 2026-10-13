@@ -79,12 +79,55 @@ public sealed class AnswerScorerTests
                 FinalAnswer = answer, CanaryRepeated = repeated, ArtifactTexts = new Dictionary<string, string>(),
                 Measurements = new SessionMeasurements
                 {
-                    MessagesMasked = count,
+                    MessagesMasked = count, MessagesSummarized = 1,
                     PrepareRecords = [new PrepareMeasurement { Index = 1, Status = "completed", OpeningMessagePresent = opening }]
                 }
             });
         result.Probe!.Status.Should().Be(status);
         result.Probe.Reason.Should().Be(reason);
         result.Probe.CanaryPresent.Should().Be(present);
+    }
+
+    /// <summary>Verifies an answered probe is not applicable when the task masked messages without summarizing or dropping any.</summary>
+    /// <param name="answer">The available answer.</param>
+    /// <param name="repeated">Whether the code was repeated early.</param>
+    /// <param name="opening">Whether the opening instruction survived.</param>
+    /// <param name="present">The expected code presence.</param>
+    [Theory]
+    [InlineData("ABC123", false, true, true)]
+    [InlineData("ABC123", true, true, true)]
+    [InlineData("ABC123", false, false, true)]
+    [InlineData("xABC123", false, true, false)]
+    public void Probe_MaskingOnlyTask_IsNotApplicable(string answer, bool repeated, bool opening, bool present)
+    {
+        var result = new AnswerScorer().Score([], new AutomationProbeDefinition { Canary = "ABC123", Requires = "masked" },
+            new ScoringInput
+            {
+                FinalAnswer = answer, CanaryRepeated = repeated, ArtifactTexts = new Dictionary<string, string>(),
+                Measurements = new SessionMeasurements
+                {
+                    MessagesMasked = 5,
+                    PrepareRecords = [new PrepareMeasurement { Index = 1, Status = "completed", OpeningMessagePresent = opening }]
+                }
+            });
+
+        result.Probe!.Status.Should().Be("notApplicable");
+        result.Probe.Reason.Should().Be("noSummarizationOrDrop");
+        result.Probe.CanaryPresent.Should().Be(present);
+    }
+
+    /// <summary>Verifies a masking-only task without a final answer keeps the invalid noAnswer verdict.</summary>
+    [Fact]
+    public void Probe_MaskingOnlyTaskWithoutAnswer_IsInvalidNoAnswer()
+    {
+        var result = new AnswerScorer().Score([], new AutomationProbeDefinition { Canary = "ABC123" },
+            new ScoringInput
+            {
+                FinalAnswer = null, ArtifactTexts = new Dictionary<string, string>(),
+                Measurements = new SessionMeasurements { MessagesMasked = 5 }
+            });
+
+        result.Probe!.Status.Should().Be("invalid");
+        result.Probe.Reason.Should().Be("noAnswer");
     }
 }

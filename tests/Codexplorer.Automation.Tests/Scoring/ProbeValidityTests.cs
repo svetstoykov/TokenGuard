@@ -14,6 +14,23 @@ public sealed class ProbeValidityTests
         ProbeValidity.GetInvalidReason(null, new SessionMeasurements { MessagesDropped = 99 }).Should().Be("instructionNotCompacted");
     }
 
+    /// <summary>Verifies a probe applies only when a message was summarized or dropped.</summary>
+    /// <param name="masked">The masked counter.</param>
+    /// <param name="summarized">The summarized counter.</param>
+    /// <param name="dropped">The dropped counter.</param>
+    /// <param name="applicable">Whether the probe applies.</param>
+    [Theory]
+    [InlineData(0, 0, 0, false)]
+    [InlineData(9, 0, 0, false)]
+    [InlineData(9, 1, 0, true)]
+    [InlineData(0, 0, 1, true)]
+    public void IsApplicable_RequiresSummarizationOrDrop(long masked, long summarized, long dropped, bool applicable)
+    {
+        var measurements = new SessionMeasurements { MessagesMasked = masked, MessagesSummarized = summarized, MessagesDropped = dropped };
+
+        ProbeValidity.IsApplicable(measurements).Should().Be(applicable);
+    }
+
     /// <summary>Verifies incomplete and out-of-order records do not hide the last completed evidence.</summary>
     /// <param name="kind">The required kind.</param>
     [Theory]

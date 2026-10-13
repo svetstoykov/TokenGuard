@@ -146,6 +146,7 @@ internal static class ComparisonCommand
         output.WriteLine("Candidate-only tasks: " + string.Join(", ", candidateTasks.Keys.Except(baselineTasks.Keys).Order(StringComparer.Ordinal)));
         output.WriteLine("Estimator error unit: " + baseline.EstimatorErrorUnit);
         PrintCachedInputAvailability(output, baseline, candidate);
+        PrintProbeApplicabilityAvailability(output, baseline, candidate);
         PrintMeasuredReduction(output, baseline, candidate, mismatches.Count == 0);
         if (limits.Count > 0 && (baseline.Partial || candidate.Partial || baseline.UnrunTaskIds.Count > 0 || candidate.UnrunTaskIds.Count > 0
             || baseline.Tasks.Any(task => !task.MeasurementsComplete) || candidate.Tasks.Any(task => !task.MeasurementsComplete)
@@ -165,7 +166,7 @@ internal static class ComparisonCommand
         {
             if (metric is "estimatorSignedMean" or "estimatorSignedP95" or "checksTotal" or "checksPassed" or "evaluatedTaskCount"
                 or "deliverableCompletedTaskCount" or "probeCount" or "passedProbeCount" or "canaryPresentCount"
-                or "providerCachedInputTokens"
+                or "providerCachedInputTokens" or "notApplicableProbeCount"
                 || !baselineMetrics.TryGetValue(metric, out var previous)
                 || !candidateMetrics.TryGetValue(metric, out var current))
             {
@@ -199,9 +200,9 @@ internal static class ComparisonCommand
         await using var stream = File.OpenRead(path);
         using var document = await JsonDocument.ParseAsync(stream).ConfigureAwait(false);
         var root = document.RootElement;
-        var schemaVersionFour = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("schemaVersion", out var version)
-            && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var number) && number == 4;
-        ValidateShape(root, typeof(RunReport), !schemaVersionFour);
+        var shapeVersion = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("schemaVersion", out var version)
+            && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var number) && number is 4 or 5 ? number : 6;
+        ValidateShape(root, typeof(RunReport), shapeVersion);
         return root.Deserialize<RunReport>(ReportJson.Options) ?? throw new JsonException();
     }
 
@@ -209,20 +210,20 @@ internal static class ComparisonCommand
     ///     Requires every writable contract property of the report's schema version and rejects duplicate JSON object keys.
     /// </summary>
     /// <remarks>
-    ///     A schema version 4 report has no cached input token fields, so they must be absent from it and are read as
-    ///     <see langword="null" />. Every other report must carry them, with <see langword="null" /> for a value the provider did not report.
+    ///     A field that a later schema version added must be absent from an older report and is read as <see langword="null" />.
+    ///     A report of that version or a later one must carry it, with <see langword="null" /> for a value that was not reported.
     /// </remarks>
     /// <param name="element">The report JSON subtree.</param>
     /// <param name="type">The corresponding concrete contract type.</param>
-    /// <param name="recordsCachedInputTokens">Whether the report's schema version includes the cached input token fields.</param>
+    /// <param name="shapeVersion">The schema version whose shape the report must have.</param>
     /// <exception cref="JsonException">
     ///     A required property is absent.
     ///     -or-
-    ///     A schema version 4 report carries a cached input token field.
+    ///     The report carries a field that its schema version does not have.
     ///     -or-
     ///     The JSON shape is invalid.
     /// </exception>
-    private static void ValidateShape(JsonElement element, Type type, bool recordsCachedInputTokens)
+    private static void ValidateShape(JsonElement element, Type type, int shapeVersion)
     {
         if (element.ValueKind == JsonValueKind.Null)
         {
@@ -255,7 +256,7 @@ internal static class ComparisonCommand
         {
             foreach (var item in element.EnumerateArray())
             {
-                ValidateShape(item, type.GetGenericArguments()[0], recordsCachedInputTokens);
+                ValidateShape(item, type.GetGenericArguments()[0], shapeVersion);
             }
 
             return;
@@ -273,27 +274,51 @@ internal static class ComparisonCommand
         foreach (var property in properties)
         {
             var present = element.TryGetProperty(JsonNamingPolicy.CamelCase.ConvertName(property.Name), out var value);
-            var expected = recordsCachedInputTokens || !IsCachedInputTokenField(type, property.Name);
-            if (present != expected)
+            if (present != (shapeVersion >= GetFirstSchemaVersion(type, property.Name)))
             {
                 throw new JsonException();
             }
 
             if (present)
             {
-                ValidateShape(value, property.PropertyType, recordsCachedInputTokens);
+                ValidateShape(value, property.PropertyType, shapeVersion);
             }
         }
     }
 
-    /// <summary>Recognizes the report fields that schema version 5 added for cached input tokens.</summary>
+    /// <summary>Gets the first schema version whose reports carry a field.</summary>
     /// <param name="type">The contract type declaring the property.</param>
     /// <param name="propertyName">The property name.</param>
-    /// <returns><see langword="true" /> if the property is a cached input token field; otherwise, <see langword="false" />.</returns>
-    private static bool IsCachedInputTokenField(Type type, string propertyName)
+    /// <returns>
+    ///     5 for the cached input token fields, 6 for the not-applicable probe count, and 4 for every other field.
+    /// </returns>
+    private static int GetFirstSchemaVersion(Type type, string propertyName)
     {
-        return (type == typeof(ProviderCallMeasurement) && propertyName == nameof(ProviderCallMeasurement.CachedInputTokens))
-            || (type == typeof(ReportMetrics) && propertyName == nameof(ReportMetrics.ProviderCachedInputTokens));
+        if ((type == typeof(ProviderCallMeasurement) && propertyName == nameof(ProviderCallMeasurement.CachedInputTokens))
+            || (type == typeof(ReportMetrics) && propertyName == nameof(ReportMetrics.ProviderCachedInputTokens)))
+        {
+            return 5;
+        }
+
+        return type == typeof(RunTotals) && propertyName == nameof(RunTotals.NotApplicableProbeCount) ? 6 : 4;
+    }
+
+    /// <summary>
+    ///     Prints why the probe counts cannot be compared when a report that declares probes has no not-applicable status.
+    /// </summary>
+    /// <param name="output">The comparison output.</param>
+    /// <param name="baseline">The validated baseline report.</param>
+    /// <param name="candidate">The validated candidate report.</param>
+    private static void PrintProbeApplicabilityAvailability(TextWriter output, RunReport baseline, RunReport candidate)
+    {
+        var reasons = new[] { (Label: "baseline", Report: baseline), (Label: "candidate", Report: candidate) }
+            .Where(side => side.Report.Totals.NotApplicableProbeCount is null && side.Report.Totals.ProbeCount > 0)
+            .Select(side => $"{side.Label} is a schema version {side.Report.SchemaVersion} report, which counts a probe of a task "
+                + "without summarization or drop as invalid").ToArray();
+        if (reasons.Length > 0)
+        {
+            output.WriteLine("Not-applicable probe comparison skipped: " + string.Join("; ", reasons) + ".");
+        }
     }
 
     /// <summary>
@@ -421,6 +446,7 @@ internal static class ComparisonCommand
         metrics.Add("deliverableCompletionRate", report.Totals.DeliverableCompletionRate);
         metrics.Add("probeCount", report.Totals.ProbeCount);
         metrics.Add("invalidProbeCount", report.Totals.InvalidProbeCount);
+        metrics.Add("notApplicableProbeCount", report.Totals.NotApplicableProbeCount);
         metrics.Add("passedProbeCount", report.Totals.PassedProbeCount);
         metrics.Add("probePassRate", report.Totals.ProbePassRate);
         metrics.Add("canaryPresentCount", report.Totals.CanaryPresentCount);
@@ -551,10 +577,13 @@ internal static class ComparisonCommand
         output.WriteLine("Decreases regress checkPassRate, deliverableCompletionRate, probePassRate; "
             + "increases regress invalidProbeCount, messagesMasked, messagesSummarized.");
         output.WriteLine("Informational exclusions: checksTotal, checksPassed, evaluatedTaskCount, deliverableCompletedTaskCount, "
-            + "probeCount, passedProbeCount, canaryPresentCount, providerCachedInputTokens; signed estimator statistics.");
+            + "probeCount, passedProbeCount, notApplicableProbeCount, canaryPresentCount, providerCachedInputTokens; "
+            + "signed estimator statistics.");
         output.WriteLine("Unavailable limited rates fail. Compare probePassRate only between the same arm's valid-probe populations.");
-        output.WriteLine("Schema version 4 and 5 reports compare with each other. A version 4 report records no cached input tokens, "
+        output.WriteLine("Schema version 4, 5 and 6 reports compare with each other. A version 4 report records no cached input tokens, "
             + "so that comparison is skipped and reported.");
+        output.WriteLine("A probe of a task where nothing was summarized or dropped is notApplicable and outside probePassRate. "
+            + "A version 4 or 5 report counts such a probe as invalid, which is reported when it declares probes.");
         output.WriteLine("Metrics: " + string.Join(", ", typeof(ReportMetrics).GetProperties()
             .Where(property => property.Name != nameof(ReportMetrics.ProviderCachedInputTokens))
             .Where(property => property.PropertyType == typeof(long) || property.PropertyType == typeof(long?)

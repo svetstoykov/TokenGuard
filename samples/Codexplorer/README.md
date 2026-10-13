@@ -293,9 +293,13 @@ The runner latches code repetition in any original reply before wrap-up; that in
 `requires` is optional/null or exactly `masked`, `summarized`, or `dropped`. Eligibility requires the greatest-index completed prepare
 to show the unchanged full opening user message is absent, then a nonzero counter for any required kind. Event counts alone cannot
 prove eligibility. No completed prepare, or surviving/unknown opening evidence, gives `instructionNotCompacted`; a missing kind
-gives `requiredKindAbsent`. No answer takes precedence (`noAnswer`), then early repetition (`canaryRepeated`), then eligibility.
+gives `requiredKindAbsent`. No answer takes precedence (`noAnswer`), then applicability, then early repetition (`canaryRepeated`),
+then eligibility. An answered probe of a task where no message was summarized or dropped has the status `notApplicable` with the
+reason `noSummarizationOrDrop`: masking never removes a user message, so the opening message cannot have left the view. That covers
+masking-only treatment tasks and full-context controls. `totals.notApplicableProbeCount` counts these probes apart from
+`invalidProbeCount`, and both stay outside the probe pass-rate denominator.
 An eligible probe passes when the code matches anywhere in the final answer, otherwise fails with `canaryMissing`.
-`canaryPresent` remains informational for invalid probes, including full-context controls. Probe pass rate is a regression signal,
+`canaryPresent` remains informational for invalid and not-applicable probes. Probe pass rate is a regression signal,
 not a general claim about instruction retention, and opening survival can make a short run's probe invalid.
 
 The verifiable corpus checks a concrete fact in each final answer and records supporting facts in `evidence.md`.
@@ -332,7 +336,7 @@ Run metadata records the commit and dirty flag at run start, UTC timestamps, eff
 TokenGuard log level, arm, and the SHA-256 hash of the immutable manifest bytes executed. Inline tasks use deterministic JSON
 serialization with explicit inline provenance. Reports exclude prompts, answers, tool content, raw configuration, secrets, and exception messages.
 
-Schema versions 4 and 5 include these location fields:
+Schema versions 4, 5 and 6 include these location fields:
 
 | Where | Field | Meaning |
 | --- | --- | --- |
@@ -355,8 +359,12 @@ an error and changed nothing, per task and summed in the totals. A task with bot
 | --- | --- |
 | Started-task checks | `checksTotal`, `checksPassed`, `checkPassRate` = passed / total |
 | Started tasks with checks | `evaluatedTaskCount`, `deliverableCompletedTaskCount`, `deliverableCompletionRate` = all-pass / evaluated |
-| Declared probes on started tasks | `probeCount`, `invalidProbeCount`, `passedProbeCount`, `probePassRate` = passed / valid |
-| Code presence, including invalid probes | `canaryPresentCount` |
+| Declared probes on started tasks | `probeCount`, `invalidProbeCount`, `notApplicableProbeCount`, `passedProbeCount`, `probePassRate` = passed / (passed + failed) |
+| Code presence, including invalid and not-applicable probes | `canaryPresentCount` |
+
+Schema version 6 records probe applicability. A probe's status is `passed`, `failed`, `invalid` or `notApplicable`, and
+`totals.notApplicableProbeCount` counts the last of these. A version 4 or 5 report has neither the status nor the count: it records
+a probe of a task without summarization or drop as `invalid` and counts it in `invalidProbeCount`.
 
 Rates are null for empty denominators. Totals sum check populations rather than averaging task rates. Probe results do not affect
 deliverable completion. Validation rebuilds counts/rates and checks observable verdict/eligibility invariants; it cannot verify the
@@ -427,11 +435,14 @@ dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.c
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare --help
 ```
 
-The command accepts schema version 4 and 5 reports; reports of an earlier version must be re-recorded, not relabelled.
-A version 4 report must have exactly the version 4 shape: the cached input token fields are absent from it and read as unavailable,
-and a version 4 report that carries either field is rejected. A version 5 report must carry both. The two versions compare with each
-other without `--allow-incompatible`. The command prints both schema versions, and when either report has no cached input total it
-prints that the cached-token comparison is skipped and why; every other metric is compared as usual.
+The command accepts schema version 4, 5 and 6 reports; reports of an earlier version must be re-recorded, not relabelled.
+A report must have exactly the shape of its version. The cached input token fields are absent from a version 4 report and read as
+unavailable, and a version 5 or 6 report must carry both. `totals.notApplicableProbeCount` is absent from a version 4 or 5 report
+and read as unavailable, and a version 6 report must carry it. A report that carries a field its version does not have is rejected.
+The three versions compare with each other without `--allow-incompatible`. The command prints both schema versions, and when either
+report has no cached input total it prints that the cached-token comparison is skipped and why. When a version 4 or 5 report declares
+probes it prints that the not-applicable probe comparison is skipped, because that report's `invalidProbeCount` includes the probes
+a version 6 report counts as not applicable. Every other metric is compared as usual.
 It validates schema and aggregates, then prints baseline, candidate, and delta for totals and matching tasks,
 including distributions and unavailable values. It lists tasks present in only one report and categorical completion changes.
 It also prints each report's partial flag and unrun task IDs.

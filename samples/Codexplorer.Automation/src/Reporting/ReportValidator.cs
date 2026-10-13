@@ -17,9 +17,9 @@ internal static class ReportValidator
     public static IReadOnlyList<string> Validate(RunReport report)
     {
         var errors = new List<string>();
-        if (report.SchemaVersion is not (4 or 5))
+        if (report.SchemaVersion is not (4 or 5 or 6))
         {
-            errors.Add("Unsupported report schema version; expected 4 or 5.");
+            errors.Add("Unsupported report schema version; expected 4, 5 or 6.");
             return errors;
         }
 
@@ -45,6 +45,13 @@ internal static class ReportValidator
             errors.Add("Report totals carry cached input tokens, which a schema version 4 report cannot record.");
         }
 
+        // A report below schema version 6 has no not-applicable status: it records such a probe as invalid and counts it as invalid.
+        var recordsProbeApplicability = report.SchemaVersion >= 6;
+        if (!recordsProbeApplicability && report.Totals.NotApplicableProbeCount is not null)
+        {
+            errors.Add($"Report totals count not-applicable probes, which a schema version {report.SchemaVersion} report cannot record.");
+        }
+
         var aggregator = new ReportAggregator();
         foreach (var task in report.Tasks)
         {
@@ -62,7 +69,7 @@ internal static class ReportValidator
                 errors.Add($"Task '{task.TaskId}' carries cached input tokens, which a schema version 4 report cannot record.");
             }
 
-            ValidateTask(task, errors);
+            ValidateTask(task, errors, recordsProbeApplicability);
             if (errors.Count > 0)
             {
                 continue;
@@ -90,6 +97,11 @@ internal static class ReportValidator
             var expected = aggregator.CreateReport(report.Run, report.Tasks, report.UnrunTaskIds, report.Partial);
             var expectedTotals = recordsCachedInputTokens ? expected.Totals
                 : expected.Totals with { Metrics = expected.Totals.Metrics with { ProviderCachedInputTokens = null } };
+            if (!recordsProbeApplicability)
+            {
+                expectedTotals = expectedTotals with { NotApplicableProbeCount = null };
+            }
+
             if (!JsonElement.DeepEquals(JsonSerializer.SerializeToElement(report.Totals, ReportJson.Options),
                 JsonSerializer.SerializeToElement(expectedTotals, ReportJson.Options)))
             {
@@ -203,9 +215,9 @@ internal static class ReportValidator
         return errors;
     }
 
-    private static void ValidateTask(TaskReport task, List<string> errors)
+    private static void ValidateTask(TaskReport task, List<string> errors, bool recordsProbeApplicability)
     {
-        ValidateScoring(task, errors);
+        ValidateScoring(task, errors, recordsProbeApplicability);
 
         if (HasNonfiniteMetric(task.Metrics))
         {
@@ -265,7 +277,11 @@ internal static class ReportValidator
     /// <summary>Checks recorded verdict contracts and shared eligibility without reconstructing excluded answer text.</summary>
     /// <param name="task">The task with non-null required collections.</param>
     /// <param name="errors">The destination for observable inconsistencies.</param>
-    private static void ValidateScoring(TaskReport task, List<string> errors)
+    /// <param name="recordsProbeApplicability">
+    ///     Whether the report's schema version has the not-applicable probe status. When it does, a probe of a task where nothing was
+    ///     summarized or dropped must carry that status and no other; when it does not, the status is rejected.
+    /// </param>
+    private static void ValidateScoring(TaskReport task, List<string> errors, bool recordsProbeApplicability)
     {
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var check in task.Checks)
@@ -280,17 +296,22 @@ internal static class ReportValidator
             return;
         if (probe.Requires is not (null or "masked" or "summarized" or "dropped"))
             errors.Add($"Task '{task.TaskId}' has invalid probe requires.");
+        var measurements = ReportAggregator.ToMeasurements(task);
         var eligibility = task.PrepareRecords.Any(record => record is null) ? "instructionNotCompacted"
-            : ProbeValidity.GetInvalidReason(probe.Requires, ReportAggregator.ToMeasurements(task));
+            : ProbeValidity.GetInvalidReason(probe.Requires, measurements);
+        var applicable = !recordsProbeApplicability || ProbeValidity.IsApplicable(measurements);
         var valid = probe.Status switch
         {
-            "passed" => task.ProtocolCompletion && eligibility is null && probe.Reason is null && probe.CanaryPresent,
-            "failed" => task.ProtocolCompletion && eligibility is null && probe.Reason == "canaryMissing" && !probe.CanaryPresent,
+            "passed" => task.ProtocolCompletion && applicable && eligibility is null && probe.Reason is null && probe.CanaryPresent,
+            "failed" => task.ProtocolCompletion && applicable && eligibility is null && probe.Reason == "canaryMissing"
+                && !probe.CanaryPresent,
+            "notApplicable" => recordsProbeApplicability && task.ProtocolCompletion && !applicable
+                && probe.Reason == ProbeValidity.NotApplicableReason,
             "invalid" => probe.Reason switch
             {
                 "noAnswer" => !probe.CanaryPresent,
-                "canaryRepeated" => task.ProtocolCompletion,
-                "instructionNotCompacted" or "requiredKindAbsent" => task.ProtocolCompletion && probe.Reason == eligibility,
+                "canaryRepeated" => task.ProtocolCompletion && applicable,
+                "instructionNotCompacted" or "requiredKindAbsent" => task.ProtocolCompletion && applicable && probe.Reason == eligibility,
                 _ => false,
             },
             _ => false,

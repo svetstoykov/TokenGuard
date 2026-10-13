@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Codexplorer.Automation.Configuration;
 using Codexplorer.Automation.Reporting;
 using Codexplorer.Automation.Scoring;
@@ -65,14 +66,16 @@ internal static class ReportFixture
     /// <param name="probe">The optional probe result.</param>
     /// <param name="opening">Whether the unchanged opening survived.</param>
     /// <param name="protocol">Whether a final wrap-up reply completed.</param>
+    /// <param name="maskingOnly">Whether the task masked messages without summarizing or dropping any.</param>
     /// <returns>The reconstructed report.</returns>
-    public static RunReport Scored(IReadOnlyList<CheckResult> checks, ProbeResult? probe = null, bool opening = false, bool protocol = true)
+    public static RunReport Scored(IReadOnlyList<CheckResult> checks, ProbeResult? probe = null, bool opening = false, bool protocol = true,
+        bool maskingOnly = false)
     {
         var report = Create();
         var template = report.Tasks[0];
         var measurements = ReportAggregator.ToMeasurements(template) with
         {
-            MessagesMasked = 2, MessagesSummarized = 3, MessagesDropped = 4,
+            MessagesMasked = 2, MessagesSummarized = maskingOnly ? 0 : 3, MessagesDropped = maskingOnly ? 0 : 4,
             PrepareRecords = [template.PrepareRecords[0] with { OpeningMessagePresent = opening }],
         };
         var aggregator = new ReportAggregator();
@@ -81,4 +84,36 @@ internal static class ReportFixture
         return aggregator.CreateReport(report.Run, [task], [], false);
     }
 
+    /// <summary>Relabels a current report as schema version 4 or 5 and clears the totals field that version does not have.</summary>
+    /// <param name="report">The current report, with no cached input tokens when <paramref name="schemaVersion" /> is 4.</param>
+    /// <param name="schemaVersion">The older schema version, 4 or 5.</param>
+    /// <returns>The report as a harness of that schema version would have built it.</returns>
+    public static RunReport AsOlderSchemaVersion(RunReport report, int schemaVersion)
+    {
+        return report with { SchemaVersion = schemaVersion, Totals = report.Totals with { NotApplicableProbeCount = null } };
+    }
+
+    /// <summary>Serializes a report in the JSON shape of schema version 4 or 5, which omits the fields later versions added.</summary>
+    /// <param name="report">The current report, with no cached input tokens when <paramref name="schemaVersion" /> is 4.</param>
+    /// <param name="schemaVersion">The older schema version, 4 or 5.</param>
+    /// <returns>The report JSON as a harness of that schema version would have written it.</returns>
+    public static string SerializeAsOlderSchemaVersion(RunReport report, int schemaVersion)
+    {
+        var root = JsonSerializer.SerializeToNode(AsOlderSchemaVersion(report, schemaVersion), ReportJson.Options)!;
+        root["totals"]!.AsObject().Remove("notApplicableProbeCount");
+        if (schemaVersion == 4)
+        {
+            root["totals"]!["metrics"]!.AsObject().Remove("providerCachedInputTokens");
+            foreach (var task in root["tasks"]!.AsArray())
+            {
+                task!["metrics"]!.AsObject().Remove("providerCachedInputTokens");
+                foreach (var call in task["providerCalls"]!.AsArray())
+                {
+                    call!.AsObject().Remove("cachedInputTokens");
+                }
+            }
+        }
+
+        return root.ToJsonString(ReportJson.Options);
+    }
 }

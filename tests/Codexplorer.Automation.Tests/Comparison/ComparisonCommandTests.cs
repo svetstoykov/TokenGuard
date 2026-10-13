@@ -425,11 +425,11 @@ public sealed class ComparisonCommandTests
         var result = await CompareAsync(ReportFixture.Create() with { SchemaVersion = 1 }, ReportFixture.Create());
 
         result.ExitCode.Should().Be(1);
-        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 4 or 5.");
+        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 4, 5 or 6.");
     }
 
     /// <summary>
-    ///     Verifies that a recorded schema version 4 report compares with a schema version 5 report and that the skipped
+    ///     Verifies that a recorded schema version 4 report compares with a schema version 6 report and that the skipped
     ///     cached-token comparison is stated.
     /// </summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
@@ -453,10 +453,93 @@ public sealed class ComparisonCommandTests
         var result = await CompareJsonAsync(recordedJson, JsonSerializer.Serialize(candidate, ReportJson.Options));
 
         result.ExitCode.Should().Be(0);
-        result.Text.Should().Contain("Report schema version: baseline=4 candidate=5").And.NotContain("Incompatible:")
+        result.Text.Should().Contain("Report schema version: baseline=4 candidate=6").And.NotContain("Incompatible:")
             .And.Contain("totals providerInputTokens: baseline=10262329 candidate=10262329 delta=0")
             .And.Contain("totals providerCachedInputTokens: baseline=unavailable candidate=1510 delta=unavailable")
-            .And.Contain("Cached input token comparison skipped: baseline is a schema version 4 report, which records no cached input tokens.");
+            .And.Contain("Cached input token comparison skipped: baseline is a schema version 4 report, which records no cached input tokens.")
+            .And.Contain("totals notApplicableProbeCount: baseline=unavailable candidate=0 delta=unavailable")
+            .And.NotContain("Not-applicable probe comparison skipped");
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 4 or 5 report whose masking-only probe is recorded as invalid compares with a schema
+    ///     version 6 report that records the same probe as not applicable, and that the skipped probe comparison is stated.
+    /// </summary>
+    /// <param name="schemaVersion">The older schema version of the baseline.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(4)]
+    [InlineData(5)]
+    public async Task RunAsync_OlderSchemaVersionBaselineWithMaskingOnlyProbe_ComparesAndStatesSkippedProbeComparison(int schemaVersion)
+    {
+        var baseline = ReportFixture.Scored([],
+            new ProbeResult { Requires = null, Status = "invalid", Reason = "instructionNotCompacted", CanaryPresent = true },
+            opening: true, maskingOnly: true);
+        var candidate = ReportFixture.Scored([],
+            new ProbeResult { Requires = null, Status = "notApplicable", Reason = "noSummarizationOrDrop", CanaryPresent = true },
+            opening: true, maskingOnly: true);
+
+        var result = await CompareJsonAsync(ReportFixture.SerializeAsOlderSchemaVersion(baseline, schemaVersion),
+            JsonSerializer.Serialize(candidate, ReportJson.Options));
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain($"Report schema version: baseline={schemaVersion} candidate=6").And.NotContain("Incompatible:")
+            .And.Contain("totals invalidProbeCount: baseline=1 candidate=0 delta=-1")
+            .And.Contain("totals notApplicableProbeCount: baseline=unavailable candidate=1 delta=unavailable")
+            .And.Contain("task task probe: baseline=invalid(instructionNotCompacted) CanaryPresent=True "
+                + "candidate=notApplicable(noSummarizationOrDrop) CanaryPresent=True")
+            .And.Contain($"Not-applicable probe comparison skipped: baseline is a schema version {schemaVersion} report, "
+                + "which counts a probe of a task without summarization or drop as invalid.");
+    }
+
+    /// <summary>
+    ///     Verifies that a report carrying the not-applicable probe count under schema version 4 or 5 is rejected.
+    /// </summary>
+    /// <param name="schemaVersion">The older schema version the report is labelled with.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(4)]
+    [InlineData(5)]
+    public async Task RunAsync_OlderSchemaVersionReportCarryingNotApplicableProbeCount_ReturnsFailure(int schemaVersion)
+    {
+        var current = JsonSerializer.Serialize(ReportFixture.Create(), ReportJson.Options);
+        var node = System.Text.Json.Nodes.JsonNode.Parse(ReportFixture.SerializeAsOlderSchemaVersion(ReportFixture.Create(), schemaVersion))!;
+        node["totals"]!["notApplicableProbeCount"] = 0;
+
+        var result = await CompareJsonAsync(node.ToJsonString(), current);
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Malformed report JSON, unsupported schema, or invalid required report shape.");
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 6 report missing the not-applicable probe count is rejected.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_SchemaVersionSixReportMissingNotApplicableProbeCount_ReturnsFailure()
+    {
+        var current = JsonSerializer.Serialize(ReportFixture.Create(), ReportJson.Options);
+        var node = System.Text.Json.Nodes.JsonNode.Parse(current)!;
+        node["totals"]!.AsObject().Remove("notApplicableProbeCount");
+
+        var result = await CompareJsonAsync(node.ToJsonString(), current);
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Malformed report JSON, unsupported schema, or invalid required report shape.");
+    }
+
+    /// <summary>
+    ///     Verifies that the not-applicable probe count is informational and cannot have a regression limit.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_NotApplicableProbeCountLimit_IsRefused()
+    {
+        var result = await CompareAsync(ReportFixture.Create(), ReportFixture.Create(), ["--limit", "notApplicableProbeCount=1"]);
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Unknown or informational metric cannot have a regression limit: notApplicableProbeCount.");
     }
 
     /// <summary>
@@ -470,7 +553,7 @@ public sealed class ComparisonCommandTests
 
         result.ExitCode.Should().Be(0);
         result.Text.Should().Contain("totals providerCachedInputTokens: baseline=40 candidate=10 delta=-30")
-            .And.Contain("Report schema version: baseline=5 candidate=5").And.NotContain("Cached input token comparison skipped");
+            .And.Contain("Report schema version: baseline=6 candidate=6").And.NotContain("Cached input token comparison skipped");
     }
 
     /// <summary>
@@ -502,17 +585,22 @@ public sealed class ComparisonCommandTests
     }
 
     /// <summary>
-    ///     Verifies that a schema version 5 report missing a cached input token field is rejected.
+    ///     Verifies that a schema version 5 or 6 report missing a cached input token field is rejected.
     /// </summary>
+    /// <param name="schemaVersion">The schema version of the report.</param>
     /// <param name="field">The cached input token field removed from the report.</param>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Theory]
-    [InlineData("cachedInputTokens")]
-    [InlineData("providerCachedInputTokens")]
-    public async Task RunAsync_SchemaVersionFiveReportMissingCachedField_ReturnsFailure(string field)
+    [InlineData(5, "cachedInputTokens")]
+    [InlineData(5, "providerCachedInputTokens")]
+    [InlineData(6, "cachedInputTokens")]
+    [InlineData(6, "providerCachedInputTokens")]
+    public async Task RunAsync_ReportMissingCachedField_ReturnsFailure(int schemaVersion, string field)
     {
-        var current = JsonSerializer.Serialize(ReportFixture.Create(cachedInputTokens: 40), ReportJson.Options);
-        var node = System.Text.Json.Nodes.JsonNode.Parse(current)!;
+        var report = ReportFixture.Create(cachedInputTokens: 40);
+        var current = JsonSerializer.Serialize(report, ReportJson.Options);
+        var node = System.Text.Json.Nodes.JsonNode.Parse(
+            schemaVersion == 6 ? current : ReportFixture.SerializeAsOlderSchemaVersion(report, schemaVersion))!;
         var owner = field == "cachedInputTokens" ? node["tasks"]![0]!["providerCalls"]![0]! : node["totals"]!["metrics"]!;
         owner.AsObject().Remove(field);
 
@@ -530,7 +618,8 @@ public sealed class ComparisonCommandTests
     public async Task RunAsync_SchemaVersionFourReportCarryingCachedFields_ReturnsFailure()
     {
         var current = JsonSerializer.Serialize(ReportFixture.Create(), ReportJson.Options);
-        var relabelled = current.Replace("\"schemaVersion\": 5", "\"schemaVersion\": 4", StringComparison.Ordinal);
+        var relabelled = ReportFixture.SerializeAsOlderSchemaVersion(ReportFixture.Create(), 5)
+            .Replace("\"schemaVersion\": 5", "\"schemaVersion\": 4", StringComparison.Ordinal);
 
         var result = await CompareJsonAsync(relabelled, current);
 

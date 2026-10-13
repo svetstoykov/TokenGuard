@@ -5,6 +5,17 @@ namespace Codexplorer.Automation.Scoring;
 /// <summary>Provides shared probe eligibility from observable preparation evidence.</summary>
 internal static class ProbeValidity
 {
+    /// <summary>Defines the reason recorded for a probe in a task where nothing was summarized or dropped.</summary>
+    public const string NotApplicableReason = "noSummarizationOrDrop";
+
+    /// <summary>Checks whether the task removed any message, which is the only way the opening message can leave the view.</summary>
+    /// <param name="measurements">The non-null session measurements.</param>
+    /// <returns><see langword="true" /> if at least one message was summarized or dropped; otherwise, <see langword="false" />.</returns>
+    public static bool IsApplicable(SessionMeasurements measurements)
+    {
+        return measurements.MessagesSummarized > 0 || measurements.MessagesDropped > 0;
+    }
+
     /// <summary>Checks the last completed prepare before the requested kind counter.</summary>
     /// <param name="requires">The optional validated compaction kind.</param>
     /// <param name="measurements">The non-null session measurements.</param>
