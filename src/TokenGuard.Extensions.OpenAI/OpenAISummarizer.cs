@@ -94,6 +94,13 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
             reasoningTokens = completion.Usage?.OutputTokenDetails?.ReasoningTokenCount;
             TokenGuardTelemetry.RecordSummarizerResponse(finishReason, outputTokens, reasoningTokens);
 
+            if (!string.IsNullOrWhiteSpace(completion.Refusal))
+            {
+                throw new InvalidOperationException(
+                    $"OpenAI summarization was refused. Finish reason: {finishReason}; output tokens: {Reported(outputTokens)}; "
+                    + $"reasoning tokens: {Reported(reasoningTokens)}. Refusal: {completion.Refusal}");
+            }
+
             var summary = string.Join(
                     Environment.NewLine,
                     completion.TextSegments()

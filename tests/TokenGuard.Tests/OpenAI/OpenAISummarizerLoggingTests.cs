@@ -47,6 +47,34 @@ public sealed class OpenAISummarizerLoggingTests
         }
         """;
 
+    private const string RefusalCompletionJson = """
+        {
+          "id": "chatcmpl-3", "object": "chat.completion", "created": 1, "model": "gpt-test",
+          "choices": [
+            {
+              "index": 0, "finish_reason": "stop",
+              "message": { "role": "assistant", "content": null, "refusal": "I cannot summarize this conversation." }
+            }
+          ],
+          "usage": { "prompt_tokens": 11, "completion_tokens": 9, "total_tokens": 20 }
+        }
+        """;
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheModelRefuses_ThrowsNamingTheRefusalAndItsText()
+    {
+        // Arrange
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, RefusalCompletionJson);
+
+        // Act
+        var result = await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        result.SummarizationError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be(
+            "OpenAI summarization was refused. Finish reason: stop; output tokens: 9; reasoning tokens: not reported. "
+            + "Refusal: I cannot summarize this conversation.");
+    }
+
     [Fact]
     public async Task SummarizeAsync_WhenTheCallSucceeds_LogsOneRecordBeforeAndOneAfter()
     {
