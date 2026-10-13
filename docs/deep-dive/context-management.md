@@ -269,6 +269,12 @@ For a first-time summary:
 
 For checkpoint rewrites, TokenGuard clamps the target into `[MinSummaryTokens, MaxSummaryTokens]`.
 
+The summarizer prompt asks the model for a summary of at most the target tokens, and the request caps the output at
+twice the target. The margin exists because on a model that thinks, thinking counts against the output cap and can take
+about half of the output. An answer that still reaches the cap is used as the summary as it arrived, and the provider
+summarizer logs `Warning` event 5003; the last section of such a summary can be incomplete. A summary that is larger
+than the target is accepted as long as the compacted history fits the available tokens.
+
 ### Size of the summarizer request
 
 The summarizer request is built to a token budget: the tokens available to the compacted conversation, which is

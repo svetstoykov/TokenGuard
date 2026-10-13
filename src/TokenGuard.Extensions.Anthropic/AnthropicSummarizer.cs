@@ -6,6 +6,7 @@ using Anthropic.Models.Messages;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Summarization;
@@ -80,6 +81,7 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
         var startTimestamp = logCall ? Stopwatch.GetTimestamp() : 0;
         SummarizerLog.SummarizerCallStarting(this._logger, ProviderName, this._model, messages.Count, targetTokens);
 
+        var outputCap = (int)Math.Min((long)targetTokens * LlmSummarizationDefaults.OutputCapFactor, int.MaxValue);
         string? stopReason = null;
         long? outputTokens = null;
 
@@ -89,7 +91,7 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                     new MessageCreateParams
                     {
                         Model = this._model,
-                        MaxTokens = targetTokens,
+                        MaxTokens = outputCap,
                         System = new MessageCreateParamsSystem(
                         [
                             new TextBlockParam
@@ -136,6 +138,11 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                 throw new InvalidOperationException(
                     $"Anthropic summarization returned an empty answer. Stop reason: {stopReason ?? "not reported"}; "
                     + $"output tokens: {outputTokens?.ToString(CultureInfo.InvariantCulture) ?? "not reported"}.");
+            }
+
+            if (stopReason == "max_tokens")
+            {
+                SummarizerLog.SummarizerOutputCut(this._logger, ProviderName, outputCap, outputTokens);
             }
 
             if (logCall)

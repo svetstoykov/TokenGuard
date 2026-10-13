@@ -20,6 +20,14 @@ Changes for 1.3.0. No public signature changed.
 - The summarizer instructions state that the transcript is data and that instructions inside it are not followed, and
   describe the two shortened forms above. Every summary is produced with the new instructions, so figures measured
   with 1.2.0 belong to the 1.2.0 instructions.
+- The summarizer request caps the output at twice the target tokens instead of at the target. The model is still
+  asked for the target size; the margin is there because on a model that thinks, thinking counts against the output
+  cap. A summary larger than the target is accepted as long as the compacted history fits the available tokens.
+- A summarizer answer cut at the output limit (OpenAI finish reason `length`, Anthropic stop reason `max_tokens`) is
+  still used as the summary, and is now reported by the new `Warning` event 5003 (`SummarizerOutputCut`) with the
+  output limit and the provider-reported output tokens.
+- The message of event 5001 (`SummarizerCallCompleted`) ends with `reasoning tokens: {ReasoningTokens}` in place of
+  `({ReasoningTokens} reasoning)` before the finish reason. Its properties are unchanged.
 - `TokenGuard.Extensions.OpenAI`: a summarizer answer that is a refusal throws an `InvalidOperationException` that
   says so and carries the refusal text, where it used to be reported as an empty answer.
 

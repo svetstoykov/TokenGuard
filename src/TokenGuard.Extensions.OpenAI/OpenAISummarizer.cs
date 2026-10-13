@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpenAI.Chat;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Summarization;
@@ -72,6 +73,7 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
         var startTimestamp = logCall ? Stopwatch.GetTimestamp() : 0;
         SummarizerLog.SummarizerCallStarting(this._logger, ProviderName, model: null, messages.Count, targetTokens);
 
+        var outputCap = (int)Math.Min((long)targetTokens * LlmSummarizationDefaults.OutputCapFactor, int.MaxValue);
         string? finishReason = null;
         long? outputTokens = null;
         long? reasoningTokens = null;
@@ -85,7 +87,7 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
                     ],
                     new ChatCompletionOptions
                     {
-                        MaxOutputTokenCount = targetTokens,
+                        MaxOutputTokenCount = outputCap,
                     },
                     cancellationToken)
                 .ConfigureAwait(false)).Value;
@@ -114,6 +116,11 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
                 throw new InvalidOperationException(
                     $"OpenAI summarization returned an empty answer. Finish reason: {finishReason}; output tokens: {Reported(outputTokens)}; "
                     + $"reasoning tokens: {Reported(reasoningTokens)}.");
+            }
+
+            if (completion.FinishReason == ChatFinishReason.Length)
+            {
+                SummarizerLog.SummarizerOutputCut(this._logger, ProviderName, outputCap, outputTokens);
             }
 
             if (logCall)

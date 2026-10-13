@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Text.Json;
 using Anthropic;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
@@ -19,6 +20,7 @@ public sealed class AnthropicSummarizerLoggingTests
     private const int CallStarting = 5000;
     private const int CallCompleted = 5001;
     private const int CallFailed = 5002;
+    private const int OutputCut = 5003;
     private const string Summary = "SENTINEL-summary of the older turns";
 
     private const string MessageJson = """
@@ -54,6 +56,94 @@ public sealed class AnthropicSummarizerLoggingTests
           "stop_reason": "end_turn", "stop_sequence": null
         }
         """;
+
+    private const string CutMessageJson = """
+        {
+          "id": "msg_5", "type": "message", "role": "assistant", "model": "claude-test",
+          "content": [ { "type": "text", "text": "SENTINEL-summary of the older turns" } ],
+          "stop_reason": "max_tokens", "stop_sequence": null,
+          "usage": { "input_tokens": 11, "output_tokens": 80 }
+        }
+        """;
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerWasCutAtTheOutputLimit_YieldsTheSummary()
+    {
+        // Arrange
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, CutMessageJson);
+
+        // Act
+        var result = await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        result.SummarizationError.Should().BeNull();
+        result.Messages[0].Segments.Should().ContainSingle().Which.Content.Should().Be(Summary);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerWasCutAtTheOutputLimit_LogsAWarningWithTheCapAndTheOutputTokens()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, CutMessageJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        var cut = logs.WithEventId(OutputCut).Should().ContainSingle().Subject;
+        cut.Level.Should().Be(LogLevel.Warning);
+        cut.Property("Provider").Should().Be("Anthropic");
+        cut.Property("OutputCap").Should().Be(80);
+        cut.Property("OutputTokens").Should().Be(80L);
+        cut.Message.Should().Be("Anthropic summary was cut at the output limit of 80 tokens; provider-reported output tokens: 80.");
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_CapsTheOutputAtTwiceTheTargetTokens()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var handler = new StubHttpMessageHandler(HttpStatusCode.OK, MessageJson);
+        var strategy = CreateStrategy(logs, handler);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        logs.WithEventId(CallStarting).Single().Property("TargetTokens").Should().Be(40);
+        using var request = JsonDocument.Parse(handler.LastRequestBody!);
+        request.RootElement.GetProperty("max_tokens").GetInt32().Should().Be(80);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerEndedNormally_LogsNoCutWarning()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, MessageJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        logs.WithEventId(OutputCut).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheCallSucceeds_WritesTheReasoningCountAsALabelledValueThatIsEmptyWhenNotReported()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, MessageJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        logs.WithEventId(CallCompleted).Single().Message.Should()
+            .EndWith("provider reported 11 input and 7 output tokens, finish reason end_turn, reasoning tokens: .");
+    }
 
     [Fact]
     public async Task SummarizeAsync_WhenTheAnswerCarriesNoUsage_YieldsTheSummary()

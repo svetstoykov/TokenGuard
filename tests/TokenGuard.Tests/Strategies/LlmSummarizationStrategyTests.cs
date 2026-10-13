@@ -1063,6 +1063,24 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_WhenTheSummaryIsLargerThanTheTargetButWithinTheAvailableTokens_AcceptsTheSummary()
+    {
+        // Arrange
+        var messages = CreateThreeMessageHistory(out var tokenCounter);
+        tokenCounter.SetByText("long-summary", 20);
+        var summarizer = new TrackingSummarizer("long-summary");
+        var strategy = new LlmSummarizationStrategy(
+            summarizer, tokenCounter, new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 5));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 40);
+
+        // Assert
+        Assert.Equal(5, summarizer.LastTargetTokens);
+        Assert.Equal(["long-summary", "keep-2"], compacted.Messages.Select(ReadText));
+    }
+
+    [Fact]
     public async Task CompactAsync_GivesTheSummarizerTheAvailableTokensAsItsRequestBudget()
     {
         // Arrange
