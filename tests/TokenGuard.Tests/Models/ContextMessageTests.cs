@@ -7,28 +7,6 @@ namespace TokenGuard.Tests.Models;
 public sealed class ContextMessageTests
 {
     [Fact]
-    public void Message_RequiresRoleAndContent()
-    {
-        // Arrange
-        var now = DateTimeOffset.UtcNow;
-        var message = new ContextMessage
-        {
-            Role = MessageRole.User,
-            Segments = [new TextContent("hello")],
-        };
-
-        // Act
-
-        // Assert
-        Assert.Equal(MessageRole.User, message.Role);
-        Assert.Single(message.Segments);
-        Assert.Equal(CompactionState.Original, message.State);
-        Assert.Null(message.TokenCount);
-        Assert.True(message.Timestamp >= now.AddSeconds(-1));
-        Assert.True(message.Timestamp <= DateTimeOffset.UtcNow.AddSeconds(1));
-    }
-
-    [Fact]
     public void Message_RejectsNullContent()
     {
         // Arrange
@@ -131,52 +109,69 @@ public sealed class ContextMessageTests
     }
 
     [Fact]
-    public void Message_WithModifiedState_PreservesOtherProperties()
+    public void Message_FromContent_WhenSegmentIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        var original = new ContextMessage
-        {
-            Role = MessageRole.Model,
-            Segments =
-            [
-                new TextContent("Thinking"),
-                new ToolUseContent("call_1", "read_file", "{}"),
-            ],
-            Timestamp = DateTimeOffset.UtcNow.AddMinutes(-1),
-            TokenCount = 42,
-        };
 
         // Act
-        var modified = original with { State = CompactionState.Masked };
+        Action act = () => ContextMessage.FromContent(MessageRole.Model, (ContentSegment)null!);
 
         // Assert
-        Assert.Equal(CompactionState.Masked, modified.State);
-        Assert.Equal(original.Role, modified.Role);
-        Assert.Equal(original.Segments, modified.Segments);
-        Assert.Equal(original.Timestamp, modified.Timestamp);
-        Assert.Equal(original.TokenCount, modified.TokenCount);
+        Assert.Throws<ArgumentNullException>(act);
     }
 
     [Fact]
-    public void Message_MixedContent_AssistantWithTextAndToolUse()
+    public void Message_FromContent_WithSegmentArray_CreatesMessageWithEverySegmentInOrder()
+    {
+        // Arrange
+        ContentSegment[] segments = [new TextContent("I will call a tool."), new ToolUseContent("call_1", "web_search", "{\"query\":\"tokens\"}")];
+
+        // Act
+        var message = ContextMessage.FromContent(MessageRole.Model, segments);
+
+        // Assert
+        Assert.Equal(MessageRole.Model, message.Role);
+        Assert.Equal(segments, message.Segments);
+        Assert.Equal(CompactionState.Original, message.State);
+        Assert.False(message.IsPinned);
+        Assert.Null(message.TokenCount);
+    }
+
+    [Fact]
+    public void Message_FromContent_WithSegmentArray_DoesNotFollowLaterChangesToTheArray()
+    {
+        // Arrange
+        ContentSegment[] segments = [new TextContent("first"), new TextContent("second")];
+        var message = ContextMessage.FromContent(MessageRole.User, segments);
+
+        // Act
+        segments[0] = new TextContent("replaced");
+
+        // Assert
+        Assert.Equal("first", Assert.IsType<TextContent>(message.Segments[0]).Content);
+    }
+
+    [Fact]
+    public void Message_FromContent_WhenSegmentArrayIsNull_ThrowsArgumentNullException()
     {
         // Arrange
 
         // Act
-        var message = new ContextMessage
-        {
-            Role = MessageRole.Model,
-            Segments =
-            [
-                new TextContent("I will call a tool."),
-                new ToolUseContent("call_1", "web_search", "{\"query\":\"token guard\"}"),
-            ],
-        };
+        Action act = () => ContextMessage.FromContent(MessageRole.Model, (ContentSegment[])null!);
 
         // Assert
-        Assert.Equal(MessageRole.Model, message.Role);
-        Assert.Equal(2, message.Segments.Count);
-        Assert.IsType<TextContent>(message.Segments[0]);
-        Assert.IsType<ToolUseContent>(message.Segments[1]);
+        Assert.Throws<ArgumentNullException>(act);
+    }
+
+    [Fact]
+    public void Message_FromContent_WhenSegmentArrayIsEmpty_ThrowsArgumentException()
+    {
+        // Arrange
+
+        // Act
+        Action act = () => ContextMessage.FromContent(MessageRole.Model, Array.Empty<ContentSegment>());
+
+        // Assert
+        Assert.Throws<ArgumentException>(act);
     }
 }

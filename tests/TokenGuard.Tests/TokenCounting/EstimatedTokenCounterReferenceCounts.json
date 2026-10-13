@@ -1,0 +1,483 @@
+{
+  "description": "Reference token counts for EstimatedTokenCounterTests. The counts come from a real tokenizer and were recorded once; the estimator under test did not produce them.",
+  "tokenizer": {
+    "library": "tiktoken",
+    "version": "0.14.0",
+    "encoding": "o200k_base"
+  },
+  "method": [
+    "referenceTokens is the token count of one chat message: 3 tokens of message framing, plus the tokens of the role name, plus the tokens of each string the message carries.",
+    "A text or custom segment carries its content. A toolResult segment carries its tool call ID and its content. A toolUse segment carries its tool call ID, the word 'function', its tool name, and its content.",
+    "Text messages follow the per-message formula OpenAI publishes for chat completions. For tool calls and tool results the same formula is applied to the fields the request carries; a provider's own framing of tool calls is not published, so those counts are approximate by a few tokens per message.",
+    "To record again: for every sample, encode each of those strings with the tokenizer named above, add the lengths, add 3, and write the sum to referenceTokens."
+  ],
+  "toleranceRules": [
+    "under and over are fractions of referenceTokens. An estimate may be at most 'under' below the reference and at most 'over' above it.",
+    "Each bound is the largest error measured for the kind when the counts were recorded, rounded up to the next 0.05. errorWhenRecorded keeps that measured range, lowest sample to highest sample.",
+    "over is null where the estimate ran more than 15% above the reference. For those kinds only the lower bound is checked, and the upper bound to accept is an open decision."
+  ],
+  "tolerances": {
+    "prose": {
+      "covers": "English prose, chat text and Markdown sent as message text.",
+      "under": 0.05,
+      "over": 0.15,
+      "errorWhenRecorded": "-3.3% to +12.5%"
+    },
+    "source-code": {
+      "covers": "Rust, C#, Python, TypeScript, SQL and shell source sent as message text.",
+      "under": 0.05,
+      "over": null,
+      "errorWhenRecorded": "+15.4% to +42.9%"
+    },
+    "json": {
+      "covers": "Compact JSON, with no whitespace between its tokens, sent as message text.",
+      "under": 0.05,
+      "over": 0.1,
+      "errorWhenRecorded": "-4.8% to +6.8%"
+    },
+    "tool-output": {
+      "covers": "Tool results: logs, listings, search hits, tables, terminal escapes, file text and compact JSON.",
+      "under": 0.1,
+      "over": null,
+      "errorWhenRecorded": "-7.3% to +52.2%"
+    },
+    "tool-call": {
+      "covers": "Model messages that call a tool, with JSON arguments.",
+      "under": 0.05,
+      "over": null,
+      "errorWhenRecorded": "+12.5% to +42.1%"
+    },
+    "non-latin": {
+      "covers": "Cyrillic, Japanese, Chinese, Korean, Arabic, Hebrew and mixed-script text.",
+      "under": 0.05,
+      "over": null,
+      "errorWhenRecorded": "+20.9% to +48.9%"
+    }
+  },
+  "samples": [
+    {
+      "id": "prose-technical",
+      "kind": "prose",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "A context window is the amount of text a model can read in one request. In a long agent loop the conversation doesn't stay small: every tool call adds a result, and each result is sent again on the next request. After 40 or 50 turns it's common to see 120,000 tokens of history, most of it stale.\n\nThere are three ways to deal with that. The first is to drop old messages, which is cheap but loses the user's original request. The second is to replace old tool results with a short placeholder; the model can't read them any more, but it can call the tool again. The third is to ask a model for a summary, which costs a request and isn't free of mistakes either. We'll usually combine all three, and that's what this library does.\n\nNone of these works without a token count that you can trust. A provider's tokenizer isn't available offline, so we estimate, and the estimate has to be checked against something that wasn't written by the same author. See https://platform.openai.com/tokenizer for a quick manual check, or www.example.org/docs/tokens for background."
+        }
+      ],
+      "referenceTokens": 231
+    },
+    {
+      "id": "prose-chat",
+      "kind": "prose",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "Hey!! Thanks a lot for yesterday's review 🎉 I've pushed the fixes and they're green now ✅ (well... almost — one flaky test, I'd say it's the usual suspect ⌚).\n\nCouple of things I wasn't sure about:\n1) O'Brien's patch renames the config key, but John's branch still reads the old one. Who's merging first? It's not obvious to me, and y'all know I can't decide that 🙂\n2) The README says \"rock 'n' roll mode\"?! Is that a joke or a real flag ‼ If it's real we should've documented it.\n3) ℹ️ The licence header still says © 2024 and the trademark line (™) is missing ®. Does legal care -> probably yes.\n\nLet's talk tomorrow 👍🏽 My family is visiting 👨‍👩‍👧‍👦 so I'll be offline after 5pm 🇧🇬. That's fine, right? What's the plan if the build's red again... we'll see!\n\nPS: the health check answered {\"status\":\"ok\",\"retries\":3} twice, and the 90's-style banner is still on the login page."
+        }
+      ],
+      "referenceTokens": 242
+    },
+    {
+      "id": "prose-markdown",
+      "kind": "prose",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "# Release checklist\n\nBefore tagging **v1.0.2**, go through the list. Items marked _(blocking)_ must be done; the rest can slip.\n\n## Steps\n\n- [x] Update `CHANGELOG.md` and bump the version in `Directory.Build.props`\n- [x] Run `dotnet test TokenGuard.sln --no-restore --nologo`\n- [ ] Check the package contents with `dotnet pack -c Release` _(blocking)_\n- [ ] Tag the commit: `git tag -a v1.0.2 -m \"Release 1.0.2\"`\n\n| Package | Version | Size (KB) | Status |\n|---------|---------|-----------|--------|\n| TokenGuard.Core | 1.0.2 | 184 | ready |\n| TokenGuard.Extensions.OpenAI | 1.0.2 | 41 | ready |\n| TokenGuard.Extensions.Anthropic | 1.0.2 | 39 | not verified |\n\n> **Note:** the Anthropic adapter is covered by unit tests only.\n\nSee [the runbook](docs/release-process.md) and ./docs/observability.md for details.  Questions go to the #releases channel.\n\n-----\n\n*Last edited 2026-05-12 at 09:30 UTC.*"
+        }
+      ],
+      "referenceTokens": 273
+    },
+    {
+      "id": "prose-instructions",
+      "kind": "prose",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "You are a careful coding assistant working in a large repository. Follow these rules for the whole session.\n\nRead before you write. Open the file you intend to change and the tests that cover it, and say what you found in one or two sentences. Do not refactor code that the task does not mention, and do not add a dependency without asking first.\n\nWhen a tool result has been removed to save context, call the tool again instead of guessing what it said. Prefer small, focused changes; a change that touches more than five files needs a short plan first. Run the unit tests after every change and report the result exactly as it is, including failures.\n\nFinish with a summary that names each file you changed, what changed in it, and anything you could not verify."
+        }
+      ],
+      "referenceTokens": 160
+    },
+    {
+      "id": "code-rust-parser",
+      "kind": "source-code",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "use std::collections::HashMap;\nuse std::fmt;\n\n#[derive(Debug, Clone, PartialEq)]\npub enum Token {\n    Ident(String),\n    Number(f64),\n    Str(String),\n    LParen,\n    RParen,\n    Comma,\n    Eof,\n}\n\n#[derive(Debug)]\npub struct ParseError {\n    pub line: usize,\n    pub column: usize,\n    pub message: String,\n}\n\nimpl fmt::Display for ParseError {\n    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {\n        write!(f, \"{}:{}: {}\", self.line, self.column, self.message)\n    }\n}\n\npub struct Lexer<'a> {\n    input: &'a str,\n    chars: std::iter::Peekable<std::str::CharIndices<'a>>,\n    line: usize,\n    column: usize,\n}\n\nimpl<'a> Lexer<'a> {\n    pub fn new(input: &'a str) -> Self {\n        Self { input, chars: input.char_indices().peekable(), line: 1, column: 1 }\n    }\n\n    pub fn next_token(&mut self) -> Result<Token, ParseError> {\n        self.skip_whitespace();\n        let Some(&(start, c)) = self.chars.peek() else {\n            return Ok(Token::Eof);\n        };\n\n        match c {\n            '(' => { self.bump(); Ok(Token::LParen) }\n            ')' => { self.bump(); Ok(Token::RParen) }\n            ',' => { self.bump(); Ok(Token::Comma) }\n            '\"' => self.read_string(),\n            c if c.is_ascii_digit() => self.read_number(start),\n            c if c.is_alphabetic() || c == '_' => Ok(Token::Ident(self.read_while(start, |ch| ch.is_alphanumeric() || ch == '_'))),\n            other => Err(self.error(format!(\"unexpected character {other:?}\"))),\n        }\n    }\n\n    fn read_number(&mut self, start: usize) -> Result<Token, ParseError> {\n        let text = self.read_while(start, |ch| ch.is_ascii_digit() || ch == '.');\n        text.parse::<f64>()\n            .map(Token::Number)\n            .map_err(|e| self.error(format!(\"invalid number `{text}`: {e}\")))\n    }\n\n    fn error(&self, message: String) -> ParseError {\n        ParseError { line: self.line, column: self.column, message }\n    }\n}\n\npub fn count_idents(tokens: &[Token]) -> HashMap<&str, usize> {\n    let mut counts = HashMap::new();\n    for token in tokens {\n        if let Token::Ident(name) = token {\n            *counts.entry(name.as_str()).or_insert(0) += 1;\n        }\n    }\n    counts\n}"
+        }
+      ],
+      "referenceTokens": 586
+    },
+    {
+      "id": "code-rust-async-service",
+      "kind": "source-code",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "//! Retry policy for the upload worker.\n\nuse anyhow::{anyhow, Context, Result};\nuse serde::{Deserialize, Serialize};\nuse std::sync::Arc;\nuse std::time::Duration;\nuse tokio::sync::{mpsc, Mutex};\nuse tracing::{debug, info, warn};\n\nconst MAX_ATTEMPTS: u32 = 5;\nconst BASE_DELAY_MS: u64 = 250;\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\n#[serde(rename_all = \"snake_case\")]\npub struct UploadJob {\n    pub id: u64,\n    pub bucket: String,\n    pub object_key: String,\n    #[serde(default)]\n    pub attempts: u32,\n}\n\npub struct Worker<C: Client + Send + Sync + 'static> {\n    client: Arc<C>,\n    queue: Arc<Mutex<mpsc::Receiver<UploadJob>>>,\n}\n\n#[async_trait::async_trait]\npub trait Client {\n    async fn put(&self, bucket: &str, key: &str, body: Vec<u8>) -> Result<()>;\n}\n\nimpl<C: Client + Send + Sync + 'static> Worker<C> {\n    pub async fn run(self: Arc<Self>) -> Result<()> {\n        loop {\n            let job = {\n                let mut queue = self.queue.lock().await;\n                match queue.recv().await {\n                    Some(job) => job,\n                    None => break,\n                }\n            };\n\n            if let Err(err) = self.upload_with_retry(&job).await {\n                warn!(job_id = job.id, error = %err, \"giving up on job\");\n            }\n        }\n\n        info!(\"queue closed, worker exiting\");\n        Ok(())\n    }\n\n    async fn upload_with_retry(&self, job: &UploadJob) -> Result<()> {\n        let body = tokio::fs::read(format!(\"/var/spool/uploads/{}.bin\", job.id))\n            .await\n            .with_context(|| format!(\"reading payload for job {}\", job.id))?;\n\n        for attempt in 1..=MAX_ATTEMPTS {\n            match self.client.put(&job.bucket, &job.object_key, body.clone()).await {\n                Ok(()) => return Ok(()),\n                Err(err) if attempt < MAX_ATTEMPTS => {\n                    let delay = Duration::from_millis(BASE_DELAY_MS * 2u64.pow(attempt - 1));\n                    debug!(attempt, ?delay, \"upload failed: {err:#}\");\n                    tokio::time::sleep(delay).await;\n                }\n                Err(err) => return Err(err.context(\"upload failed after retries\")),\n            }\n        }\n\n        Err(anyhow!(\"unreachable: retry loop exited without a result\"))\n    }\n}"
+        }
+      ],
+      "referenceTokens": 553
+    },
+    {
+      "id": "code-csharp-service",
+      "kind": "source-code",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "using System.Collections.Concurrent;\nusing Microsoft.Extensions.Logging;\n\nnamespace Orders.Pricing;\n\n/// <summary>\n///     Calculates order totals, including tax and discounts.\n/// </summary>\npublic sealed class OrderTotalCalculator(ITaxRateProvider taxRates, ILogger<OrderTotalCalculator> logger) : IOrderTotalCalculator\n{\n    private readonly ConcurrentDictionary<string, decimal> _rateCache = new(StringComparer.OrdinalIgnoreCase);\n\n    /// <inheritdoc />\n    public async Task<OrderTotal> CalculateAsync(Order order, CancellationToken cancellationToken = default)\n    {\n        ArgumentNullException.ThrowIfNull(order);\n\n        if (order.Lines.Count == 0)\n            return OrderTotal.Empty;\n\n        var subtotal = order.Lines.Sum(line => line.UnitPrice * line.Quantity);\n        var discount = order.Coupon is { IsActive: true } coupon ? Math.Min(subtotal, coupon.Amount) : 0m;\n        var rate = await this.GetRateAsync(order.ShippingAddress.CountryCode, cancellationToken);\n        var tax = Math.Round((subtotal - discount) * rate, 2, MidpointRounding.AwayFromZero);\n\n        logger.LogDebug(\"Order {OrderId}: subtotal {Subtotal}, discount {Discount}, tax {Tax}\", order.Id, subtotal, discount, tax);\n\n        return new OrderTotal(subtotal, discount, tax, subtotal - discount + tax);\n    }\n\n    private async ValueTask<decimal> GetRateAsync(string countryCode, CancellationToken cancellationToken)\n    {\n        if (this._rateCache.TryGetValue(countryCode, out var cached))\n            return cached;\n\n        var rate = await taxRates.GetRateAsync(countryCode, cancellationToken)\n            ?? throw new InvalidOperationException($\"No tax rate is configured for country '{countryCode}'.\");\n\n        this._rateCache[countryCode] = rate;\n        return rate;\n    }\n}"
+        }
+      ],
+      "referenceTokens": 376
+    },
+    {
+      "id": "code-csharp-tests",
+      "kind": "source-code",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "public sealed class SlidingWindowTests\n{\n    [Theory]\n    [InlineData(10, 0.80, 8)]\n    [InlineData(1_000, 0.75, 750)]\n    public void TriggerTokens_AreTheFloorOfMaxTimesThreshold(int maxTokens, double threshold, int expected)\n    {\n        // Arrange\n        var budget = new ContextBudget(maxTokens, compactionThreshold: threshold);\n\n        // Act\n        var trigger = budget.CompactionTriggerTokens;\n\n        // Assert\n        trigger.Should().Be(expected);\n    }\n\n    [Fact]\n    public async Task CompactAsync_WhenOlderToolResultIsOutsideBoundary_MasksIt()\n    {\n        // Arrange\n        var messages = new List<ContextMessage>\n        {\n            ContextMessage.FromText(MessageRole.User, \"read the file\"),\n            new() { Role = MessageRole.Model, Segments = [new ToolUseContent(\"call_1\", \"read_file\", \"{\\\"path\\\":\\\"a.txt\\\"}\")] },\n            new() { Role = MessageRole.Tool, Segments = [new ToolResultContent(\"call_1\", \"read_file\", new string('x', 4_000))] },\n            ContextMessage.FromText(MessageRole.Model, \"done\"),\n        };\n        var strategy = new SlidingWindowStrategy(new EstimatedTokenCounter(), new SlidingWindowOptions(windowSize: 1));\n\n        // Act\n        var result = await strategy.CompactAsync(messages, availableTokens: 200);\n\n        // Assert\n        result.Messages[2].State.Should().Be(CompactionState.Masked);\n        result.MessagesAffected.Should().Be(1);\n        result.TokensAfter.Should().BeLessThan(result.TokensBefore);\n    }\n}"
+        }
+      ],
+      "referenceTokens": 355
+    },
+    {
+      "id": "code-python-cli",
+      "kind": "source-code",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "#!/usr/bin/env python3\n\"\"\"Summarise a JSON-lines log file by level and by hour.\"\"\"\nfrom __future__ import annotations\n\nimport argparse\nimport json\nimport sys\nfrom collections import Counter, defaultdict\nfrom datetime import datetime\nfrom pathlib import Path\n\n\ndef parse_args(argv: list[str] | None = None) -> argparse.Namespace:\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument(\"path\", type=Path, help=\"log file to read\")\n    parser.add_argument(\"--level\", choices=[\"debug\", \"info\", \"warning\", \"error\"], default=None)\n    parser.add_argument(\"--top\", type=int, default=10, help=\"how many messages to show (default: %(default)s)\")\n    return parser.parse_args(argv)\n\n\ndef read_records(path: Path):\n    with path.open(encoding=\"utf-8\") as handle:\n        for number, line in enumerate(handle, start=1):\n            line = line.strip()\n            if not line:\n                continue\n            try:\n                yield json.loads(line)\n            except json.JSONDecodeError as exc:\n                print(f\"{path}:{number}: skipped ({exc.msg})\", file=sys.stderr)\n\n\ndef main(argv: list[str] | None = None) -> int:\n    args = parse_args(argv)\n    by_level: Counter[str] = Counter()\n    by_hour: dict[str, int] = defaultdict(int)\n    messages: Counter[str] = Counter()\n\n    for record in read_records(args.path):\n        level = record.get(\"level\", \"info\").lower()\n        if args.level and level != args.level:\n            continue\n        by_level[level] += 1\n        stamp = datetime.fromisoformat(record[\"time\"].replace(\"Z\", \"+00:00\"))\n        by_hour[stamp.strftime(\"%Y-%m-%d %H:00\")] += 1\n        messages[record.get(\"message\", \"\")[:80]] += 1\n\n    for level, count in by_level.most_common():\n        print(f\"{level:>8}  {count:>6}\")\n    for hour in sorted(by_hour):\n        print(f\"{hour}  {'#' * min(by_hour[hour], 60)}\")\n    for message, count in messages.most_common(args.top):\n        print(f\"{count:>6}  {message}\")\n    return 0\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())"
+        }
+      ],
+      "referenceTokens": 504
+    },
+    {
+      "id": "code-typescript-react",
+      "kind": "source-code",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "import { useCallback, useEffect, useMemo, useState } from \"react\";\n\ninterface SearchResult {\n  id: string;\n  title: string;\n  score: number;\n  tags?: string[];\n}\n\nconst DEBOUNCE_MS = 250;\n\nexport function useSearch(endpoint: string, initialQuery = \"\") {\n  const [query, setQuery] = useState(initialQuery);\n  const [results, setResults] = useState<SearchResult[]>([]);\n  const [error, setError] = useState<Error | null>(null);\n  const [isLoading, setIsLoading] = useState(false);\n\n  const fetchResults = useCallback(\n    async (text: string, signal: AbortSignal) => {\n      const url = `${endpoint}?q=${encodeURIComponent(text)}&limit=20`;\n      const response = await fetch(url, { signal, headers: { Accept: \"application/json\" } });\n      if (!response.ok) {\n        throw new Error(`Search failed: ${response.status} ${response.statusText}`);\n      }\n      return (await response.json()) as SearchResult[];\n    },\n    [endpoint],\n  );\n\n  useEffect(() => {\n    if (query.trim().length < 2) {\n      setResults([]);\n      return;\n    }\n\n    const controller = new AbortController();\n    const timer = setTimeout(() => {\n      setIsLoading(true);\n      fetchResults(query, controller.signal)\n        .then(setResults)\n        .catch((err: unknown) => {\n          if ((err as Error).name !== \"AbortError\") setError(err as Error);\n        })\n        .finally(() => setIsLoading(false));\n    }, DEBOUNCE_MS);\n\n    return () => {\n      clearTimeout(timer);\n      controller.abort();\n    };\n  }, [query, fetchResults]);\n\n  const best = useMemo(() => [...results].sort((a, b) => b.score - a.score)[0] ?? null, [results]);\n\n  return { query, setQuery, results, best, error, isLoading };\n}"
+        }
+      ],
+      "referenceTokens": 426
+    },
+    {
+      "id": "code-sql-and-shell",
+      "kind": "source-code",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "-- Orders per customer for the last 30 days, with the share of refunded orders.\nSELECT c.customer_id,\n       c.email,\n       COUNT(o.order_id)                                   AS orders,\n       SUM(o.total_cents) / 100.0                          AS revenue,\n       ROUND(AVG(CASE WHEN o.status = 'refunded' THEN 1.0 ELSE 0.0 END), 3) AS refund_share\nFROM customers AS c\nLEFT JOIN orders AS o\n       ON o.customer_id = c.customer_id\n      AND o.created_at >= NOW() - INTERVAL '30 days'\nWHERE c.deleted_at IS NULL\nGROUP BY c.customer_id, c.email\nHAVING COUNT(o.order_id) > 0\nORDER BY revenue DESC\nLIMIT 50;\n\n#!/usr/bin/env bash\nset -euo pipefail\n\nRED='\\033[0;31m'; GREEN='\\033[1;32m'; RESET='\\033[0m'\nout_dir=\"${1:-./artifacts}\"\nmkdir -p \"$out_dir\"\n\nfor project in src/*/*.csproj; do\n  name=\"$(basename \"$project\" .csproj)\"\n  if dotnet pack \"$project\" -c Release -o \"$out_dir\" --nologo >\"$out_dir/$name.log\" 2>&1; then\n    echo -e \"${GREEN}packed${RESET} $name\"\n  else\n    printf '\\x1b[31mfailed\\x1b[0m %s (see %s)\\n' \"$name\" \"$out_dir/$name.log\" >&2\n    exit 1\n  fi\ndone"
+        }
+      ],
+      "referenceTokens": 337
+    },
+    {
+      "id": "json-compact-records",
+      "kind": "json",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "[{\"path\":\"src/TokenGuard.Core/ConversationContext.cs\",\"line\":481,\"severity\":\"error\",\"code\":\"TG0012\",\"message\":\"Pinned messages alone exceed the maximum.\",\"fixable\":false},{\"path\":\"src/TokenGuard.Core/Strategies/SlidingWindowStrategy.cs\",\"line\":229,\"severity\":\"warning\",\"code\":\"TG0031\",\"message\":\"Tool result masked; placeholder length 96.\",\"fixable\":true},{\"path\":\"tests/TokenGuard.Tests/Core/ConversationContextTests.cs\",\"line\":1386,\"severity\":\"info\",\"code\":\"TG0100\",\"message\":\"Line exceeds 150 characters (158).\",\"fixable\":true},{\"path\":\"C:\\\\build\\\\agent\\\\_work\\\\1\\\\s\\\\README.md\",\"line\":7,\"severity\":\"info\",\"code\":\"MD013\",\"message\":\"Line length\",\"fixable\":false}]"
+        }
+      ],
+      "referenceTokens": 177
+    },
+    {
+      "id": "json-compact-config",
+      "kind": "json",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "{\"Logging\":{\"LogLevel\":{\"Default\":\"Information\",\"Microsoft.AspNetCore\":\"Warning\",\"TokenGuard\":\"Debug\"}},\"TokenGuard\":{\"MaxTokens\":40000,\"CompactionThreshold\":0.8,\"EmergencyThreshold\":1.0,\"OverrunTolerance\":0.05,\"SlidingWindow\":{\"WindowSize\":10,\"ProtectedWindowFraction\":0.8},\"Summarization\":{\"Enabled\":true,\"WindowSize\":5,\"MinSummaryTokens\":2048,\"MaxSummaryTokens\":4096},\"Profiles\":[\"default\",\"analysis\",\"long-running\"]},\"AllowedHosts\":[\"*\"],\"FeatureFlags\":{\"é\":\"ok\",\"tab\":\"\\t\",\"ui\":\"v2\"},\"Flags\":[true,false,null,1,22,333,4444],\"History\":[[\"created\",1715506211],[\"paid\",1715506240]],\"Metadata\":{},\"Attachments\":[],\"Note\":[\"A single long string inside an array of one item\"]}"
+        }
+      ],
+      "referenceTokens": 191
+    },
+    {
+      "id": "json-compact-order",
+      "kind": "json",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "{\"id\":\"ord_9f31c2\",\"status\":\"paid\",\"created_at\":\"2026-05-12T09:30:11Z\",\"customer\":{\"id\":48213,\"name\":\"Zoë Müller\",\"email\":\"zoe.mueller@example.com\",\"vip\":true,\"notes\":null},\"lines\":[{\"sku\":\"KB-104\",\"title\":\"Mechanical keyboard, 104 keys\",\"quantity\":1,\"unit_price\":129.9},{\"sku\":\"MS-02\",\"title\":\"Wireless mouse\",\"quantity\":2,\"unit_price\":24.5},{\"sku\":\"CBL\",\"title\":\"USB-C cable \\\"braided\\\"\\n2 m\",\"quantity\":3,\"unit_price\":7.25}],\"tags\":[\"new\",\"eu\",\"b2c\",\"gift\"],\"totals\":{\"subtotal\":200.65,\"tax\":16.05,\"shipping\":0,\"grand_total\":216.7}}"
+        }
+      ],
+      "referenceTokens": 186
+    },
+    {
+      "id": "tool-result-test-log",
+      "kind": "tool-output",
+      "role": "tool",
+      "segments": [
+        {
+          "type": "toolResult",
+          "toolCallId": "call_Zk3pQ9",
+          "toolName": "run_tests",
+          "content": "  Determining projects to restore...\n  All projects are up-to-date for restore.\n  TokenGuard.Core -> /home/runner/work/TokenGuard/src/TokenGuard.Core/bin/Debug/net10.0/TokenGuard.Core.dll\n  TokenGuard.Tests -> /home/runner/work/TokenGuard/tests/TokenGuard.Tests/bin/Debug/net10.0/TokenGuard.Tests.dll\nTest run for /home/runner/work/TokenGuard/tests/TokenGuard.Tests/bin/Debug/net10.0/TokenGuard.Tests.dll (.NETCoreApp,Version=v10.0)\nA total of 1 test files matched the specified pattern.\n\u001b[31m[xUnit.net 00:00:01.42]     Orders.Tests.OrderTests.Total_IncludesTax [FAIL]\u001b[0m\n  \u001b[1;31mFailed\u001b[0m Orders.Tests.OrderTests.Total_IncludesTax [12 ms]\n  Error Message:\n   Assert.Equal() Failure: Values differ\nExpected: 108.00\nActual:   100.00\n  Stack Trace:\n     at Orders.Tests.OrderTests.Total_IncludesTax() in /home/runner/work/Orders/tests/Orders.Tests/OrderTests.cs:line 42\n     at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)\n     at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)\n\n\u001b[32mPassed!\u001b[0m  - Failed:     0, Passed:   589, Skipped:     0, Total:   589, Duration: 5 s\n\u001b[31mFailed!\u001b[0m  - Failed:     1, Passed:    17, Skipped:     0, Total:    18, Duration: 91 ms - Orders.Tests.dll (net10.0)"
+        }
+      ],
+      "referenceTokens": 399
+    },
+    {
+      "id": "tool-result-directory-listing",
+      "kind": "tool-output",
+      "role": "tool",
+      "segments": [
+        {
+          "type": "toolResult",
+          "toolCallId": "call_b7Lm2x",
+          "toolName": "list_directory",
+          "content": "total 96\ndrwxr-xr-x  14 dev  staff    448 May 12 09:30 .\ndrwxr-xr-x   9 dev  staff    288 May 11 18:02 ..\n-rw-r--r--   1 dev  staff   1071 May 10 11:45 LICENSE\n-rw-r--r--   1 dev  staff  24518 May 12 09:28 README.md\n-rw-r--r--   1 dev  staff   3277 May 12 09:12 TokenGuard.sln\ndrwxr-xr-x   5 dev  staff    160 May 10 11:45 docs\ndrwxr-xr-x   4 dev  staff    128 May 10 11:45 samples\ndrwxr-xr-x   5 dev  staff    160 May 12 08:57 src\ndrwxr-xr-x   6 dev  staff    192 May 12 09:01 tests\n\n./src/TokenGuard.Core/ConversationContext.cs\n./src/TokenGuard.Core/ConversationContextFactory.cs\n./src/TokenGuard.Core/Strategies/SlidingWindowStrategy.cs\n../shared/Directory.Build.props\n~/.nuget/packages/fluentassertions/8.3.0/lib/net6.0/FluentAssertions.dll\nC:\\Users\\dev\\source\\repos\\TokenGuard\\src\\TokenGuard.Core\\TokenGuard.Core.csproj"
+        }
+      ],
+      "referenceTokens": 329
+    },
+    {
+      "id": "tool-result-grep",
+      "kind": "tool-output",
+      "role": "tool",
+      "segments": [
+        {
+          "type": "toolResult",
+          "toolCallId": "call_44aXv0",
+          "toolName": "grep",
+          "content": "src/TokenGuard.Core/ConversationContext.cs:481:                throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.MaxTokens);\nsrc/TokenGuard.Core/ConversationContext.cs:1151:            throw new InvalidOperationException(OverlappingCallMessage);\nsrc/TokenGuard.Core/Models/ContextBudget.cs:185:            throw new ArgumentOutOfRangeException(nameof(emergencyThreshold), emergencyThreshold, message);\nsrc/TokenGuard.Core/Models/ContextMessage.cs:52:                throw new ArgumentException(\"Content must contain at least one segment.\", nameof(this.Segments));\nsrc/TokenGuard.Extensions.OpenAI/OpenAIExtensions.cs:90:            _ => throw new InvalidOperationException($\"Unsupported role '{message.Role}'.\"),\ntests/TokenGuard.Tests/Core/ConversationContextTests.cs:735:        act.Should().Throw<ObjectDisposedException>();\n6 matches in 5 files (0.03s)"
+        }
+      ],
+      "referenceTokens": 201
+    },
+    {
+      "id": "tool-result-table",
+      "kind": "tool-output",
+      "role": "tool",
+      "segments": [
+        {
+          "type": "toolResult",
+          "toolCallId": "call_Q1w2E3",
+          "toolName": "run_command",
+          "content": "$ docker ps --format table\r\n┌──────────────┬──────────────────────┬─────────┬────────────┐\r\n│ CONTAINER ID │ IMAGE                │ STATUS  │ PORTS      │\r\n├──────────────┼──────────────────────┼─────────┼────────────┤\r\n│ 3f2a9c1d7e44 │ postgres:16-alpine   │ Up 2h   │ 5432/tcp   │\r\n│ a81b0c55d902 │ redis:7.2            │ Up 2h   │ 6379/tcp   │\r\n│ 77c0e1f2ab10 │ orders-api:dev       │ Exited  │ —          │\r\n└──────────────┴──────────────────────┴─────────┴────────────┘\r\n\r\nNAME\tCPU %\tMEM USAGE\tNET I/O\r\npostgres\t0.42%\t61.2MiB\t1.2kB / 0B\r\nredis\t\t0.10%\t9.8MiB\t796B / 0B\r\n═══════════════════════════════\r\n██████████░░░░░░░░░░ 50% → done… «ok» · 3 warnings\r\n"
+        }
+      ],
+      "referenceTokens": 280
+    },
+    {
+      "id": "tool-result-terminal-escapes",
+      "kind": "tool-output",
+      "role": "tool",
+      "segments": [
+        {
+          "type": "toolResult",
+          "toolCallId": "call_Tt9Rr1",
+          "toolName": "run_command",
+          "content": "$ cat -v build.log | head -8\n^[[1m==> Building orders-api^[[0m\n^[[32m  compiled^[[0m src/main.rs in 1.84s\n^[[33mwarning^[[0m: unused variable: `retries` --> src/worker.rs:57:13\n^[[31merror[E0382]^[[0m: borrow of moved value: `body`\n$ grep -n 'x1b' scripts/colors.sh\n3:RED=\"\\x1b[31m\"; BOLD=\"\\x1B[1m\"; RESET=\"\\033[0m\"\n9:  printf \"${RED}%s${RESET}\\n\" \"$1\" >&2\n$ printf 'done \u001b[2K\u001b[1G100%% \u001b[' && echo \" \u001bx\"\ndone \u001b[2K\u001b[1G100% \u001b[ \u001bx\n$ curl -# -O https://example.org/pkg.tar.gz\n#####            25.0%\r##########       50.0%\r#################### 100.0%"
+        }
+      ],
+      "referenceTokens": 246
+    },
+    {
+      "id": "tool-result-json-payload",
+      "kind": "tool-output",
+      "role": "tool",
+      "segments": [
+        {
+          "type": "toolResult",
+          "toolCallId": "call_J5nK8h",
+          "toolName": "get_weather",
+          "content": "{\"location\":{\"city\":\"Sofia\",\"country\":\"BG\",\"lat\":42.6977,\"lon\":23.3219},\"current\":{\"temp_c\":18.4,\"feels_like_c\":17.9,\"humidity\":62,\"wind_kph\":11.5,\"condition\":\"Partly cloudy\"},\"forecast\":[{\"date\":\"2026-05-13\",\"min_c\":9.1,\"max_c\":21.3,\"rain_mm\":0},{\"date\":\"2026-05-14\",\"min_c\":11.0,\"max_c\":23.8,\"rain_mm\":1.2},{\"date\":\"2026-05-15\",\"min_c\":12.4,\"max_c\":19.6,\"rain_mm\":7.5}],\"alerts\":[],\"units\":\"metric\",\"source\":\"open data\"}"
+        }
+      ],
+      "referenceTokens": 178
+    },
+    {
+      "id": "tool-result-file-with-code",
+      "kind": "tool-output",
+      "role": "tool",
+      "segments": [
+        {
+          "type": "toolResult",
+          "toolCallId": "call_F00d42",
+          "toolName": "read_file",
+          "content": "     1\tusing System.Text.Json;\n     2\n     3\tnamespace Orders.Api;\n     4\n     5\tpublic static class Endpoints\n     6\t{\n     7\t    public static void MapOrders(this WebApplication app)\n     8\t    {\n     9\t        app.MapGet(\"/orders/{id:int}\", async (int id, IOrderStore store) =>\n    10\t            await store.FindAsync(id) is { } order ? Results.Ok(order) : Results.NotFound());\n    11\n    12\t        app.MapPost(\"/orders\", async (CreateOrder request, IOrderStore store) =>\n    13\t        {\n    14\t            var order = await store.CreateAsync(request);\n    15\t            return Results.Created($\"/orders/{order.Id}\", order);\n    16\t        });\n    17\t    }\n    18\t}"
+        }
+      ],
+      "referenceTokens": 188
+    },
+    {
+      "id": "tool-result-short",
+      "kind": "tool-output",
+      "role": "tool",
+      "segments": [
+        {
+          "type": "toolResult",
+          "toolCallId": "call_s1",
+          "toolName": "write_file",
+          "content": "Wrote 1,482 bytes to src/Orders/OrderTotals.cs."
+        }
+      ],
+      "referenceTokens": 23
+    },
+    {
+      "id": "tool-use-json-arguments",
+      "kind": "tool-call",
+      "role": "assistant",
+      "segments": [
+        {
+          "type": "toolUse",
+          "toolCallId": "call_Zk3pQ9",
+          "toolName": "search_code",
+          "content": "{\"query\":\"PinnedTokenBudgetExceededException\",\"path\":\"src/TokenGuard.Core\",\"include\":[\"*.cs\"],\"exclude\":[\"bin\",\"obj\"],\"max_results\":25,\"case_sensitive\":false,\"context_lines\":2}"
+        }
+      ],
+      "referenceTokens": 59
+    },
+    {
+      "id": "tool-use-write-file",
+      "kind": "tool-call",
+      "role": "assistant",
+      "segments": [
+        {
+          "type": "toolUse",
+          "toolCallId": "call_wR1te7",
+          "toolName": "write_file",
+          "content": "{\"path\":\"src/Orders/OrderTotals.cs\",\"content\":\"namespace Orders;\\n\\npublic static class OrderTotals\\n{\\n    public static decimal Total(IReadOnlyList<OrderLine> lines, decimal taxRate)\\n    {\\n        var subtotal = lines.Sum(line => line.UnitPrice * line.Quantity);\\n        return Math.Round(subtotal * (1 + taxRate), 2, MidpointRounding.AwayFromZero);\\n    }\\n}\\n\",\"overwrite\":true}"
+        }
+      ],
+      "referenceTokens": 113
+    },
+    {
+      "id": "tool-use-truncated-arguments",
+      "kind": "tool-call",
+      "role": "assistant",
+      "segments": [
+        {
+          "type": "toolUse",
+          "toolCallId": "call_tRunc8",
+          "toolName": "apply_patch",
+          "content": "{\"path\":\"src/Orders/OrderTotals.cs\",\"patch\":\"@@ -4,7 +4,7 @@\\n-        return Math.Round(subtotal, 2);\\n+        return Math.Round(subtotal * (1 + taxRate), 2);\\n\",\"reason\":\"The tax rate was never app"
+        }
+      ],
+      "referenceTokens": 76
+    },
+    {
+      "id": "tool-use-with-text",
+      "kind": "tool-call",
+      "role": "assistant",
+      "segments": [
+        {
+          "type": "text",
+          "content": "The failing assertion expects 108.00, so the tax rate is not applied. I'll read the calculator next and then the test that covers it."
+        },
+        {
+          "type": "toolUse",
+          "toolCallId": "call_Rd2f11",
+          "toolName": "read_file",
+          "content": "{\"path\":\"src/Orders/OrderTotals.cs\",\"start_line\":1,\"end_line\":80}"
+        }
+      ],
+      "referenceTokens": 64
+    },
+    {
+      "id": "text-russian",
+      "kind": "non-latin",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "Контекстное окно — это объём текста, который модель может прочитать за один запрос. В длинном цикле агента разговор быстро растёт: каждый вызов инструмента добавляет результат, и этот результат отправляется снова при следующем запросе. Через сорок или пятьдесят шагов история часто занимает больше ста тысяч токенов, и большая её часть уже не нужна.\n\nПоэтому старые результаты инструментов заменяются короткой заглушкой, а более ранние сообщения сжимаются в краткое резюме. Закреплённые сообщения, например системная инструкция, не изменяются никогда."
+        }
+      ],
+      "referenceTokens": 131
+    },
+    {
+      "id": "text-japanese",
+      "kind": "non-latin",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "コンテキストウィンドウとは、モデルが一度のリクエストで読み取れるテキストの量のことです。エージェントのループが長くなると、会話はすぐに大きくなります。ツールを呼び出すたびに結果が追加され、その結果は次のリクエストでもう一度送信されます。\n\nそのため、古いツールの結果は短いプレースホルダーに置き換えられ、さらに古いメッセージは要約にまとめられます。システムプロンプトのような固定されたメッセージは変更されません。APIキーの設定とWi-Fi接続の確認もお忘れなく。"
+        }
+      ],
+      "referenceTokens": 171
+    },
+    {
+      "id": "text-chinese-korean",
+      "kind": "non-latin",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "上下文窗口是模型在一次请求中可以读取的文本量。在较长的代理循环中，对话会迅速增长：每次调用工具都会增加一个结果，而这个结果会在下一次请求时再次发送。\n\n컨텍스트 창은 모델이 한 번의 요청에서 읽을 수 있는 텍스트의 양입니다. 에이전트 루프가 길어지면 대화는 빠르게 커집니다. 도구를 호출할 때마다 결과가 추가되고, 그 결과는 다음 요청에서 다시 전송됩니다."
+        }
+      ],
+      "referenceTokens": 118
+    },
+    {
+      "id": "text-arabic-hebrew",
+      "kind": "non-latin",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "نافذة السياق هي كمية النص التي يستطيع النموذج قراءتها في طلب واحد. في حلقة طويلة ينمو الحوار بسرعة: كل استدعاء لأداة يضيف نتيجة، وهذه النتيجة تُرسل مرة أخرى في الطلب التالي.\n\nחלון ההקשר הוא כמות הטקסט שהמודל יכול לקרוא בבקשה אחת. בלולאה ארוכה השיחה גדלה במהירות: כל קריאה לכלי מוסיפה תוצאה, והתוצאה נשלחת שוב בבקשה הבאה."
+        }
+      ],
+      "referenceTokens": 109
+    },
+    {
+      "id": "text-mixed-script",
+      "kind": "non-latin",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "Release notes / Бележки към версията / Σημειώσεις έκδοσης / リリースノート\n\n1. The café’s naïve cache was replaced (résumé parsing is 3× faster). Decomposed accents such as café still work: café, naïve, Zürich.\n2. Поддръжка на кирилица: търсенето вече намира „поръчка“ и „Поръчка“ еднакво.\n3. Ελληνικά: η αναζήτηση αγνοεί τους τόνους, π.χ. «ἀρχή» και «αρχή».\n4. 日本語のUIテキストを更新しました（APIキー、Wi-Fi接続、iPhone用アプリ）。\n5. हिन्दी और ไทย: basic rendering only — संदेश and ข้อความ are shown but not yet searchable.\n6. Mixed identifiers such as naïveКэш and 数据Store are kept as they are.\n7. Rare forms 㐀, 豈 and ㇰ are passed through unchanged."
+        }
+      ],
+      "referenceTokens": 225
+    },
+    {
+      "id": "custom-segment-prose",
+      "kind": "prose",
+      "role": "user",
+      "segments": [
+        {
+          "type": "custom",
+          "content": "The reviewer attached an image of the failing dashboard. It shows three panels: request rate, error rate, and p95 latency. The error rate climbs from 0.2% to 4.8% within ten minutes of the deploy, while the request rate stays flat."
+        }
+      ],
+      "referenceTokens": 60
+    },
+    {
+      "id": "custom-segment-empty",
+      "kind": "prose",
+      "role": "user",
+      "segments": [
+        {
+          "type": "custom",
+          "content": ""
+        }
+      ],
+      "referenceTokens": 4
+    }
+  ]
+}

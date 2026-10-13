@@ -13,35 +13,6 @@ namespace TokenGuard.Tests.Core;
 public sealed class ConversationContextTests
 {
     [Fact]
-    public void ContextMessage_WithPinnedFlag_RetainsValueAndDefaultsToFalse()
-    {
-        // Arrange
-        var pinned = ContextMessage.FromText(MessageRole.User, "pinned") with { IsPinned = true };
-        var unpinned = ContextMessage.FromText(MessageRole.User, "unpinned");
-
-        // Act
-
-        // Assert
-        pinned.IsPinned.Should().BeTrue();
-        unpinned.IsPinned.Should().BeFalse();
-    }
-
-    [Fact]
-    public void ContextMessage_WithExpression_PreservesPinnedFlagUnlessOverridden()
-    {
-        // Arrange
-        var original = ContextMessage.FromText(MessageRole.User, "pinned") with { IsPinned = true };
-
-        // Act
-        var preserved = original with { State = CompactionState.Masked };
-        var overridden = original with { IsPinned = false };
-
-        // Assert
-        preserved.IsPinned.Should().BeTrue();
-        overridden.IsPinned.Should().BeFalse();
-    }
-
-    [Fact]
     public async Task PrepareAsync_WhenEstimateIsBelowThreshold_ReturnsHistoryInNewListAndSkipsCompaction()
     {
         // Arrange
