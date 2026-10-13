@@ -60,11 +60,14 @@ internal static class AnthropicQuickStart
         conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
         conversationContext.AddUserMessage("Summarize the failing tests.");
 
-        while (true)
+        const int maxTurns = 20;
+
+        for (var turn = 1; turn <= maxTurns; turn++)
         {
             var prepared = await conversationContext.PrepareAsync(cancellationToken);
 
-            if (prepared.Outcome == PrepareOutcome.CannotCompact)
+            // Both outcomes mean the prepared request is still over the budget, so stop before the provider rejects it.
+            if (prepared.Outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
                 throw new InvalidOperationException(prepared.BudgetFailureReason);
 
             var (messages, systemPrompt) = prepared.Messages.ForAnthropic();
@@ -89,7 +92,7 @@ internal static class AnthropicQuickStart
             if (toolCalls.Count == 0)
             {
                 Console.WriteLine(string.Join(Environment.NewLine, response.TextSegments().Select(segment => segment.Content)));
-                break;
+                return;
             }
 
             foreach (var toolCall in toolCalls)
@@ -98,6 +101,8 @@ internal static class AnthropicQuickStart
                 conversationContext.RecordToolResult(toolCall.ToolCallId, toolCall.ToolName, result);
             }
         }
+
+        Console.WriteLine($"Stopped after {maxTurns} model calls without a final answer.");
 
         // Replace with your own tool dispatch. The arguments arrive as a JSON object.
         static string ExecuteTool(string toolName, string argumentsJson) => $"Executed {toolName} with {argumentsJson}.";

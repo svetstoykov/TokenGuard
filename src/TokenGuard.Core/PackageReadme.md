@@ -25,7 +25,7 @@ You keep appending system, user, assistant, and tool messages to `ConversationCo
 ## What it does
 
 - tracks token growth across the full turn sequence
-- masks stale tool results using a sliding-window strategy when the conversation crosses a configurable soft threshold
+- masks stale tool results using a sliding-window strategy when the conversation crosses the compaction threshold
 - summarizes old history with your LLM when masking alone is not enough
 - falls back to emergency truncation as a last resort
 - pins durable context that survives all compaction stages
@@ -37,13 +37,14 @@ You keep appending system, user, assistant, and tool messages to `ConversationCo
 ```bash
 dotnet add package TokenGuard.Core
 dotnet add package TokenGuard.Extensions.OpenAI
+dotnet add package Microsoft.Extensions.DependencyInjection
 ```
 
-`TokenGuard.Core` is provider-neutral. The quick start below sends requests through OpenAI, so it also needs the `TokenGuard.Extensions.OpenAI` adapter.
+`TokenGuard.Core` is provider-neutral. The quick start below sends requests through OpenAI, so it also needs the `TokenGuard.Extensions.OpenAI` adapter, and it registers TokenGuard in the `ServiceCollection` that `Microsoft.Extensions.DependencyInjection` supplies. For Anthropic, add `TokenGuard.Extensions.Anthropic` in place of the OpenAI adapter; its package page has the same program for Anthropic.
 
 ## Quick start
 
-The program below is a complete agent loop against OpenAI with one tool. In a new console project, add the two packages above and `Microsoft.Extensions.DependencyInjection`, replace the contents of `Program.cs` with the program, set the `OPENAI_API_KEY` environment variable, and run `dotnet run`.
+The program below is a complete agent loop against OpenAI with one tool. In a new console project, add the three packages above, replace the contents of `Program.cs` with the program, set the `OPENAI_API_KEY` environment variable, and run `dotnet run`.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
@@ -75,11 +76,14 @@ conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
-while (true)
+const int maxTurns = 20;
+
+for (var turn = 1; turn <= maxTurns; turn++)
 {
     var prepared = await conversationContext.PrepareAsync();
 
-    if (prepared.Outcome == PrepareOutcome.CannotCompact)
+    // Both outcomes mean the prepared request is still over the budget, so stop before the provider rejects it.
+    if (prepared.Outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
     ChatCompletion response = await chatClient.CompleteChatAsync(prepared.Messages.ForOpenAI(), chatOptions);
@@ -89,7 +93,7 @@ while (true)
     if (response.ToolCalls.Count == 0)
     {
         Console.WriteLine(response.Content[0].Text);
-        break;
+        return;
     }
 
     foreach (var toolCall in response.ToolCalls)
@@ -98,6 +102,8 @@ while (true)
         conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
     }
 }
+
+Console.WriteLine($"Stopped after {maxTurns} model calls without a final answer.");
 
 static string ExecuteTool(ChatToolCall toolCall) => toolCall.FunctionName switch
 {
@@ -110,9 +116,11 @@ static string ExecuteTool(ChatToolCall toolCall) => toolCall.FunctionName switch
 
 `PrepareAsync()` returns what was recorded, so a context with no messages gives an empty `Ready` result: record at least one user message before the first model call.
 
+The loop returns when the model answers without a tool call, throws when the outcome is `CompactionInsufficient` or `CannotCompact`, and ends after `maxTurns` model calls.
+
 ### Register at startup
 
-The program registers a 40,000-token window with `AddConversationContext(...)`, so compaction starts at 32,000 tokens.
+The program registers a 40,000-token budget with `AddConversationContext(...)`, so compaction starts at 32,000 tokens.
 
 Default built-in pipeline starts compaction at **80%**, always runs sliding-window masking first, and keeps LLM summarization off until you register it explicitly.
 
@@ -123,6 +131,31 @@ Override with `WithEmergencyThreshold(0.95)` to trigger earlier, or call `Withou
 ### Create a context per conversation
 
 Configuration is singleton-scoped. Each `Create()` call returns an independent stateful context, so separate contexts can be used concurrently. A single context is for one caller at a time: a call that starts while another call on the same context is still running throws `InvalidOperationException`, on a best-effort basis. Run parallel tool calls in parallel and record their results one after another.
+
+## PrepareResult and outcomes
+
+`PrepareResult.Outcome` tells you whether to send `PrepareResult.Messages`.
+
+| Outcome | Meaning |
+|---|---|
+| `Ready` | The request fits and no message was changed |
+| `Compacted` | The request fits after messages were masked, summarized, or dropped |
+| `CompactionInsufficient` | Messages were masked, summarized, or dropped, and the request is still over the budget |
+| `CannotCompact` | The request is over the budget and no message could be changed |
+
+For the two over-budget outcomes `BudgetFailureReason` carries the diagnostic text. An overrun within the tolerance, 5% of the budget by default and set with `WithOverrunTolerance(...)`, counts as fitting. `TokensBeforeCompaction`, `TokensAfterCompaction`, `MessagesCompacted`, and `MessagesDropped` report what the call did. See [PrepareResult](https://github.com/svetstoykov/TokenGuard/blob/main/README.md#prepareresult) and [Compaction statuses](https://github.com/svetstoykov/TokenGuard/blob/main/README.md#compaction-statuses).
+
+## Pinned messages
+
+`SetSystemPrompt(...)` and `AddPinnedMessage(...)` record messages that are never masked, never summarized, and never dropped. They still count against the budget, and a pinned message cannot be removed once recorded. When pinned messages alone exceed the budget, `PrepareAsync()` throws `PinnedTokenBudgetExceededException`. See [Pinned messages](https://github.com/svetstoykov/TokenGuard/blob/main/README.md#pinned-messages).
+
+## LLM summarization
+
+Sliding-window masking is always on. Summarization is off until you register it with `UseLlmSummarization(...)` from `TokenGuard.Extensions.OpenAI` or `TokenGuard.Extensions.Anthropic`. When masking leaves the history over the budget, TokenGuard then replaces the older messages with one summary message and keeps the newest messages verbatim: 5 by default, set with `LlmSummarizationOptions.WindowSize`. When a summarizer call fails, TokenGuard falls back to the masked history and reports the exception in `PrepareResult.SummarizationError`. See [LLM summarization](https://github.com/svetstoykov/TokenGuard/blob/main/README.md#llm-summarization).
+
+## Token counting
+
+TokenGuard estimates tokens with the heuristic `EstimatedTokenCounter`. The estimate leaves out request overhead such as tool schemas. Pass the provider-reported input count as the second argument of `RecordModelResponse`, as the quick start does with `response.InputTokens()`, and TokenGuard corrects its totals by the difference until the next report. See [Token counting](https://github.com/svetstoykov/TokenGuard/blob/main/README.md#token-counting).
 
 ## Observability
 

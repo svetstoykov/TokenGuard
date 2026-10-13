@@ -32,9 +32,17 @@ dotnet add package TokenGuard.Extensions.OpenAI
 
 ## Quick start
 
+The fragments below continue from an `IServiceCollection` named `services`, a `ChatClient` named `chatClient`, a
+`ChatCompletionOptions` named `chatOptions`, and a context named `conversation` created by
+`IConversationContextFactory.Create()`. The
+[root README](https://github.com/svetstoykov/TokenGuard/blob/main/README.md#quick-start) has the complete program,
+ready to paste.
+
 ### 1. Add the provider integration
 
 ```csharp
+using TokenGuard.Core.Extensions;
+using TokenGuard.Core.Options;
 using TokenGuard.Extensions.OpenAI;
 
 services.AddConversationContext(builder => builder

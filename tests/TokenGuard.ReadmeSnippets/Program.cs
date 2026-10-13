@@ -29,11 +29,14 @@ conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
-while (true)
+const int maxTurns = 20;
+
+for (var turn = 1; turn <= maxTurns; turn++)
 {
     var prepared = await conversationContext.PrepareAsync();
 
-    if (prepared.Outcome == PrepareOutcome.CannotCompact)
+    // Both outcomes mean the prepared request is still over the budget, so stop before the provider rejects it.
+    if (prepared.Outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
     ChatCompletion response = await chatClient.CompleteChatAsync(prepared.Messages.ForOpenAI(), chatOptions);
@@ -43,7 +46,7 @@ while (true)
     if (response.ToolCalls.Count == 0)
     {
         Console.WriteLine(response.Content[0].Text);
-        break;
+        return;
     }
 
     foreach (var toolCall in response.ToolCalls)
@@ -52,6 +55,8 @@ while (true)
         conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
     }
 }
+
+Console.WriteLine($"Stopped after {maxTurns} model calls without a final answer.");
 
 static string ExecuteTool(ChatToolCall toolCall) => toolCall.FunctionName switch
 {

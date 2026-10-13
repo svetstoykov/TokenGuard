@@ -43,7 +43,7 @@ object. `PrepareAsync()` returns a `PrepareResult` describing what should go to 
 ## What it does
 
 - **Tracks token growth** across the full turn sequence — user, assistant, tool, system, and pinned messages
-- **Masks stale tool results** using a sliding-window strategy when the conversation crosses a configurable soft threshold
+- **Masks stale tool results** using a sliding-window strategy when the conversation crosses the compaction threshold
 - **Summarizes old history with your LLM** when masking alone is not enough — collapses older turns into a compact
   summary message while keeping a recent tail verbatim
 - **Falls back to emergency truncation** as a last resort — drops oldest unpinned turn groups from the prepared payload
@@ -52,6 +52,18 @@ object. `PrepareAsync()` returns a `PrepareResult` describing what should go to 
   any message you need to keep unchanged
 - **Stays provider-agnostic** in core, with adapter helpers for OpenAI and Anthropic
 - **Integrates in minutes** via `AddConversationContext(...)` and a standard DI factory
+
+---
+
+## Terms
+
+| Term | Meaning | Set with |
+|---|---|---|
+| Budget | The token limit for one prepared request. The benchmark section calls it the window | `WithMaxTokens(...)`; 40,000 when `AddConversationContext()` is called without a builder |
+| Compaction threshold | The fraction of the budget at which compaction starts | `WithCompactionThreshold(...)`, default 0.80 |
+| Emergency threshold | The fraction of the budget at which emergency truncation starts to drop the oldest turn groups | `WithEmergencyThreshold(...)`, default 1.0; `WithoutEmergencyThreshold()` turns it off |
+| Masking window | The newest messages that masking leaves unchanged, as a minimum count of messages | `SlidingWindowOptions.WindowSize`, default 10, passed to `WithSlidingWindowOptions(...)` |
+| Summary tail | The newest messages that stay verbatim after a summary, as a count of messages | `LlmSummarizationOptions.WindowSize`, default 5, passed to `UseLlmSummarization(...)` |
 
 ---
 
@@ -109,15 +121,27 @@ Run IDs and the method are in
 
 ```bash
 dotnet add package TokenGuard.Core
-dotnet add package TokenGuard.Extensions.OpenAI      # or Anthropic
+dotnet add package TokenGuard.Extensions.OpenAI
+dotnet add package Microsoft.Extensions.DependencyInjection
 ```
+
+For Anthropic, add `TokenGuard.Extensions.Anthropic` in place of `TokenGuard.Extensions.OpenAI`:
+
+```bash
+dotnet add package TokenGuard.Core
+dotnet add package TokenGuard.Extensions.Anthropic
+dotnet add package Microsoft.Extensions.DependencyInjection
+```
+
+`Microsoft.Extensions.DependencyInjection` supplies the `ServiceCollection` that both quick starts register TokenGuard
+in.
 
 ---
 
 ## Quick start
 
-The program below is a complete agent loop against OpenAI with one tool. Create a console project and add three
-packages:
+The program below is a complete agent loop against OpenAI with one tool. The same program for Anthropic is under
+[Provider adapters](#provider-adapters). Create a console project and add three packages:
 
 ```bash
 dotnet new console -n TokenGuardQuickStart
@@ -160,11 +184,14 @@ conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
-while (true)
+const int maxTurns = 20;
+
+for (var turn = 1; turn <= maxTurns; turn++)
 {
     var prepared = await conversationContext.PrepareAsync();
 
-    if (prepared.Outcome == PrepareOutcome.CannotCompact)
+    // Both outcomes mean the prepared request is still over the budget, so stop before the provider rejects it.
+    if (prepared.Outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
     ChatCompletion response = await chatClient.CompleteChatAsync(prepared.Messages.ForOpenAI(), chatOptions);
@@ -174,7 +201,7 @@ while (true)
     if (response.ToolCalls.Count == 0)
     {
         Console.WriteLine(response.Content[0].Text);
-        break;
+        return;
     }
 
     foreach (var toolCall in response.ToolCalls)
@@ -183,6 +210,8 @@ while (true)
         conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
     }
 }
+
+Console.WriteLine($"Stopped after {maxTurns} model calls without a final answer.");
 
 static string ExecuteTool(ChatToolCall toolCall) => toolCall.FunctionName switch
 {
@@ -197,9 +226,14 @@ to send to the provider. `ConversationContext.History` remains unchanged.
 `PrepareAsync()` returns what was recorded, so a context with no messages gives an empty `Ready` result: record at least
 one user message before the first model call.
 
+The loop stops in three ways. It returns when the model answers without a tool call. It throws when the outcome is
+`CompactionInsufficient` or `CannotCompact`, because in both the prepared request is still over the budget;
+[Compaction statuses](#compaction-statuses) describes each and what to change. It ends after `maxTurns` model calls, so
+a model that keeps calling tools cannot run without a limit.
+
 ### Register at startup
 
-The program registers a 40,000-token window with `AddConversationContext(...)`, so compaction starts at 32,000 tokens.
+The program registers a 40,000-token budget with `AddConversationContext(...)`, so compaction starts at 32,000 tokens.
 
 Default built-in pipeline starts compaction at **80%**, always runs sliding-window masking first, and keeps LLM summarization
 off until you register it explicitly.
@@ -235,6 +269,16 @@ services.AddConversationContext(builder => builder
     .WithMaxTokens(40_000)
     .UseLlmSummarization(anthropicClient, "claude-sonnet-5-5"));
 ```
+
+### Choose a budget
+
+The budget limits the input of one request, so set it below the model's context window and leave room for two things
+TokenGuard does not count. The first is the model's reply: the provider takes the output limit you request from the
+same context window. The second is request overhead such as tool schemas, which the estimate leaves out until you pass
+the first provider-reported input count to `RecordModelResponse`. From below, the budget must hold the largest single
+turn of tool results plus the pinned content, with room left for history. Two points are measured, on the short
+verifiable tasks of the [benchmark](#benchmark): a budget of 20,000 tokens lost 10 of 31 checks, and 50,000 tokens
+held.
 
 ### Create a context per conversation
 
@@ -412,20 +456,70 @@ conversationContext.RecordModelResponse(response.ResponseSegments(), response.In
 
 **Anthropic**
 
-The loop below continues with a `conversationContext`, an `AnthropicClient` named `anthropicClient` and an Anthropic `Tool`
-named `readFile`. The [Anthropic package readme](src/TokenGuard.Extensions.Anthropic/PackageReadme.md) has the whole
-program, with the usings and the setup, ready to paste.
+The program below is a complete agent loop against Anthropic with one tool. Create a console project and add three
+packages:
+
+```bash
+dotnet new console -n TokenGuardAnthropicQuickStart
+cd TokenGuardAnthropicQuickStart
+dotnet add package TokenGuard.Core
+dotnet add package TokenGuard.Extensions.Anthropic
+dotnet add package Microsoft.Extensions.DependencyInjection
+```
+
+Replace the contents of `Program.cs` with the program, set the `ANTHROPIC_API_KEY` environment variable, and run
+`dotnet run`. The Anthropic SDK arrives through `TokenGuard.Extensions.Anthropic`. `UseLlmSummarization(...)` is
+optional; without it TokenGuard masks old tool results and does not call a summarizer.
 
 ```csharp
+using System.Text.Json;
+using Anthropic;
+using Anthropic.Models.Messages;
+using Microsoft.Extensions.DependencyInjection;
+using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Enums;
+using TokenGuard.Core.Extensions;
+using TokenGuard.Extensions.Anthropic;
+
+AnthropicClient anthropicClient = new(); // Reads the ANTHROPIC_API_KEY environment variable.
+var cancellationToken = CancellationToken.None;
+
+var services = new ServiceCollection();
+services.AddConversationContext(builder => builder
+    .WithMaxTokens(40_000)
+    .UseLlmSummarization(anthropicClient, "claude-opus-5-5"));
+
+using var serviceProvider = services.BuildServiceProvider();
+using var conversationContext = serviceProvider
+    .GetRequiredService<IConversationContextFactory>()
+    .Create();
+
+Tool readFile = new()
+{
+    Name = "read_file",
+    Description = "Reads a text file from the repository.",
+    InputSchema = new()
+    {
+        Properties = new Dictionary<string, JsonElement>
+        {
+            ["path"] = JsonSerializer.SerializeToElement(new { type = "string", description = "Path from the repository root." }),
+        },
+        Required = ["path"],
+    },
+};
+
 conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
-while (true)
+const int maxTurns = 20;
+
+for (var turn = 1; turn <= maxTurns; turn++)
 {
     var prepared = await conversationContext.PrepareAsync(cancellationToken);
 
-    if (prepared.Outcome == PrepareOutcome.CannotCompact)
+    // Both outcomes mean the prepared request is still over the budget, so stop before the provider rejects it.
+    if (prepared.Outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
     var (messages, systemPrompt) = prepared.Messages.ForAnthropic();
@@ -450,7 +544,7 @@ while (true)
     if (toolCalls.Count == 0)
     {
         Console.WriteLine(string.Join(Environment.NewLine, response.TextSegments().Select(segment => segment.Content)));
-        break;
+        return;
     }
 
     foreach (var toolCall in toolCalls)
@@ -459,6 +553,8 @@ while (true)
         conversationContext.RecordToolResult(toolCall.ToolCallId, toolCall.ToolName, result);
     }
 }
+
+Console.WriteLine($"Stopped after {maxTurns} model calls without a final answer.");
 
 // Replace with your own tool dispatch. The arguments arrive as a JSON object.
 static string ExecuteTool(string toolName, string argumentsJson) => $"Executed {toolName} with {argumentsJson}.";
@@ -638,8 +734,9 @@ Known limits:
 - token estimates leave out request overhead such as tool schemas until the first provider report
 - the estimator undercounts pretty-printed JSON by 17% to 30% against the `o200k_base` tokenizer until the first
   provider report corrects it, and runs 15% to 49% high on source code and non-Latin text
-- one tool result larger than the window cannot be fitted; the prepare returns `CompactionInsufficient` and the caller
-  decides whether to send the request
+- one tool result larger than the budget cannot be fitted. The prepare returns `CompactionInsufficient` when it
+  masked, summarized, or dropped other messages, and `CannotCompact` when it changed none; in both the request is over
+  the budget and the caller decides whether to send it
 - on a provider with a prompt cache the money saving differs from the token saving, because masking changes earlier
   messages
 - the packages target `net10.0` only
