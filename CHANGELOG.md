@@ -63,6 +63,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   running until its task completes, so await it before recording, and record the results of parallel tool calls one
   after another. The detection is best effort and a context is still for one caller at a time: calls from several
   threads that happen not to overlap are not reported. No public member changed.
+- Behavior change: the default token budget is 40,000 instead of 25,000. It applies when no budget is given: to
+  `ConversationConfigBuilder.Default()` called without an argument, and to the default profile that
+  `AddConversationContext()` registers when called without a configuration or that a named registration creates when
+  no default profile was registered first. A consumer relying on it gets a compaction trigger of 32,000 tokens instead
+  of 20,000 and an emergency limit of 40,000 instead of 25,000, so requests carry more tokens before compaction starts,
+  and the overrun tolerance is 2,000 tokens instead of 1,250. A model whose context window is below 40,000 tokens needs
+  an explicit budget: `WithMaxTokens(...)`, or `ConversationConfigBuilder.Default(maxTokens)`. A budget set explicitly
+  is unaffected, and no public member changed.
 
 ### Fixed
 
