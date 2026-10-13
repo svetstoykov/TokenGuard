@@ -10,6 +10,14 @@
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <PackageIcon>icon.png</PackageIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
   <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/PackageReadme.md')">
     <PackageReadmeFile>PackageReadme.md</PackageReadmeFile>
   </PropertyGroup>
