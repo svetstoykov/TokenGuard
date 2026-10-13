@@ -1063,6 +1063,23 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_WhenTheSummaryWasBlankAndTheHistoryIsUnchanged_DoesNotCallTheSummarizerAgain()
+    {
+        // Arrange
+        var messages = CreateThreeMessageHistory(out var tokenCounter);
+        var summarizer = new TrackingSummarizer(" ");
+        var strategy = CreateSingleMessageTailStrategy(summarizer, tokenCounter);
+        await Assert.ThrowsAsync<ArgumentException>(() => strategy.CompactAsync(messages, 10));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Same(messages, compacted.Messages);
+    }
+
+    [Fact]
     public async Task CompactAsync_WhenTheHistoryChangesAfterAnOvershootingSummary_CallsTheSummarizerAgain()
     {
         // Arrange

@@ -805,7 +805,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// </para>
     /// <para>
     /// The call has no time limit of its own. When the summarizer throws for a reason other than the caller's
-    /// cancellation, the attempt is remembered before the exception is rethrown.
+    /// cancellation, or returns blank text, the attempt is remembered before the exception is rethrown.
     /// </para>
     /// </remarks>
     /// <param name="messages">The ordered compactable message history.</param>
@@ -830,10 +830,11 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         var startTimestamp = timeCall ? Stopwatch.GetTimestamp() : 0;
         this._diagnostics.SummarizerCalls++;
 
-        string summary;
+        ContextMessage summaryMessage;
         try
         {
-            summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+            var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+            summaryMessage = ContextMessage.FromText(MessageRole.Model, summary) with { State = CompactionState.Summarized };
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -846,7 +847,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         }
 
         this.RecordSummarizationDuration(timeCall, startTimestamp, TokenGuardTelemetry.SuccessResult);
-        return ContextMessage.FromText(MessageRole.Model, summary) with { State = CompactionState.Summarized };
+        return summaryMessage;
     }
 
     private void RecordSummarizationDuration(bool timeCall, long startTimestamp, string result)
