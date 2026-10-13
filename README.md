@@ -228,7 +228,7 @@ services.AddConversationContext(builder => builder
 ```csharp
 services.AddConversationContext(builder => builder
     .WithMaxTokens(40_000)
-    .UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest"));
+    .UseLlmSummarization(anthropicClient, "claude-sonnet-5-5"));
 ```
 
 ### Create a context per conversation
@@ -359,7 +359,7 @@ Register it with one extra call on your builder:
 builder.UseLlmSummarization(chatClient);
 
 // Anthropic — model must be specified explicitly
-builder.UseLlmSummarization(anthropicClient, "claude-3-7-sonnet-latest");
+builder.UseLlmSummarization(anthropicClient, "claude-sonnet-5-5");
 ```
 
 Defaults keep the last **5 messages** verbatim and bound the summary budget to **2,048-4,096 tokens**. Override with
