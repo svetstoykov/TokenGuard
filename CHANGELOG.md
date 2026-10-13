@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tokenguard.tokens.reasoning`; events 5001 (`SummarizerCallCompleted`) and 5002 (`SummarizerCallFailed`) gain
   `FinishReason`, `ReasoningTokens`, and, on 5002, `OutputTokens`. Reasoning tokens are reported by the OpenAI summarizer
   only.
+- A package icon on `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and `TokenGuard.Extensions.Anthropic`.
 
 ### Changed
 
