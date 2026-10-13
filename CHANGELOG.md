@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tool-result masking leaves a tool result as it is when its estimated tokens are not above those of its placeholder,
+  measured against the configured `SlidingWindowOptions.PlaceholderFormat`. A message is marked `Masked` only when at
+  least one of its results was replaced, and `PrepareResult.MessagesCompacted` and the `ToolResultMasked` log records
+  count only replaced results. A prepared view can differ from the one 1.2.0 produces for the same history when that
+  history holds tool results shorter than the placeholder.
+
 ## [1.2.0] - 2026-10-13
 
 Released packages: `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and `TokenGuard.Extensions.Anthropic`, all at
