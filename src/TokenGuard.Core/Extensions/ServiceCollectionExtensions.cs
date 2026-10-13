@@ -45,7 +45,7 @@ public static class ServiceCollectionExtensions
     /// Follows the same pattern as <c>AddHttpClient</c>: the method is named after the product
     /// (<see cref="ConversationContext"/>), while the injected abstraction is the factory
     /// (<see cref="IConversationContextFactory"/>). Registers the factory as a singleton using the
-    /// library default profile: 25,000 max tokens, 0.80 compaction, 1.0 emergency truncation as a
+    /// library default profile: 40,000 max tokens, 0.80 compaction, 1.0 emergency truncation as a
     /// last-resort safety net, TokenGuard's built-in heuristic
     /// <see cref="ITokenCounter"/> implementation, and <see cref="Strategies.TieredCompactionStrategy"/>.
     /// For non-DI scenarios, construct <see cref="ConversationContextFactory"/> directly instead.

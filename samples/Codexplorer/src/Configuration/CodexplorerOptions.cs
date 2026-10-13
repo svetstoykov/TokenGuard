@@ -87,12 +87,12 @@ public sealed record BudgetOptions
     /// <summary>
     /// Gets total token budget allocated to conversation context before output tokens are considered.
     /// </summary>
-    public int ContextWindowTokens { get; init; } = 16_000;
+    public int ContextWindowTokens { get; init; } = 40_000;
 
     /// <summary>
     /// Gets ratio of <see cref="ContextWindowTokens"/> that triggers normal compaction pressure.
     /// </summary>
-    public double SoftThresholdRatio { get; init; } = 0.70;
+    public double SoftThresholdRatio { get; init; } = 0.80;
 
     /// <summary>
     /// Gets ratio of <see cref="ContextWindowTokens"/> that triggers emergency compaction pressure.

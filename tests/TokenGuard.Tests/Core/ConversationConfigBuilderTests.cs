@@ -23,7 +23,7 @@ public sealed class ConversationConfigBuilderTests
     public void Default_WithoutArguments_UsesDefaultMaxTokenBudget()
     {
         // Arrange
-        var expected = ContextBudget.For(25_000);
+        var expected = ContextBudget.For(40_000);
         var counter = new TrackingTokenCounter();
 
         // Act

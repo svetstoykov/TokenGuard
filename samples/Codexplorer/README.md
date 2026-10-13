@@ -520,7 +520,7 @@ Example:
       "Temperature": 0.0
     },
     "Budget": {
-      "ContextWindowTokens": 20000,
+      "ContextWindowTokens": 40000,
       "SoftThresholdRatio": 0.8,
       "HardThresholdRatio": 1.0,
       "WindowSize": 5
