@@ -54,7 +54,7 @@ public sealed class SlidingWindowStrategyLoggingTests
         record.Property("MessageIndex").Should().Be(1);
         record.Property("ToolCallId").Should().Be("call_1");
         record.Property("ToolName").Should().Be("search");
-        record.Property("TokensBefore").Should().Be(50);
+        record.Property("TokensBefore").Should().Be(200);
         record.Property("TokensAfter").Should().Be(result.Messages[1].Segments[0].Content.Length);
     }
 
@@ -92,6 +92,31 @@ public sealed class SlidingWindowStrategyLoggingTests
         logs.WithEventId(SlidingWindowApplied).Should().ContainSingle().Which.Property("ToolResultsMasked").Should().Be(1);
     }
 
+    [Fact]
+    public async Task CompactAsync_WhenSomeToolResultsStayUnmasked_LogsOnlyTheReplacedOnes()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs);
+        ContextMessage[] messages =
+        [
+            ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_1", "write_file", "ok")),
+            ContextMessage.FromContent(
+                MessageRole.Tool,
+                [new ToolResultContent("call_2", "run", "exit 0"), new ToolResultContent("call_3", "search", new string('r', 400))]),
+            ContextMessage.FromText(MessageRole.User, "aaaaa"),
+        ];
+
+        // Act
+        await strategy.CompactAsync(messages, availableTokens: 20);
+
+        // Assert
+        var record = logs.WithEventId(ToolResultMasked).Should().ContainSingle().Subject;
+        record.Property("MessageIndex").Should().Be(1);
+        record.Property("ToolCallId").Should().Be("call_3");
+        logs.WithEventId(SlidingWindowApplied).Should().ContainSingle().Which.Property("ToolResultsMasked").Should().Be(1);
+    }
+
     private static SlidingWindowStrategy CreateStrategy(CapturingLoggerFactory logs) =>
         new(
             new TextLengthTokenCounter(), new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
@@ -100,7 +125,7 @@ public sealed class SlidingWindowStrategyLoggingTests
     private static ContextMessage[] CreateHistoryWithOneOldToolResult() =>
     [
         ContextMessage.FromContent(MessageRole.Model, new ToolUseContent("call_1", "search", "{\"query\":\"q\"}")),
-        ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_1", "search", new string('r', 50))),
+        ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_1", "search", new string('r', 200))),
         ContextMessage.FromText(MessageRole.User, "aaaaa"),
         ContextMessage.FromText(MessageRole.Model, "bbbbb"),
     ];

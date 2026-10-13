@@ -74,6 +74,10 @@ public readonly record struct SlidingWindowOptions
     /// <summary>
     /// Gets the format string used to replace older tool results with placeholders.
     /// </summary>
+    /// <remarks>
+    /// A tool result is replaced only when it costs more estimated tokens than the placeholder this format gives for
+    /// it, so a longer format leaves more short results as they are.
+    /// </remarks>
     public string PlaceholderFormat { get; }
 
     /// <summary>
