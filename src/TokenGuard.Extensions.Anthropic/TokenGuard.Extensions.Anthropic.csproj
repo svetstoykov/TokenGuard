@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <PackageId>TokenGuard.Extensions.Anthropic</PackageId>
     <Title>TokenGuard.Extensions.Anthropic</Title>
     <Authors>Svetlozar Stoykov</Authors>
@@ -18,9 +18,11 @@
     <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <PackageReleaseNotes>Requires exactly TokenGuard.Core 1.1.0, and Anthropic 12.53.0 or later. The summarizer logs and traces through the logger factory configured on the conversation.
+    <PackageReleaseNotes>Requires exactly TokenGuard.Core 1.2.0, and Anthropic 12.53.0 or later. The package dependency on TokenGuard.Core is the exact version [1.2.0], so NuGet reports a mismatched Core version at restore.
 
-Known limits: the token counter, summarizer, summary formatter, and builder registration of a custom compaction strategy are closed to consumers; one ConversationContext is for one caller at a time; token estimates leave out request overhead such as tool schemas; the package targets net10.0 only.
+Behavior changes, with no signature changes: ForAnthropic() sends every text segment of a message as its own text block and every result of a tool message, where it used to send the first of each; it throws InvalidOperationException for a message it cannot represent, for unpaired tool calls and results, and for tool-call arguments that are not a JSON object. InputTokens() returns the total input of the request, including cache creation and cache read tokens, and null when the response carries no usage. From TokenGuard.Core 1.2.0: the default token budget is 40,000 instead of 25,000, and tool-result masking moves its boundary in steps.
+
+This adapter is covered by unit tests only; no run against the Anthropic API has verified it. Known limits: summarization works with the built-in providers only, and a custom summarizer, compaction strategy, or token counter cannot be registered through the builder; one ConversationContext is for one caller at a time, and overlapping calls are detected on a best-effort basis; token estimates leave out request overhead such as tool schemas and undercount pretty-printed JSON by 17% to 30% until the first provider report; one tool result larger than the window cannot be fitted and the prepare returns CompactionInsufficient; the package targets net10.0 only.
 
 Full details: https://github.com/svetstoykov/TokenGuard/blob/main/CHANGELOG.md</PackageReleaseNotes>
   </PropertyGroup>

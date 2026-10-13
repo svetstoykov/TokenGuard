@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <PackageId>TokenGuard.Core</PackageId>
     <Title>TokenGuard.Core</Title>
     <Authors>Svetlozar Stoykov</Authors>
@@ -18,11 +18,11 @@
     <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <PackageReleaseNotes>Adds optional logging, tracing, metrics, and conversation health signals: ConversationConfigBuilder.WithLoggerFactory(ILoggerFactory), plus an ActivitySource and a Meter named TokenGuard. Fixes pinned-message placement, tool-loop compaction, turn grouping, and option validation.
+    <PackageReleaseNotes>Tool-result masking moves its boundary in steps, so a prepared request is the previous one plus the new messages between two steps and a provider prompt cache can reuse it. Adds the provider's finish reason and token counts to summarizer diagnostics, and a package icon. Fixes the tool name on a masked result, diagnostics for a compaction strategy that throws, and repeated summarizer requests after a failure.
 
-Behavior changes, with no signature changes: PrepareResult.TokensAfterCompaction includes the provider correction and can turn a Ready or Compacted result into CompactionInsufficient or CannotCompact; Build() rejects NaN thresholds and default-constructed option structs; prepared views place pinned messages relative to their neighbours, keep the user message that opened a tool loop, and group turns by message structure.
+Behavior changes, with no signature changes: the default token budget is 40,000 instead of 25,000, so compaction starts at 32,000 tokens; prepared views mask further back at a step and differ from those of 1.1.0; the default placeholder of a masked result has a new, longer text; a call that starts while another call on the same context is still running throws InvalidOperationException; a recording call discards an exception thrown by a logger or meter listener; a failed summarizer call is not repeated while the history and the available tokens stay the same.
 
-Known limits: the token counter, summarizer, summary formatter, and builder registration of a custom compaction strategy are closed to consumers; one ConversationContext is for one caller at a time; token estimates leave out request overhead such as tool schemas; the package targets net10.0 only.
+Known limits: summarization works with the built-in providers only, and a custom summarizer, compaction strategy, or token counter cannot be registered through the builder; one ConversationContext is for one caller at a time, and overlapping calls are detected on a best-effort basis; token estimates leave out request overhead such as tool schemas and undercount pretty-printed JSON by 17% to 30% until the first provider report; one tool result larger than the window cannot be fitted and the prepare returns CompactionInsufficient; the package targets net10.0 only.
 
 Full details: https://github.com/svetstoykov/TokenGuard/blob/main/CHANGELOG.md</PackageReleaseNotes>
   </PropertyGroup>
