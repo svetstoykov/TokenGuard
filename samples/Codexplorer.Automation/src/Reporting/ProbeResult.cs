@@ -6,7 +6,7 @@ internal sealed record ProbeResult
     /// <summary>Gets the required compaction kind.</summary>
     public required string? Requires { get; init; }
 
-    /// <summary>Gets the passed, failed or invalid status.</summary>
+    /// <summary>Gets the passed, failed, invalid or notApplicable status.</summary>
     public required string Status { get; init; }
 
     /// <summary>Gets the reason, or null for a pass.</summary>

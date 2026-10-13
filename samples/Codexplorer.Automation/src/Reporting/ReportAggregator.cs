@@ -73,7 +73,7 @@ internal sealed class ReportAggregator : IReportAggregator
         var errors = ReportValidator.GetCollectionErrors(metadata, tasks, unrunTaskIds);
         return new RunReport
         {
-            SchemaVersion = 5, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
+            SchemaVersion = 6, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
             Partial = partial || unrunTaskIds.Count > 0 || tasks.Any(task => task.Outcome is "failed" or "cancelled"),
             Totals = new RunTotals
             {
@@ -84,6 +84,7 @@ internal sealed class ReportAggregator : IReportAggregator
                 DeliverableCompletionRate = tasks.Count(task => task.Checks.Count > 0) == 0 ? null
                     : (double)tasks.Count(task => task.DeliverableCompletion == "complete") / tasks.Count(task => task.Checks.Count > 0),
                 ProbeCount = tasks.Count(task => task.Probe is not null), InvalidProbeCount = tasks.Count(task => task.Probe?.Status == "invalid"),
+                NotApplicableProbeCount = tasks.Count(task => task.Probe?.Status == "notApplicable"),
                 PassedProbeCount = tasks.Count(task => task.Probe?.Status == "passed"),
                 CanaryPresentCount = tasks.Count(task => task.Probe?.CanaryPresent == true),
                 ProbePassRate = tasks.Count(task => task.Probe is { Status: "passed" or "failed" }) == 0 ? null

@@ -500,7 +500,7 @@ public sealed class AutomationRunnerTests : IDisposable
         await fixture.Runner.RunAsync(CancellationToken.None);
 
         var report = fixture.Writer.Report!;
-        report.SchemaVersion.Should().Be(5);
+        report.SchemaVersion.Should().Be(6);
         report.Run.RunId.Should().Be("20261008-141502-treatment");
         report.Run.CaptureEnabled.Should().BeTrue();
         var task = report.Tasks.Single();
@@ -660,6 +660,7 @@ public sealed class AutomationRunnerTests : IDisposable
         var completed = Snapshot(3, complete: true);
         completed = completed with
         {
+            MessagesSummarized = 1,
             PrepareRecords = completed.PrepareRecords.Select(record => record with { OpeningMessagePresent = false }).ToArray(),
         };
         fixture.Client.Close = (_, _) => Task.FromResult(

@@ -22,12 +22,13 @@ internal sealed class AnswerScorer : IAnswerScorer
         if (probe is not null)
         {
             var present = answer is not null && ValueMatcher.IsMatch(TextNormalizer.Normalize(answer), TextNormalizer.Normalize(probe.Canary!));
-            var reason = answer is null ? "noAnswer" : input.CanaryRepeated ? "canaryRepeated"
-                : ProbeValidity.GetInvalidReason(probe.Requires, input.Measurements);
+            var applicable = answer is null || ProbeValidity.IsApplicable(input.Measurements);
+            var reason = answer is null ? "noAnswer" : !applicable ? ProbeValidity.NotApplicableReason
+                : input.CanaryRepeated ? "canaryRepeated" : ProbeValidity.GetInvalidReason(probe.Requires, input.Measurements);
             result = new ProbeResult
             {
                 Requires = probe.Requires, CanaryPresent = present,
-                Status = reason is not null ? "invalid" : present ? "passed" : "failed",
+                Status = !applicable ? "notApplicable" : reason is not null ? "invalid" : present ? "passed" : "failed",
                 Reason = reason ?? (present ? null : "canaryMissing"),
             };
         }

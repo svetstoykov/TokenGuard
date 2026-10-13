@@ -21,6 +21,12 @@ internal sealed record RunTotals
     /// <summary>Gets the invalid probe count.</summary>
     public required int InvalidProbeCount { get; init; }
 
+    /// <summary>
+    ///     Gets the probes of tasks where nothing was summarized or dropped, or <see langword="null" /> in a report whose schema version
+    ///     is below 6 and so counts none.
+    /// </summary>
+    public int? NotApplicableProbeCount { get; init; }
+
     /// <summary>Gets the passed probe count.</summary>
     public required int PassedProbeCount { get; init; }
 

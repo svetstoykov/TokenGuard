@@ -286,6 +286,32 @@ public sealed class ReportAggregatorTests
         ReportValidator.Validate(report).Should().BeEmpty();
     }
 
+    /// <summary>Verifies a not-applicable probe is counted apart from invalid probes and stays out of the pass-rate denominator.</summary>
+    [Fact]
+    public void CreateReport_NotApplicableProbe_IsCountedApartFromInvalidAndExcludedFromPassRate()
+    {
+        var passed = ReportFixture.Scored([], new ProbeResult { Requires = null, Status = "passed", Reason = null, CanaryPresent = true });
+        var invalid = ReportFixture.Scored([],
+            new ProbeResult { Requires = null, Status = "invalid", Reason = "instructionNotCompacted", CanaryPresent = true }, opening: true);
+        var notApplicable = ReportFixture.Scored([],
+            new ProbeResult { Requires = null, Status = "notApplicable", Reason = "noSummarizationOrDrop", CanaryPresent = false },
+            opening: true, maskingOnly: true);
+        var tasks = new[]
+        {
+            passed.Tasks[0], invalid.Tasks[0] with { TaskId = "invalid" }, notApplicable.Tasks[0] with { TaskId = "maskingOnly" }
+        };
+
+        var report = new ReportAggregator().CreateReport(passed.Run, tasks, [], false);
+
+        report.SchemaVersion.Should().Be(6);
+        report.Totals.ProbeCount.Should().Be(3);
+        report.Totals.InvalidProbeCount.Should().Be(1);
+        report.Totals.NotApplicableProbeCount.Should().Be(1);
+        report.Totals.PassedProbeCount.Should().Be(1);
+        report.Totals.ProbePassRate.Should().Be(1);
+        ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
     /// <summary>Verifies failed started tasks still count their deliverables and all-invalid probes have no rate.</summary>
     [Fact]
     public void CreateReport_FailedTaskCountsChecksAndInvalidProbe()

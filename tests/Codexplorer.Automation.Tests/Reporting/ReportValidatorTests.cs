@@ -111,30 +111,34 @@ public sealed class ReportValidatorTests
     }
 
     /// <summary>
-    ///     Verifies that a schema version other than 4 and 5 is rejected.
+    ///     Verifies that a schema version other than 4, 5 and 6 is rejected.
     /// </summary>
     /// <param name="schemaVersion">The unsupported schema version.</param>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
-    [InlineData(6)]
-    public void Validate_SchemaVersionOtherThanFourOrFive_ReturnsUnsupportedVersionError(int schemaVersion)
+    [InlineData(7)]
+    public void Validate_SchemaVersionOtherThanFourFiveOrSix_ReturnsUnsupportedVersionError(int schemaVersion)
     {
         var report = ReportFixture.Create() with { SchemaVersion = schemaVersion };
 
         var errors = ReportValidator.Validate(report);
 
-        errors.Should().ContainSingle().Which.Should().Contain("expected 4 or 5");
+        errors.Should().ContainSingle().Which.Should().Contain("expected 4, 5 or 6");
     }
 
     /// <summary>
-    ///     Verifies that a schema version 5 report with reported cached input tokens is valid.
+    ///     Verifies that a report with reported cached input tokens is valid in schema versions 5 and 6.
     /// </summary>
-    [Fact]
-    public void Validate_SchemaVersionFiveReportWithCachedInputTokens_ReturnsNoErrors()
+    /// <param name="schemaVersion">The schema version that records cached input tokens.</param>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void Validate_ReportWithCachedInputTokens_ReturnsNoErrors(int schemaVersion)
     {
-        var report = ReportFixture.Create(cachedInputTokens: 40);
+        var current = ReportFixture.Create(cachedInputTokens: 40);
+        var report = schemaVersion == 6 ? current : ReportFixture.AsOlderSchemaVersion(current, schemaVersion);
 
         var errors = ReportValidator.Validate(report);
 
@@ -147,7 +151,7 @@ public sealed class ReportValidatorTests
     [Fact]
     public void Validate_SchemaVersionFourReportWithoutCachedInputTokens_ReturnsNoErrors()
     {
-        var report = ReportFixture.Create() with { SchemaVersion = 4 };
+        var report = ReportFixture.AsOlderSchemaVersion(ReportFixture.Create(), 4);
 
         var errors = ReportValidator.Validate(report);
 
@@ -167,10 +171,10 @@ public sealed class ReportValidatorTests
             new AnswerScoringResult { Checks = [], Probe = null });
         task = task with { Metrics = task.Metrics with { ProviderCachedInputTokens = null } };
         var current = aggregator.CreateReport(template.Run, [task], [], false);
-        var report = current with
+        var report = ReportFixture.AsOlderSchemaVersion(current with
         {
-            SchemaVersion = 4, Totals = current.Totals with { Metrics = current.Totals.Metrics with { ProviderCachedInputTokens = null } }
-        };
+            Totals = current.Totals with { Metrics = current.Totals.Metrics with { ProviderCachedInputTokens = null } }
+        }, 4);
 
         var errors = ReportValidator.Validate(report);
 
@@ -183,11 +187,88 @@ public sealed class ReportValidatorTests
     [Fact]
     public void Validate_SchemaVersionFourReportWithCachedInputTokens_ReturnsError()
     {
-        var report = ReportFixture.Create(cachedInputTokens: 40) with { SchemaVersion = 4 };
+        var report = ReportFixture.AsOlderSchemaVersion(ReportFixture.Create(cachedInputTokens: 40), 4);
 
         var errors = ReportValidator.Validate(report);
 
-        errors.Should().Contain(error => error.Contains("which a schema version 4 report cannot record"));
+        errors.Should().Contain(error => error.Contains("cached input tokens, which a schema version 4 report cannot record"));
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 6 report requires the not-applicable status for a probe of a masking-only task.
+    /// </summary>
+    /// <param name="status">The recorded status.</param>
+    /// <param name="reason">The recorded reason.</param>
+    /// <param name="valid">Whether the verdict is consistent.</param>
+    [Theory]
+    [InlineData("notApplicable", "noSummarizationOrDrop", true)]
+    [InlineData("notApplicable", null, false)]
+    [InlineData("invalid", "instructionNotCompacted", false)]
+    [InlineData("invalid", "canaryRepeated", false)]
+    public void Validate_SchemaVersionSixMaskingOnlyProbe_RequiresNotApplicable(string status, string? reason, bool valid)
+    {
+        var report = ReportFixture.Scored([], new ProbeResult { Requires = null, Status = status, Reason = reason, CanaryPresent = true },
+            opening: true, maskingOnly: true);
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Any().Should().Be(!valid);
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 6 report rejects the not-applicable status when the task summarized or dropped messages.
+    /// </summary>
+    [Fact]
+    public void Validate_SchemaVersionSixNotApplicableProbeInSummarizingTask_ReturnsInconsistentVerdictError()
+    {
+        var report = ReportFixture.Scored([],
+            new ProbeResult { Requires = null, Status = "notApplicable", Reason = "noSummarizationOrDrop", CanaryPresent = true }, opening: true);
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().Contain(error => error.Contains("inconsistent probe verdict"));
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 4 or 5 report keeps the invalid verdict for a probe of a masking-only task.
+    /// </summary>
+    /// <param name="schemaVersion">The older schema version.</param>
+    /// <param name="reason">The invalid reason that version recorded.</param>
+    [Theory]
+    [InlineData(4, "instructionNotCompacted")]
+    [InlineData(5, "instructionNotCompacted")]
+    [InlineData(4, "canaryRepeated")]
+    [InlineData(5, "canaryRepeated")]
+    public void Validate_OlderSchemaVersionMaskingOnlyProbe_AcceptsInvalidVerdict(int schemaVersion, string reason)
+    {
+        var current = ReportFixture.Scored([], new ProbeResult { Requires = null, Status = "invalid", Reason = reason, CanaryPresent = true },
+            opening: true, maskingOnly: true);
+        var report = ReportFixture.AsOlderSchemaVersion(current, schemaVersion);
+
+        var errors = ReportValidator.Validate(report);
+
+        errors.Should().BeEmpty();
+        report.Totals.InvalidProbeCount.Should().Be(1);
+    }
+
+    /// <summary>
+    ///     Verifies that a schema version 4 or 5 report cannot carry the not-applicable status or its count.
+    /// </summary>
+    /// <param name="schemaVersion">The older schema version.</param>
+    [Theory]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void Validate_OlderSchemaVersionWithNotApplicableProbe_ReturnsErrors(int schemaVersion)
+    {
+        var current = ReportFixture.Scored([],
+            new ProbeResult { Requires = null, Status = "notApplicable", Reason = "noSummarizationOrDrop", CanaryPresent = true },
+            opening: true, maskingOnly: true);
+
+        var statusErrors = ReportValidator.Validate(ReportFixture.AsOlderSchemaVersion(current, schemaVersion));
+        var countErrors = ReportValidator.Validate(current with { SchemaVersion = schemaVersion });
+
+        statusErrors.Should().Contain(error => error.Contains("inconsistent probe verdict"));
+        countErrors.Should().Contain(error => error.Contains("not-applicable probes, which a schema version"));
     }
 
     /// <summary>
@@ -375,6 +456,7 @@ public sealed class ReportValidatorTests
     [InlineData("deliverableCompletionRate")]
     [InlineData("probeCount")]
     [InlineData("invalidProbeCount")]
+    [InlineData("notApplicableProbeCount")]
     [InlineData("passedProbeCount")]
     [InlineData("probePassRate")]
     [InlineData("canaryPresentCount")]
@@ -393,6 +475,7 @@ public sealed class ReportValidatorTests
             "deliverableCompletionRate" => totals with { DeliverableCompletionRate = null },
             "probeCount" => totals with { ProbeCount = 2 },
             "invalidProbeCount" => totals with { InvalidProbeCount = 1 },
+            "notApplicableProbeCount" => totals with { NotApplicableProbeCount = 1 },
             "passedProbeCount" => totals with { PassedProbeCount = 0 },
             "probePassRate" => totals with { ProbePassRate = null },
             _ => totals with { CanaryPresentCount = 0 },
