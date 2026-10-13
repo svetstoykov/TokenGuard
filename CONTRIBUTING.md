@@ -4,6 +4,8 @@ Thank you for considering a contribution. This page covers how to build and test
 
 For anything larger than a small fix, open an issue first and describe the change. A change to a public type or member is treated as a breaking-change question, so name the impact in the issue.
 
+Do not report a security vulnerability in a public issue. Follow [SECURITY.md](SECURITY.md) instead.
+
 ## Prerequisites
 
 - .NET SDK 10.0 or later. The packages target `net10.0` only.
