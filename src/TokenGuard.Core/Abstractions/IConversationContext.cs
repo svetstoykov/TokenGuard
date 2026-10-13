@@ -28,12 +28,19 @@ namespace TokenGuard.Core.Abstractions;
 /// after disposal.
 /// </para>
 /// <para>
-/// A conversation context is <b>not</b> safe for concurrent use. Recording methods and
+/// A conversation context is <b>not</b> safe for concurrent use; it supports one caller at a time. Recording methods and
 /// <see cref="PrepareAsync"/> mutate internal history and counters without synchronization. Do not call
 /// members of one instance from multiple threads at the same time; if a conversation is driven from
 /// multiple threads, the caller must serialize access externally. Separate contexts are independent of each
-/// other and can be used concurrently. The case most likely to hit this rule is running parallel tool calls
-/// and calling <see cref="RecordToolResult"/> from each one: the caller must serialize those calls.
+/// other and can be used concurrently.
+/// </para>
+/// <para>
+/// Overlapping calls are detected on a best-effort basis. A recording call or a <see cref="PrepareAsync"/> call that
+/// starts while another one on the same instance is still running throws <see cref="InvalidOperationException"/>;
+/// it does not wait. A <see cref="PrepareAsync"/> call is running until its task completes. Calls from several threads
+/// that happen not to overlap pass the check, so passing it is not proof of correct use. The case most likely to hit
+/// this rule is running parallel tool calls and calling <see cref="RecordToolResult"/> from each one: run the tools in
+/// parallel and record their results one after another.
 /// </para>
 /// </remarks>
 public interface IConversationContext : IDisposable
@@ -68,6 +75,10 @@ public interface IConversationContext : IDisposable
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync"/> call on this context is still
+    /// running. The detection is best effort.
+    /// </exception>
     void SetSystemPrompt(string text);
 
     /// <summary>
@@ -82,6 +93,10 @@ public interface IConversationContext : IDisposable
     /// Use this for durable instructions, constraints, or definitions that must always survive in the prepared payload.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync"/> call on this context is still
+    /// running. The detection is best effort.
+    /// </exception>
     void AddPinnedMessage(MessageRole role, string text);
 
     /// <summary>
@@ -95,6 +110,10 @@ public interface IConversationContext : IDisposable
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> contains no segments.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync"/> call on this context is still
+    /// running. The detection is best effort.
+    /// </exception>
     void AddPinnedMessage(MessageRole role, IEnumerable<ContentSegment> content);
 
     /// <summary>
@@ -106,6 +125,10 @@ public interface IConversationContext : IDisposable
     /// Compaction is evaluated only when <see cref="PrepareAsync"/> is called.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync"/> call on this context is still
+    /// running. The detection is best effort.
+    /// </exception>
     void AddUserMessage(string text);
 
     /// <summary>
@@ -136,6 +159,10 @@ public interface IConversationContext : IDisposable
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> contains no segments.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync"/> call on this context is still
+    /// running. The detection is best effort.
+    /// </exception>
     void RecordModelResponse(IEnumerable<ContentSegment> content, int? providerInputTokens = null);
 
     /// <summary>
@@ -159,6 +186,10 @@ public interface IConversationContext : IDisposable
     /// Thrown when <paramref name="toolCallId"/> or <paramref name="toolName"/> is null or whitespace.
     /// </exception>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync"/> call on this context is still
+    /// running. The detection is best effort.
+    /// </exception>
     void RecordToolResult(string toolCallId, string toolName, string content);
 
     /// <summary>
@@ -191,5 +222,9 @@ public interface IConversationContext : IDisposable
     /// representation of that history should be sent next.
     /// </para>
     /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync"/> call on this context is still
+    /// running. The detection is best effort. The exception is reported through the returned task.
+    /// </exception>
     Task<PrepareResult> PrepareAsync(CancellationToken cancellationToken = default);
 }

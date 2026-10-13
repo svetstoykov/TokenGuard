@@ -42,6 +42,11 @@ namespace TokenGuard.Core;
 /// </remarks>
 public sealed class ConversationContext : IConversationContext
 {
+    private const string OverlappingCallMessage =
+        "A second operation was started on this conversation context before a previous operation completed. "
+        + "A context supports one caller at a time. "
+        + "Await PrepareAsync before recording, and record the results of parallel tool calls one after another.";
+
     private readonly ContextBudget _budget;
     private readonly TimedTokenCounter _counter;
     private readonly ICompactionStrategy _strategy;
@@ -71,6 +76,10 @@ public sealed class ConversationContext : IConversationContext
     private int _currentTurn;
     private int _historyVersion;
     private int _lastPreparedVersion;
+
+    // 1 while a recording call or a PrepareAsync call is running, otherwise 0. It detects a call that overlaps another one.
+    // It is a flag and not a lock: it has no owning thread, and PrepareAsync can clear it on a different thread from the one that set it.
+    private int _operationInProgress;
 
     private bool _disposed;
 
@@ -149,22 +158,34 @@ public sealed class ConversationContext : IConversationContext
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync(CancellationToken)"/> call on this
+    /// context is still running. The detection is best effort.
+    /// </exception>
     public void SetSystemPrompt(string text)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
-        if (string.IsNullOrWhiteSpace(text))
-            throw new ArgumentException("System prompt text cannot be null or whitespace.", nameof(text));
-
-        var message = ContextMessage.FromText(MessageRole.System, text) with { IsPinned = true };
-
-        var existing = this._history.FindIndex(m => m.Role == MessageRole.System);
-        if (existing >= 0)
+        this.EnterOperation();
+        try
         {
-            this.ReplaceMessage(existing, message);
-            return;
-        }
+            if (string.IsNullOrWhiteSpace(text))
+                throw new ArgumentException("System prompt text cannot be null or whitespace.", nameof(text));
 
-        this.AddMessage(message, 0);
+            var message = ContextMessage.FromText(MessageRole.System, text) with { IsPinned = true };
+
+            var existing = this._history.FindIndex(m => m.Role == MessageRole.System);
+            if (existing >= 0)
+            {
+                this.ReplaceMessage(existing, message);
+                return;
+            }
+
+            this.AddMessage(message, 0);
+        }
+        finally
+        {
+            this.ExitOperation();
+        }
     }
 
     /// <summary>
@@ -189,14 +210,26 @@ public sealed class ConversationContext : IConversationContext
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync(CancellationToken)"/> call on this
+    /// context is still running. The detection is best effort.
+    /// </exception>
     public void AddPinnedMessage(MessageRole role, string text)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
-        if (string.IsNullOrWhiteSpace(text))
-            throw new ArgumentException("Pinned message text cannot be null or whitespace.", nameof(text));
+        this.EnterOperation();
+        try
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                throw new ArgumentException("Pinned message text cannot be null or whitespace.", nameof(text));
 
-        var message = ContextMessage.FromText(role, text) with { IsPinned = true };
-        this.AddMessage(message);
+            var message = ContextMessage.FromText(role, text) with { IsPinned = true };
+            this.AddMessage(message);
+        }
+        finally
+        {
+            this.ExitOperation();
+        }
     }
 
     /// <summary>
@@ -216,23 +249,35 @@ public sealed class ConversationContext : IConversationContext
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> contains no segments.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync(CancellationToken)"/> call on this
+    /// context is still running. The detection is best effort.
+    /// </exception>
     public void AddPinnedMessage(MessageRole role, IEnumerable<ContentSegment> content)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
-        ArgumentNullException.ThrowIfNull(content);
-
-        var segments = content.ToArray();
-        if (segments.Length == 0)
-            throw new ArgumentException("Pinned message content must contain at least one segment.", nameof(content));
-
-        var message = new ContextMessage
+        this.EnterOperation();
+        try
         {
-            Role = role,
-            Segments = segments,
-            IsPinned = true,
-        };
+            ArgumentNullException.ThrowIfNull(content);
 
-        this.AddMessage(message);
+            var segments = content.ToArray();
+            if (segments.Length == 0)
+                throw new ArgumentException("Pinned message content must contain at least one segment.", nameof(content));
+
+            var message = new ContextMessage
+            {
+                Role = role,
+                Segments = segments,
+                IsPinned = true,
+            };
+
+            this.AddMessage(message);
+        }
+        finally
+        {
+            this.ExitOperation();
+        }
     }
 
     /// <summary>
@@ -244,14 +289,26 @@ public sealed class ConversationContext : IConversationContext
     /// compaction. Compaction is evaluated only when <see cref="PrepareAsync(CancellationToken)"/> is called.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <paramref name="text"/> is null or whitespace.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync(CancellationToken)"/> call on this
+    /// context is still running. The detection is best effort.
+    /// </exception>
     public void AddUserMessage(string text)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
-        if (string.IsNullOrWhiteSpace(text))
-            throw new ArgumentException("User message text cannot be null or whitespace.", nameof(text));
+        this.EnterOperation();
+        try
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                throw new ArgumentException("User message text cannot be null or whitespace.", nameof(text));
 
-        var message = ContextMessage.FromText(MessageRole.User, text);
-        this.AddMessage(message);
+            var message = ContextMessage.FromText(MessageRole.User, text);
+            this.AddMessage(message);
+        }
+        finally
+        {
+            this.ExitOperation();
+        }
     }
 
     /// <summary>
@@ -281,18 +338,30 @@ public sealed class ConversationContext : IConversationContext
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> is empty.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync(CancellationToken)"/> call on this
+    /// context is still running. The detection is best effort.
+    /// </exception>
     public void RecordModelResponse(IEnumerable<ContentSegment> content, int? providerInputTokens = null)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
-        ArgumentNullException.ThrowIfNull(content);
+        this.EnterOperation();
+        try
+        {
+            ArgumentNullException.ThrowIfNull(content);
 
-        var segments = content.ToArray();
-        if (segments.Length == 0)
-            throw new ArgumentException("Content must contain at least one segment.", nameof(content));
+            var segments = content.ToArray();
+            if (segments.Length == 0)
+                throw new ArgumentException("Content must contain at least one segment.", nameof(content));
 
-        var message = new ContextMessage { Role = MessageRole.Model, Segments = segments };
-        this.AddMessage(message);
-        this.ApplyAnchor(providerInputTokens);
+            var message = new ContextMessage { Role = MessageRole.Model, Segments = segments };
+            this.AddMessage(message);
+            this.ApplyAnchor(providerInputTokens);
+        }
+        finally
+        {
+            this.ExitOperation();
+        }
     }
 
     /// <summary>
@@ -318,19 +387,31 @@ public sealed class ConversationContext : IConversationContext
     /// Thrown when <paramref name="content"/> is <see langword="null"/>. An empty or whitespace
     /// <paramref name="content"/> is recorded as given.
     /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync(CancellationToken)"/> call on this
+    /// context is still running. The detection is best effort.
+    /// </exception>
     public void RecordToolResult(string toolCallId, string toolName, string content)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
-        if (string.IsNullOrWhiteSpace(toolCallId))
-            throw new ArgumentException("Tool call id cannot be null or whitespace.", nameof(toolCallId));
+        this.EnterOperation();
+        try
+        {
+            if (string.IsNullOrWhiteSpace(toolCallId))
+                throw new ArgumentException("Tool call id cannot be null or whitespace.", nameof(toolCallId));
 
-        if (string.IsNullOrWhiteSpace(toolName))
-            throw new ArgumentException("Tool name cannot be null or whitespace.", nameof(toolName));
+            if (string.IsNullOrWhiteSpace(toolName))
+                throw new ArgumentException("Tool name cannot be null or whitespace.", nameof(toolName));
 
-        ArgumentNullException.ThrowIfNull(content);
+            ArgumentNullException.ThrowIfNull(content);
 
-        var message = ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
-        this.AddMessage(message);
+            var message = ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
+            this.AddMessage(message);
+        }
+        finally
+        {
+            this.ExitOperation();
+        }
     }
 
     /// <summary>
@@ -363,144 +444,156 @@ public sealed class ConversationContext : IConversationContext
     /// representation of that history should be sent next.
     /// </para>
     /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync(CancellationToken)"/> call on this
+    /// context is still running. The detection is best effort. The exception is reported through the returned task.
+    /// </exception>
     public async Task<PrepareResult> PrepareAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(this._disposed, this);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (this._historyVersion != this._lastPreparedVersion)
+        this.EnterOperation();
+        try
         {
-            this._currentTurn++;
-            this._lastPreparedVersion = this._historyVersion;
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        var conversationId = this._diagnostics.ConversationId;
-        var contextName = this._diagnostics.ContextName;
+            if (this._historyVersion != this._lastPreparedVersion)
+            {
+                this._currentTurn++;
+                this._lastPreparedVersion = this._historyVersion;
+            }
 
-        using var activity = TokenGuardTelemetry.ActivitySource.StartActivity(TokenGuardTelemetry.PrepareActivityName);
-        activity?.SetTag(TokenGuardTelemetry.ConversationIdTag, conversationId)
-            .SetTag(TokenGuardTelemetry.ContextNameTag, contextName)
-            .SetTag(TokenGuardTelemetry.TurnTag, this._currentTurn)
-            .SetTag(TokenGuardTelemetry.MaxTokensTag, this._budget.MaxTokens);
+            var conversationId = this._diagnostics.ConversationId;
+            var contextName = this._diagnostics.ContextName;
 
-        this._health.OnPrepareStarted(this._pinnedTokenTotal, this._budget.MaxTokens);
+            using var activity = TokenGuardTelemetry.ActivitySource.StartActivity(TokenGuardTelemetry.PrepareActivityName);
+            activity?.SetTag(TokenGuardTelemetry.ConversationIdTag, conversationId)
+                .SetTag(TokenGuardTelemetry.ContextNameTag, contextName)
+                .SetTag(TokenGuardTelemetry.TurnTag, this._currentTurn)
+                .SetTag(TokenGuardTelemetry.MaxTokensTag, this._budget.MaxTokens);
 
-        if (this._pinnedTokenTotal > this._budget.MaxTokens)
-        {
-            ConversationContextLog.PinnedBudgetExceeded(
-                this._logger, conversationId, contextName, this._currentTurn, this._pinnedTokenTotal, this._budget.MaxTokens);
-            activity?.SetStatus(ActivityStatusCode.Error, nameof(PinnedTokenBudgetExceededException));
-            throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.MaxTokens);
-        }
+            this._health.OnPrepareStarted(this._pinnedTokenTotal, this._budget.MaxTokens);
 
-        var timePrepare = TokenGuardTelemetry.PrepareDuration.Enabled || this._logger.IsEnabled(LogLevel.Information);
-        var startTimestamp = timePrepare ? Stopwatch.GetTimestamp() : 0;
-        var timeCounting = TokenGuardTelemetry.TokenCountingDuration.Enabled;
-        if (timeCounting)
-            this._counter.StartTiming();
+            if (this._pinnedTokenTotal > this._budget.MaxTokens)
+            {
+                ConversationContextLog.PinnedBudgetExceeded(
+                    this._logger, conversationId, contextName, this._currentTurn, this._pinnedTokenTotal, this._budget.MaxTokens);
+                activity?.SetStatus(ActivityStatusCode.Error, nameof(PinnedTokenBudgetExceededException));
+                throw new PinnedTokenBudgetExceededException(this._pinnedTokenTotal, this._budget.MaxTokens);
+            }
 
-        IReadOnlyList<ContextMessage> messages = this._history;
-        var historyMessageTokens = this.Sum(messages);
-        var totalBeforeCompaction = this.ApplyProviderCorrection(historyMessageTokens);
+            var timePrepare = TokenGuardTelemetry.PrepareDuration.Enabled || this._logger.IsEnabled(LogLevel.Information);
+            var startTimestamp = timePrepare ? Stopwatch.GetTimestamp() : 0;
+            var timeCounting = TokenGuardTelemetry.TokenCountingDuration.Enabled;
+            if (timeCounting)
+                this._counter.StartTiming();
 
-        if (totalBeforeCompaction < this._budget.CompactionTriggerTokens)
-        {
-            this.LogProviderCorrection(historyMessageTokens, historyMessageTokens);
-            ConversationContextLog.PrepareBelowTrigger(
-                this._logger, conversationId, contextName, this._currentTurn, totalBeforeCompaction, this._budget.CompactionTriggerTokens,
-                this._budget.MaxTokens);
+            IReadOnlyList<ContextMessage> messages = this._history;
+            var historyMessageTokens = this.Sum(messages);
+            var totalBeforeCompaction = this.ApplyProviderCorrection(historyMessageTokens);
+
+            if (totalBeforeCompaction < this._budget.CompactionTriggerTokens)
+            {
+                this.LogProviderCorrection(historyMessageTokens, historyMessageTokens);
+                ConversationContextLog.PrepareBelowTrigger(
+                    this._logger, conversationId, contextName, this._currentTurn, totalBeforeCompaction, this._budget.CompactionTriggerTokens,
+                    this._budget.MaxTokens);
+                this.RecordPrepareTelemetry(
+                    activity, PrepareOutcome.Ready, totalBeforeCompaction, totalBeforeCompaction, messagesCompacted: 0, startTimestamp, timeCounting);
+                this._health.OnPreparedBelowTrigger(totalBeforeCompaction);
+
+                this._lastPreparedMessageTokens = historyMessageTokens;
+                this._lastEstimatedTotalTokens = totalBeforeCompaction;
+                return new PrepareResult(
+                    this.MovePinnedMessagesOutOfToolExchanges(messages),
+                    PrepareOutcome.Ready,
+                    totalBeforeCompaction,
+                    totalBeforeCompaction,
+                    messagesCompacted: 0);
+            }
+
+            var (pinnedSlots, compactableMessages) = SplitPinned(messages);
+            IReadOnlyList<ContextMessage> compactable = compactableMessages;
+
+            var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
+
+            var compacted = await this.RunStrategyAsync(activity, compactable, availableTokens, cancellationToken);
+
+            var prepared = pinnedSlots.Count == 0
+                ? compacted.Messages
+                : ReassemblePreparedMessages(pinnedSlots, compactable, compacted.Messages);
+
+            var preparedMessageTokens = this.Sum(prepared);
+            var preparedTotal = this.ApplyProviderCorrection(preparedMessageTokens);
+
+            var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedMessageTokens, out var truncated);
+            var final = emergencyApplied ? truncated! : prepared;
+            var finalMessageTokens = this.Sum(final);
+            var estimatedFinalTokens = this.ApplyProviderCorrection(finalMessageTokens);
+            var emergencyMessagesDropped = emergencyApplied ? prepared.Count - final.Count : 0;
+            var messagesCompacted = compacted.MessagesAffected + emergencyMessagesDropped;
+
+            this.LogPinnedPlacements(pinnedSlots, final);
+            this.LogProviderCorrection(historyMessageTokens, finalMessageTokens);
+
+            this._lastPreparedMessageTokens = finalMessageTokens;
+            this._lastEstimatedTotalTokens = estimatedFinalTokens;
+
+            var outcome = this.DetermineOutcome(estimatedFinalTokens, messagesCompacted);
+            var isOverBudget = outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact;
+            var budgetFailureReason = isOverBudget ? this.BuildBudgetFailureReason(outcome, estimatedFinalTokens, messagesCompacted) : null;
+
+            if (this._logger.IsEnabled(LogLevel.Information))
+            {
+                ConversationContextLog.CompactionCompleted(
+                    this._logger, conversationId, contextName, this._currentTurn, outcome, totalBeforeCompaction, estimatedFinalTokens,
+                    messagesCompacted, emergencyMessagesDropped, compacted.StrategyName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds);
+            }
+
+            if (emergencyMessagesDropped > 0)
+            {
+                ConversationContextLog.EmergencyTruncationApplied(
+                    this._logger, conversationId, contextName, this._currentTurn, emergencyMessagesDropped, preparedTotal, estimatedFinalTokens);
+                TokenGuardTelemetry.EmergencyTruncations.Add(1, this._diagnostics.ContextNameTag);
+                activity?.AddEvent(new ActivityEvent(
+                    TokenGuardTelemetry.EmergencyTruncationEventName,
+                    tags: new ActivityTagsCollection { { TokenGuardTelemetry.MessagesDroppedTag, emergencyMessagesDropped } }));
+            }
+
+            if (compacted.SummarizationError is not null)
+            {
+                ConversationContextLog.SummarizationFailed(
+                    this._logger, compacted.SummarizationError, conversationId, contextName, this._currentTurn, compacted.StrategyName);
+            }
+
+            var effectiveMaxTokens = (long)this._budget.MaxTokens + this._budget.OverrunToleranceTokens;
+            if (isOverBudget)
+            {
+                ConversationContextLog.PrepareOverBudget(
+                    this._logger, conversationId, contextName, this._currentTurn, outcome, estimatedFinalTokens, effectiveMaxTokens);
+            }
+
+            this._health.OnCompacted(
+                this._currentTurn, totalBeforeCompaction, estimatedFinalTokens, compacted.SummarizationError, isOverBudget, effectiveMaxTokens,
+                emergencyMessagesDropped > 0);
+
+            this.RecordCompactionMeasurements(compactable, compacted, totalBeforeCompaction, estimatedFinalTokens, emergencyMessagesDropped);
             this.RecordPrepareTelemetry(
-                activity, PrepareOutcome.Ready, totalBeforeCompaction, totalBeforeCompaction, messagesCompacted: 0, startTimestamp, timeCounting);
-            this._health.OnPreparedBelowTrigger(totalBeforeCompaction);
+                activity, outcome, totalBeforeCompaction, estimatedFinalTokens, messagesCompacted, startTimestamp, timeCounting);
 
-            this._lastPreparedMessageTokens = historyMessageTokens;
-            this._lastEstimatedTotalTokens = totalBeforeCompaction;
             return new PrepareResult(
-                this.MovePinnedMessagesOutOfToolExchanges(messages),
-                PrepareOutcome.Ready,
+                final,
+                outcome,
                 totalBeforeCompaction,
-                totalBeforeCompaction,
-                messagesCompacted: 0);
+                estimatedFinalTokens,
+                messagesCompacted,
+                budgetFailureReason,
+                emergencyMessagesDropped,
+                compacted.SummarizationError);
         }
-
-        var (pinnedSlots, compactableMessages) = SplitPinned(messages);
-        IReadOnlyList<ContextMessage> compactable = compactableMessages;
-
-        var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
-
-        var compacted = await this.RunStrategyAsync(activity, compactable, availableTokens, cancellationToken);
-
-        var prepared = pinnedSlots.Count == 0
-            ? compacted.Messages
-            : ReassemblePreparedMessages(pinnedSlots, compactable, compacted.Messages);
-
-        var preparedMessageTokens = this.Sum(prepared);
-        var preparedTotal = this.ApplyProviderCorrection(preparedMessageTokens);
-
-        var emergencyApplied = this.TryApplyEmergencyTruncation(prepared, preparedMessageTokens, out var truncated);
-        var final = emergencyApplied ? truncated! : prepared;
-        var finalMessageTokens = this.Sum(final);
-        var estimatedFinalTokens = this.ApplyProviderCorrection(finalMessageTokens);
-        var emergencyMessagesDropped = emergencyApplied ? prepared.Count - final.Count : 0;
-        var messagesCompacted = compacted.MessagesAffected + emergencyMessagesDropped;
-
-        this.LogPinnedPlacements(pinnedSlots, final);
-        this.LogProviderCorrection(historyMessageTokens, finalMessageTokens);
-
-        this._lastPreparedMessageTokens = finalMessageTokens;
-        this._lastEstimatedTotalTokens = estimatedFinalTokens;
-
-        var outcome = this.DetermineOutcome(estimatedFinalTokens, messagesCompacted);
-        var isOverBudget = outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact;
-        var budgetFailureReason = isOverBudget ? this.BuildBudgetFailureReason(outcome, estimatedFinalTokens, messagesCompacted) : null;
-
-        if (this._logger.IsEnabled(LogLevel.Information))
+        finally
         {
-            ConversationContextLog.CompactionCompleted(
-                this._logger, conversationId, contextName, this._currentTurn, outcome, totalBeforeCompaction, estimatedFinalTokens,
-                messagesCompacted, emergencyMessagesDropped, compacted.StrategyName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds);
+            this.ExitOperation();
         }
-
-        if (emergencyMessagesDropped > 0)
-        {
-            ConversationContextLog.EmergencyTruncationApplied(
-                this._logger, conversationId, contextName, this._currentTurn, emergencyMessagesDropped, preparedTotal, estimatedFinalTokens);
-            TokenGuardTelemetry.EmergencyTruncations.Add(1, this._diagnostics.ContextNameTag);
-            activity?.AddEvent(new ActivityEvent(
-                TokenGuardTelemetry.EmergencyTruncationEventName,
-                tags: new ActivityTagsCollection { { TokenGuardTelemetry.MessagesDroppedTag, emergencyMessagesDropped } }));
-        }
-
-        if (compacted.SummarizationError is not null)
-        {
-            ConversationContextLog.SummarizationFailed(
-                this._logger, compacted.SummarizationError, conversationId, contextName, this._currentTurn, compacted.StrategyName);
-        }
-
-        var effectiveMaxTokens = (long)this._budget.MaxTokens + this._budget.OverrunToleranceTokens;
-        if (isOverBudget)
-        {
-            ConversationContextLog.PrepareOverBudget(
-                this._logger, conversationId, contextName, this._currentTurn, outcome, estimatedFinalTokens, effectiveMaxTokens);
-        }
-
-        this._health.OnCompacted(
-            this._currentTurn, totalBeforeCompaction, estimatedFinalTokens, compacted.SummarizationError, isOverBudget, effectiveMaxTokens,
-            emergencyMessagesDropped > 0);
-
-        this.RecordCompactionMeasurements(compactable, compacted, totalBeforeCompaction, estimatedFinalTokens, emergencyMessagesDropped);
-        this.RecordPrepareTelemetry(
-            activity, outcome, totalBeforeCompaction, estimatedFinalTokens, messagesCompacted, startTimestamp, timeCounting);
-
-        return new PrepareResult(
-            final,
-            outcome,
-            totalBeforeCompaction,
-            estimatedFinalTokens,
-            messagesCompacted,
-            budgetFailureReason,
-            emergencyMessagesDropped,
-            compacted.SummarizationError);
     }
 
     /// <summary>
@@ -1043,6 +1136,22 @@ public sealed class ConversationContext : IConversationContext
 
         return floorStartIndex;
     }
+
+    /// <summary>
+    /// Marks a recording or prepare call as running.
+    /// </summary>
+    /// <remarks>
+    /// Every call that returns normally from this method must be paired with <see cref="ExitOperation"/> in a
+    /// <see langword="finally"/> block. A call that throws leaves the flag with the call that set it.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">Thrown when another recording or prepare call is still running.</exception>
+    private void EnterOperation()
+    {
+        if (Interlocked.Exchange(ref this._operationInProgress, 1) != 0)
+            throw new InvalidOperationException(OverlappingCallMessage);
+    }
+
+    private void ExitOperation() => Volatile.Write(ref this._operationInProgress, 0);
 
     /// <summary>
     /// Sums message token counts while populating any missing cached counts.
