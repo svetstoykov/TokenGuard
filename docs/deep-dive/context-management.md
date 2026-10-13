@@ -269,6 +269,20 @@ For a first-time summary:
 
 For checkpoint rewrites, TokenGuard clamps the target into `[MinSummaryTokens, MaxSummaryTokens]`.
 
+### Size of the summarizer request
+
+The summarizer request is built to a token budget: the tokens available to the compacted conversation, which is
+`MaxTokens` minus the pinned messages. The budget covers the summarizer instructions and the transcript, counted with
+the library's estimator. A request that fits is sent whole. When it does not fit:
+
+1. Long text segments are shortened from the oldest message on, the way tool results are: an excerpt of the first,
+   last, and salient lines above 300 tokens, and metadata only above 1,200 tokens. Shortening stops as soon as the request fits.
+2. If it still does not fit, whole exchanges are left out from the oldest on. An exchange is a user message and
+   everything up to the next user message. The transcript then starts with a line such as
+   `[3 earlier exchanges omitted]`.
+
+The newest exchange is always sent, so a request can be above the budget when that exchange alone is.
+
 ### Checkpoint reuse and promotion
 
 The current implementation already caches summary checkpoints inside `LlmSummarizationStrategy`.

@@ -76,6 +76,20 @@ public sealed class OpenAISummarizerLoggingTests
     }
 
     [Fact]
+    public async Task SummarizeAsync_WhenTheTranscriptIsAboveTheRequestBudget_SendsARequestThatSaysWhatWasLeftOut()
+    {
+        // Arrange
+        var handler = new StubHttpMessageHandler(HttpStatusCode.OK, CompletionJson);
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), handler);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        handler.LastRequestBody.Should().Contain("[1 earlier exchange omitted]").And.Contain("SENTINEL-2").And.NotContain("SENTINEL-0");
+    }
+
+    [Fact]
     public async Task SummarizeAsync_WhenTheCallSucceeds_LogsOneRecordBeforeAndOneAfter()
     {
         // Arrange
@@ -251,11 +265,14 @@ public sealed class OpenAISummarizerLoggingTests
     /// <summary>
     ///     Builds the strategy the way <c>UseLlmSummarization</c> wires it, with the OpenAI client answering from a stub.
     /// </summary>
-    private static ICompactionStrategy CreateStrategy(CapturingLoggerFactory logs, HttpStatusCode statusCode, string json)
+    private static ICompactionStrategy CreateStrategy(CapturingLoggerFactory logs, HttpStatusCode statusCode, string json) =>
+        CreateStrategy(logs, new StubHttpMessageHandler(statusCode, json));
+
+    private static ICompactionStrategy CreateStrategy(CapturingLoggerFactory logs, StubHttpMessageHandler handler)
     {
         var options = new OpenAIClientOptions
         {
-            Transport = new HttpClientPipelineTransport(new HttpClient(new StubHttpMessageHandler(statusCode, json))),
+            Transport = new HttpClientPipelineTransport(new HttpClient(handler)),
         };
         var configuration = new ConversationConfigBuilder()
             .WithMaxTokens(1_000)

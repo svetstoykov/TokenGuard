@@ -100,6 +100,20 @@ public sealed class AnthropicSummarizerLoggingTests
     }
 
     [Fact]
+    public async Task SummarizeAsync_WhenTheTranscriptIsAboveTheRequestBudget_SendsARequestThatSaysWhatWasLeftOut()
+    {
+        // Arrange
+        var handler = new StubHttpMessageHandler(HttpStatusCode.OK, MessageJson);
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), handler);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        handler.LastRequestBody.Should().Contain("[1 earlier exchange omitted]").And.Contain("SENTINEL-2").And.NotContain("SENTINEL-0");
+    }
+
+    [Fact]
     public async Task SummarizeAsync_WhenTheCallSucceeds_LogsOneRecordBeforeAndOneAfter()
     {
         // Arrange
@@ -253,13 +267,16 @@ public sealed class AnthropicSummarizerLoggingTests
     /// <summary>
     ///     Builds the strategy the way <c>UseLlmSummarization</c> wires it, with the Anthropic client answering from a stub.
     /// </summary>
-    private static ICompactionStrategy CreateStrategy(CapturingLoggerFactory logs, HttpStatusCode statusCode, string json)
+    private static ICompactionStrategy CreateStrategy(CapturingLoggerFactory logs, HttpStatusCode statusCode, string json) =>
+        CreateStrategy(logs, new StubHttpMessageHandler(statusCode, json));
+
+    private static ICompactionStrategy CreateStrategy(CapturingLoggerFactory logs, StubHttpMessageHandler handler)
     {
         var client = new AnthropicClient
         {
             ApiKey = "test-key",
             MaxRetries = 0,
-            HttpClient = new HttpClient(new StubHttpMessageHandler(statusCode, json)),
+            HttpClient = new HttpClient(handler),
         };
         var configuration = new ConversationConfigBuilder()
             .WithMaxTokens(1_000)

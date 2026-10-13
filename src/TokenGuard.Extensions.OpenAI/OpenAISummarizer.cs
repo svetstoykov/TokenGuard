@@ -58,6 +58,7 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
     public async Task<string> SummarizeAsync(
         IReadOnlyList<ContextMessage> messages,
         int targetTokens,
+        int requestTokenBudget,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
@@ -80,7 +81,7 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
             var completion = (await this._client.CompleteChatAsync(
                     [
                         new SystemChatMessage(ConversationSummaryPrompt.SystemPrompt),
-                        new UserChatMessage(this._formatter.BuildUserPrompt(messages, targetTokens)),
+                        new UserChatMessage(this._formatter.BuildUserPrompt(messages, targetTokens, requestTokenBudget)),
                     ],
                     new ChatCompletionOptions
                     {

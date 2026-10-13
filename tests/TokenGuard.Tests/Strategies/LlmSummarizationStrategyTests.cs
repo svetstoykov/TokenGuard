@@ -1063,6 +1063,21 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_GivesTheSummarizerTheAvailableTokensAsItsRequestBudget()
+    {
+        // Arrange
+        var messages = CreateThreeMessageHistory(out var tokenCounter);
+        var summarizer = new TrackingSummarizer("summary");
+        var strategy = CreateSingleMessageTailStrategy(summarizer, tokenCounter);
+
+        // Act
+        _ = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Equal(10, Assert.Single(summarizer.Calls).RequestTokenBudget);
+    }
+
+    [Fact]
     public async Task CompactAsync_WhenTheSummaryWasBlankAndTheHistoryIsUnchanged_DoesNotCallTheSummarizerAgain()
     {
         // Arrange
@@ -1251,11 +1266,12 @@ public sealed class LlmSummarizationStrategyTests
         public async Task<string> SummarizeAsync(
             IReadOnlyList<ContextMessage> messages,
             int targetTokens,
+            int requestTokenBudget,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var call = new SummarizerCall(this.Calls.Count + 1, messages.ToArray(), targetTokens);
+            var call = new SummarizerCall(this.Calls.Count + 1, messages.ToArray(), targetTokens, requestTokenBudget);
             this.Calls.Add(call);
             return await this._handler(call, cancellationToken);
         }
@@ -1323,5 +1339,5 @@ public sealed class LlmSummarizationStrategyTests
         }
     }
 
-    private sealed record SummarizerCall(int CallNumber, IReadOnlyList<ContextMessage> Messages, int TargetTokens);
+    private sealed record SummarizerCall(int CallNumber, IReadOnlyList<ContextMessage> Messages, int TargetTokens, int RequestTokenBudget);
 }

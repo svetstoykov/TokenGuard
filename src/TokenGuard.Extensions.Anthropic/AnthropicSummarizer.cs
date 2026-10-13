@@ -66,6 +66,7 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
     public async Task<string> SummarizeAsync(
         IReadOnlyList<ContextMessage> messages,
         int targetTokens,
+        int requestTokenBudget,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
@@ -105,7 +106,7 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                                 [
                                     new TextBlockParam
                                     {
-                                        Text = this._formatter.BuildUserPrompt(messages, targetTokens),
+                                        Text = this._formatter.BuildUserPrompt(messages, targetTokens, requestTokenBudget),
                                     },
                                 ]),
                             },

@@ -811,7 +811,9 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// <param name="messages">The ordered compactable message history.</param>
     /// <param name="summarizedMessageCount">The number of messages to send to the summarizer.</param>
     /// <param name="targetTokens">The requested summary size.</param>
-    /// <param name="availableTokens">The maximum token budget for the compacted result.</param>
+    /// <param name="availableTokens">
+    /// The maximum token budget for the compacted result. The summarizer receives it as the budget of its request.
+    /// </param>
     /// <param name="cancellationToken">A token that can cancel the summarizer call.</param>
     /// <returns>The synthetic summary message.</returns>
     private async Task<ContextMessage> SummarizePrefixAsync(
@@ -833,7 +835,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         ContextMessage summaryMessage;
         try
         {
-            var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, cancellationToken);
+            var summary = await this._summarizer.SummarizeAsync(messagesToSummarize, targetTokens, availableTokens, cancellationToken);
             summaryMessage = ContextMessage.FromText(MessageRole.Model, summary) with { State = CompactionState.Summarized };
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
