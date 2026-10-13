@@ -378,6 +378,12 @@ That floor is:
   followed by the newest tool exchange
 - when the conversation ends with a model reply, TokenGuard also preserves the triggering user message
 
+The first rule means that emergency truncation drops nothing from a view that starts with a summary. The summarization
+stage puts the summary before every unpinned message it keeps, so no unpinned message is left before the floor, however
+many turn groups follow the summary. When that view is above the emergency trigger it is returned whole, and the outcome
+follows the rule below. Messages are dropped only on a `PrepareAsync()` call whose view holds no summary, for example
+when the summarizer call failed or was skipped and the result fell back to masking.
+
 If that preserved floor is still above the emergency threshold, TokenGuard returns the over-budget floor unchanged. It
 prefers preserving the newest indispensable tail over forcing a structurally broken fit. When the final estimate is
 above `MaxTokens` plus the overrun tolerance (`OverrunToleranceTokens`, 5% of `MaxTokens` by default, rounded down), the

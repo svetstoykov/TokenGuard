@@ -686,6 +686,15 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
         index <= text.Length - prefix.Length
         && text.Slice(index, prefix.Length).SequenceEqual(prefix);
 
+    /// <summary>
+    /// Counts <paramref name="text"/> as JSON when it parses as JSON.
+    /// </summary>
+    /// <param name="text">The text to parse.</param>
+    /// <param name="count">When this method returns <see langword="true"/>, the token count of the JSON document; otherwise zero.</param>
+    /// <returns>
+    /// <see langword="true"/> if <paramref name="text"/> is a JSON document; <see langword="false"/> if it is not, which
+    /// includes text that holds half of a surrogate pair, because the parser cannot read such text.
+    /// </returns>
     private static bool TryCountJson(string text, out int count)
     {
         try
@@ -694,7 +703,7 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
             count = CountJsonElement(document.RootElement);
             return true;
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or ArgumentException)
         {
             count = 0;
             return false;
@@ -955,6 +964,16 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
         || stem.Equals("how", StringComparison.OrdinalIgnoreCase)
         || stem.Equals("let", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Reads the Unicode scalar value that starts at <paramref name="index"/>.
+    /// </summary>
+    /// <param name="text">The text to read from.</param>
+    /// <param name="index">The index of the first character to read. Must be inside <paramref name="text"/>.</param>
+    /// <param name="charsConsumed">When this method returns, the number of characters the value spans: one or two.</param>
+    /// <returns>
+    /// The scalar value, or <see cref="Rune.ReplacementChar"/> spanning one character when the character at
+    /// <paramref name="index"/> is half of a surrogate pair with no matching other half.
+    /// </returns>
     private static Rune ReadRune(ReadOnlySpan<char> text, int index, out int charsConsumed)
     {
         var status = Rune.DecodeFromUtf16(text[index..], out var rune, out charsConsumed);
@@ -964,7 +983,7 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
         }
 
         charsConsumed = 1;
-        return new Rune(text[index]);
+        return Rune.ReplacementChar;
     }
 
     private static bool ContainsEmoji(ReadOnlySpan<char> text)
