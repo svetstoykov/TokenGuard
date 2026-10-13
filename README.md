@@ -4,6 +4,7 @@
 
 **Token budget management for LLM agent loops.**
 
+[![Build](https://img.shields.io/github/actions/workflow/status/svetstoykov/TokenGuard/release-validation.yml?branch=main&style=flat-square&label=build)](https://github.com/svetstoykov/TokenGuard/actions/workflows/release-validation.yml)
 [![NuGet](https://img.shields.io/nuget/v/TokenGuard.Core?style=flat-square&color=5c2d91)](https://nuget.org/packages/TokenGuard.Core)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square)](https://dotnet.microsoft.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
@@ -561,9 +562,10 @@ samples/
 tests/
   TokenGuard.Tests                    unit tests
   TokenGuard.IntegrationTests         cross-component coverage
+  Codexplorer.Automation.Tests        tests for the benchmark automation
   TokenGuard.ReadmeSnippets           README quick start compiled against packed packages
 
-docs/                                supporting notes and documentation
+docs/                                 observability guide, release runbook, context-management deep dive
 ```
 
 ---
@@ -575,7 +577,9 @@ dotnet build TokenGuard.sln --nologo
 dotnet test TokenGuard.sln --no-restore --nologo
 ```
 
-`TokenGuard.sln` includes the core packages, tests, and Codexplorer samples. If you only want the interactive sample:
+`TokenGuard.sln` includes the three packages, the two Codexplorer sample projects, and the test projects `TokenGuard.Tests`, `TokenGuard.IntegrationTests` and `Codexplorer.Automation.Tests`. `tests/TokenGuard.ReadmeSnippets` is outside the solution; run it with `./tests/TokenGuard.ReadmeSnippets/verify.sh`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow.
+
+If you only want the interactive sample:
 
 ```bash
 dotnet build ./samples/Codexplorer/src/Codexplorer.csproj --nologo
@@ -598,7 +602,8 @@ Trusted Publishing without a long-lived API key.
 
 - .NET SDK 10.0+
 - LLM provider API key for live samples
-- Linux and macOS. Windows is expected to work and is not covered by CI
+- The packages target `net10.0` only. .NET 8 and .NET 9 both reach end of support on November 10, 2026; .NET 10 is a long-term support release, supported until November 14, 2028 ([.NET support policy](https://dotnet.microsoft.com/platform/support/policy/dotnet-core))
+- CI covers Linux only (`ubuntu-latest`). macOS and Windows are expected to work and are not covered by CI
 
 ---
 
