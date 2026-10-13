@@ -72,6 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the overrun tolerance is 2,000 tokens instead of 1,250. A model whose context window is below 40,000 tokens needs
   an explicit budget: `WithMaxTokens(...)`, or `ConversationConfigBuilder.Default(maxTokens)`. A budget set explicitly
   is unaffected, and no public member changed.
+- The benchmark sections of the README and the deep dive state two measured results, each against a control run without
+  compaction and each with its run IDs: 41% to 45% fewer agent input tokens on ten short verifiable tasks at a
+  50,000-token window with TokenGuard 1.1.0, and 69.7% fewer input tokens on six long sessions with this release. They
+  state the checks passed in each arm, the billed amounts apart from the token counts, and the limits of both
+  measurements. The estimated 87.4% figure from the batch of 12 May 2026, which had no control run and checked no
+  answer, is removed.
 
 ### Fixed
 

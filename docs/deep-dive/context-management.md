@@ -556,44 +556,78 @@ provider request, and send `prepared.Messages`.
 
 ---
 
-## 14. Benchmark snapshot
+## 14. Benchmark results
 
-The public benchmark data comes from 20 Codexplorer sessions run on 12 May 2026 with `openai/gpt-5.4-nano`, one session
-per repository-analysis task, under a 20,000-token context budget:
+Two benchmarks were measured with the Codexplorer sample agent and `qwen/qwen3.7-flash`, each against a control run
+without compaction. They differ in task, session length, and window, so each result is stated on its own and the two are
+not combined.
 
-| Metric | Value |
-|---|---:|
-| Cumulative prompt tokens, uncompacted history (estimated) | 128,188,640 |
-| Cumulative prompt tokens, prepared by TokenGuard (estimated) | **16,158,138** |
-| Estimated tokens saved | **112,030,502** |
-| Reduction | **87.4%** |
-| Prepare calls with outcome `Ready` or `Compacted` | **1,270 / 1,325** |
-| Prepare calls with outcome `CompactionInsufficient` | **55 / 1,325** |
-| Prepare calls with outcome `CannotCompact` | **0** |
+### Short verifiable tasks
 
-Every session ran with TokenGuard. No run without TokenGuard was measured for this batch, so the uncompacted figure is
-an estimate taken from the same sessions, not a measured control. Both token figures are TokenGuard's own estimates; the
-provider reported 15,930,640 input tokens for the prepared requests. The outcome rows count prepare calls and say
-nothing about the correctness of the model's answers.
+Ten tasks on three repositories, sessions of at most 58 model calls, a 50,000-token window, measured on 9 October 2026
+with the masking of TokenGuard 1.1.0. Three treatment runs against one control run.
 
-The batch ran the masking, summarization, and emergency truncation pipeline as it was on 12 May 2026.
+| Run | Run ID | Agent input tokens | Checks passed |
+|---|---|---:|---:|
+| Control | `20261009-102737-control` | 18,321,331 | 31 of 31 |
+| Treatment 1 | `20261009-142337-treatment` | 10,187,168 | 31 of 31 |
+| Treatment 2 | `20261009-145742-treatment` | 10,087,997 | 31 of 31 |
+| Treatment 3 | `20261009-150041-treatment` | 10,745,127 | 29 of 31 |
 
-### How the benchmark figures are calculated
+- The treatments sent 41% to 45% fewer agent input tokens than the control.
+- The two checks lost in the third treatment belong to one task whose session never compacted.
+- No request the provider billed was larger than the window.
+- At a 20,000-token window the same corpus lost 10 of 31 checks.
 
-The input is the 20 markdown session transcripts Codexplorer wrote for the batch. Each turn of a session has a
-`## PrepareResult (turn N)` block with `TokensBeforeCompaction`, `TokensAfterCompaction`, and `Outcome`, and a
-`## Model response (turn N)` block with `InputTokensReported`.
+### Long sessions
 
-1. Read every `PrepareResult` block of every transcript. Each block is one prepare record; the batch has 1,325.
-2. Join each prepare record to its model response by session and turn number, not by position in the file.
-3. Parse the token fields as signed integers. Three prepared estimates in this batch are negative (-838, -1,348, and
-   -219) and are summed as recorded.
-4. Sum `TokensBeforeCompaction` over every prepare record for the uncompacted history: 128,188,640.
-5. Sum `TokensAfterCompaction` over every prepare record for the prepared requests: 16,158,138.
-6. Reduction is `(before - after) / before`: 112,030,502 / 128,188,640 = 87.395%.
-7. Count prepare records by `Outcome`: 115 `Ready`, 1,155 `Compacted`, and 55 `Degraded`, the name these transcripts
-   use for `CompactionInsufficient`.
-8. Sum `InputTokensReported` over the joined responses for the provider-reported total: 15,930,640.
+Six edit-and-re-read tasks at three history sizes, two tasks per size. The controls ran on 10 October 2026 and the
+treatments on 13 October 2026 on commit `63ad3e7`, the code released as TokenGuard 1.2.0. One run per arm and history
+size.
+
+| History size | Window | Control run ID | Treatment run ID |
+|---|---:|---|---|
+| 100,000 tokens | 50,000 | `20261010-083413-control` | `20261013-072152-treatment` |
+| 200,000 tokens | 65,000 | `20261010-083713-control` | `20261013-072153-treatment` |
+| 300,000 tokens | 100,000 | `20261010-085725-control` | `20261013-075312-treatment` |
+
+| Figure, all three sizes | Control | Treatment |
+|---|---:|---:|
+| Agent input tokens | 138,114,426 | 41,642,893 |
+| Summarizer input tokens | 0 | 170,007 |
+| Facts recorded correctly | 58 of 59 | 55 of 59 |
+| Billed by the provider | $5.46 | $1.52 |
+| Requests sent over the window | 0 | 3 |
+
+- The treatments sent 69.7% fewer input tokens than the controls, summarizer input included.
+- Of the four facts the treatments missed, one is a file masked before the model had written its value down. The other
+  three are model errors, one of them shared with the control.
+- 80% of the treatments' agent input was billed as cached input: 60%, 74%, and 86% at the three sizes. Once masking had
+  started, 78% to 93% of each request was an unchanged start of the previous one.
+- At the 50,000-token window three requests went out over the window, one billed at 236,670 tokens, after three `grep`
+  results of about 260,000 tokens each. One tool result larger than the window cannot be fitted, and the prepare returns
+  `CompactionInsufficient`.
+
+### How the benchmark figures are measured
+
+- A control run is the same agent, model, and task list with a 1,000,000-token window, which no session reaches, so
+  nothing is compacted. A treatment run uses the stated window. The compaction trigger is 80% of the window.
+- Input tokens are the counts the provider reported for each request, summed over the run. The long-session percentage
+  adds the summarizer's input to the treatment side; the verifiable-corpus percentage is agent input only.
+- Each task runs on a pinned commit of its repository and declares its checks in the task file. The long-session count
+  is the checks on the facts the agent wrote to its evidence file.
+- The billed amounts are the change in the provider key's usage counter around the runs. The cached-input share is
+  recorded in the treatment run reports.
+- Tokens and money are separate results. Compaction changes earlier messages, so it changes how much of the input is
+  billed at the cache-read price, and the bill applies to this model on this provider only.
+
+### What the results do not show
+
+- One model and one provider. Each long-session figure is a single run, and each corpus has one control run.
+- A session whose history stays near the compaction trigger saves nothing: nothing is masked below it.
+- No minimum window was measured. Two points are known on the verifiable corpus: 20,000 tokens fails and 50,000 holds.
+  The rule that the window must hold the largest single turn of tool results plus the pinned content, with room left for
+  history, is reasoning.
 
 ---
 
