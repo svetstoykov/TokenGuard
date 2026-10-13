@@ -22,6 +22,7 @@ public sealed class ToolRegistry : IToolRegistry
     private readonly IReadOnlyDictionary<string, IWorkspaceTool> _toolsByName;
     private readonly IReadOnlyDictionary<string, IArtifactTool> _artifactToolsByName;
     private readonly IReadOnlyList<ToolSchema> _schemas;
+    private readonly IReadOnlyDictionary<string, string[]> _declaredParametersByName;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ToolRegistry"/> class.
@@ -77,16 +78,28 @@ public sealed class ToolRegistry : IToolRegistry
         this._toolsByName = toolList.ToDictionary(tool => tool.Name, StringComparer.Ordinal);
         this._artifactToolsByName = artifactToolList.ToDictionary(tool => tool.Name, StringComparer.Ordinal);
         this._schemas = toolList.Select(tool => tool.Schema).Concat(artifactToolList.Select(tool => tool.Schema)).ToArray();
+        this._declaredParametersByName = this._schemas.ToDictionary(
+            schema => schema.Function.Name, schema => ReadDeclaredParameters(schema.Function.Parameters), StringComparer.Ordinal);
     }
 
     /// <inheritdoc />
     public IReadOnlyList<ToolSchema> GetSchemas() => this._schemas;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// A call with an argument the tool's schema does not declare returns an error result that names the argument and lists the
+    /// declared parameters, and the tool does not run.
+    /// </remarks>
     public Task<string> ExecuteAsync(string toolName, JsonElement arguments, ToolContext context, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
         ArgumentNullException.ThrowIfNull(context);
+
+        if (this._declaredParametersByName.TryGetValue(toolName, out var declaredParameters)
+            && DescribeUndeclaredArgument(toolName, arguments, declaredParameters) is { } undeclaredArgumentError)
+        {
+            return Task.FromResult(undeclaredArgumentError);
+        }
 
         if (this._artifactToolsByName.TryGetValue(toolName, out var artifactTool))
         {
@@ -105,5 +118,49 @@ public sealed class ToolRegistry : IToolRegistry
     {
         var parameters = arguments.Deserialize<TParameters>(ArgumentSerializerOptions);
         return parameters ?? throw new JsonException($"Failed to deserialize tool arguments for {typeof(TParameters).Name}.");
+    }
+
+    private static string[] ReadDeclaredParameters(JsonElement parametersSchema)
+    {
+        return parametersSchema.TryGetProperty("properties", out var properties) && properties.ValueKind == JsonValueKind.Object
+            ? properties.EnumerateObject().Select(static property => property.Name).ToArray()
+            : [];
+    }
+
+    /// <summary>
+    ///     Builds the error result for the first argument that the tool's schema does not declare.
+    /// </summary>
+    /// <remarks>
+    ///     Names are compared without regard to case, as argument binding does. A declared parameter whose name contains the
+    ///     undeclared one is offered as the likely intent.
+    /// </remarks>
+    /// <param name="toolName">The name of the called tool.</param>
+    /// <param name="arguments">The raw JSON argument payload supplied by the model.</param>
+    /// <param name="declaredParameters">The parameter names the tool's schema declares.</param>
+    /// <returns>The error result, or <see langword="null" /> when every argument is declared.</returns>
+    private static string? DescribeUndeclaredArgument(string toolName, JsonElement arguments, string[] declaredParameters)
+    {
+        if (arguments.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var argument in arguments.EnumerateObject())
+        {
+            if (declaredParameters.Contains(argument.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var declaredList = declaredParameters.Length == 0 ? "none" : string.Join(", ", declaredParameters);
+            var suggestion = argument.Name.Length == 0
+                ? null
+                : declaredParameters.FirstOrDefault(declared => declared.Contains(argument.Name, StringComparison.OrdinalIgnoreCase));
+            var hint = suggestion is null ? string.Empty : $" Did you mean '{suggestion}'?";
+
+            return $"Error: {toolName} has no parameter '{argument.Name}'. Declared parameters: {declaredList}.{hint}";
+        }
+
+        return null;
     }
 }
