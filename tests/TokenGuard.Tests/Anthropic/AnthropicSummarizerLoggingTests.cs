@@ -39,6 +39,66 @@ public sealed class AnthropicSummarizerLoggingTests
         }
         """;
 
+    private const string MessageWithoutUsageJson = """
+        {
+          "id": "msg_3", "type": "message", "role": "assistant", "model": "claude-test",
+          "content": [ { "type": "text", "text": "SENTINEL-summary of the older turns" } ],
+          "stop_reason": "end_turn", "stop_sequence": null
+        }
+        """;
+
+    private const string EmptyMessageWithoutUsageJson = """
+        {
+          "id": "msg_4", "type": "message", "role": "assistant", "model": "claude-test",
+          "content": [],
+          "stop_reason": "end_turn", "stop_sequence": null
+        }
+        """;
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerCarriesNoUsage_YieldsTheSummary()
+    {
+        // Arrange
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, MessageWithoutUsageJson);
+
+        // Act
+        var result = await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        result.SummarizationError.Should().BeNull();
+        result.Messages[0].Segments.Should().ContainSingle().Which.Content.Should().Be(Summary);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerCarriesNoUsage_LogsTheCompletedRecordWithoutTokenCounts()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, MessageWithoutUsageJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        var completed = logs.WithEventId(CallCompleted).Should().ContainSingle().Subject;
+        completed.Property("InputTokens").Should().BeNull();
+        completed.Property("OutputTokens").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerIsEmptyAndCarriesNoUsage_ThrowsNamingTheOutputTokensAsNotReported()
+    {
+        // Arrange
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, EmptyMessageWithoutUsageJson);
+
+        // Act
+        var result = await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        result.SummarizationError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be(
+            "Anthropic summarization returned an empty answer. Stop reason: end_turn; output tokens: not reported.");
+    }
+
     [Fact]
     public async Task SummarizeAsync_WhenTheCallSucceeds_LogsOneRecordBeforeAndOneAfter()
     {

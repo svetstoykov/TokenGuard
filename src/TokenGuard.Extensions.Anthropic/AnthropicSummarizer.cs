@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.Json;
 using Anthropic;
 using Anthropic.Models.Messages;
 using Microsoft.Extensions.Logging;
@@ -113,8 +114,13 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            // The SDK throws on reading Usage when the payload carries none, so presence is checked on the raw payload.
+            var usage = response.RawData.TryGetValue("usage", out var rawUsage) && rawUsage.ValueKind == JsonValueKind.Object
+                ? response.Usage
+                : null;
+
             stopReason = response.StopReason?.Raw();
-            outputTokens = response.Usage.OutputTokens;
+            outputTokens = usage?.OutputTokens;
             TokenGuardTelemetry.RecordSummarizerResponse(stopReason, outputTokens, reasoningTokens: null);
 
             var summary = string.Join(
@@ -128,14 +134,14 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
             {
                 throw new InvalidOperationException(
                     $"Anthropic summarization returned an empty answer. Stop reason: {stopReason ?? "not reported"}; "
-                    + $"output tokens: {outputTokens.Value.ToString(CultureInfo.InvariantCulture)}.");
+                    + $"output tokens: {outputTokens?.ToString(CultureInfo.InvariantCulture) ?? "not reported"}.");
             }
 
             if (logCall)
             {
                 SummarizerLog.SummarizerCallCompleted(
                     this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, summary.Length,
-                    response.Usage.InputTokens, outputTokens, reasoningTokens: null, stopReason);
+                    usage?.InputTokens, outputTokens, reasoningTokens: null, stopReason);
             }
 
             return summary;
