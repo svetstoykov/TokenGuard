@@ -1163,12 +1163,18 @@ public sealed class ConversationContext : IConversationContext
     /// <summary>
     /// Inserts a message into history and updates pinned token bookkeeping.
     /// </summary>
+    /// <remarks>
+    /// The message is counted before it is stored, so a token counter that throws leaves the history, its version, and
+    /// the pinned token total as they were.
+    /// </remarks>
     /// <param name="message">The message to record.</param>
     /// <param name="index">
     /// The optional insertion index. When omitted, the message is appended to the end of history.
     /// </param>
     private void AddMessage(ContextMessage message, int? index = null)
     {
+        var tokenCount = this.EnsureCounted(message);
+
         if (index.HasValue)
         {
             this._history.Insert(index.Value, message);
@@ -1179,8 +1185,6 @@ public sealed class ConversationContext : IConversationContext
         }
 
         this._historyVersion++;
-
-        var tokenCount = this.EnsureCounted(message);
 
         if (message.IsPinned)
         {
@@ -1193,20 +1197,26 @@ public sealed class ConversationContext : IConversationContext
     /// <summary>
     /// Replaces one history entry while keeping pinned token bookkeeping consistent.
     /// </summary>
+    /// <remarks>
+    /// Both messages are counted before anything is changed, so a token counter that throws leaves the history, its
+    /// version, and the pinned token total as they were.
+    /// </remarks>
     /// <param name="index">The history index to replace.</param>
     /// <param name="message">The replacement message.</param>
     private void ReplaceMessage(int index, ContextMessage message)
     {
         var existing = this._history[index];
+        var existingTokenCount = this.EnsureCounted(existing);
+        var tokenCount = this.EnsureCounted(message);
+
         if (existing.IsPinned)
         {
-            this._pinnedTokenTotal -= this.EnsureCounted(existing);
+            this._pinnedTokenTotal -= existingTokenCount;
         }
 
         this._history[index] = message;
         this._historyVersion++;
 
-        var tokenCount = this.EnsureCounted(message);
         if (message.IsPinned)
         {
             this._pinnedTokenTotal += tokenCount;
