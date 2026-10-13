@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-13
+
+Released packages: `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and `TokenGuard.Extensions.Anthropic`, all at
+1.2.0. Each extension depends on exactly `TokenGuard.Core` 1.2.0.
+
+### Behavior changes
+
+No public signature changed. A consumer upgrading from 1.1.0 can observe these differences; each is described in full
+under Changed or Fixed below.
+
+- The default token budget is 40,000 instead of 25,000, so a consumer relying on the default starts compacting at
+  32,000 tokens instead of 20,000. A model whose context window is below 40,000 tokens needs an explicit budget.
+- Tool-result masking moves its boundary in steps, so a prepared view differs from the one 1.1.0 produces for the same
+  history, and the default placeholder of a masked result has a new, longer text.
+- A recording call or a `PrepareAsync()` call that starts while another call on the same context is still running
+  throws `InvalidOperationException`.
+- A recording call discards an exception thrown by a logger or meter listener, where it used to pass it to the caller
+  after storing the message.
+- A summarizer call that failed is not repeated while the history and the available tokens stay the same.
+- `TokenGuard.Extensions.OpenAI` and `TokenGuard.Extensions.Anthropic` depend on exactly the `TokenGuard.Core` version
+  they were built against, so a mismatch is reported at restore.
+- `TokenGuard.Extensions.Anthropic`: `ForAnthropic()` sends every text segment and every tool result, and throws
+  `InvalidOperationException` for input it used to convert with content missing. `InputTokens()` returns the total
+  input of the request including cached tokens, and `null` when the response carries no usage.
+
+### Known limits
+
+- Summarization works with the built-in providers only. A custom summarizer, compaction strategy, or token counter
+  cannot be registered through the builder.
+- One `ConversationContext` is for one caller at a time. Overlapping calls are detected on a best-effort basis and
+  throw; calls from several threads that happen not to overlap are not reported.
+- Token estimates leave out request overhead such as tool schemas until the first provider report. Pass
+  `providerInputTokens` to `RecordModelResponse` to correct for it.
+- The estimator undercounts pretty-printed JSON by 17% to 30% against the `o200k_base` tokenizer until the first
+  provider report corrects it, and runs 15% to 49% high on source code and non-Latin text.
+- One tool result larger than the window cannot be fitted. The prepare returns `CompactionInsufficient` and the caller
+  decides whether to send the request.
+- On a provider with a prompt cache the money saving differs from the token saving, because masking changes earlier
+  messages and with them the share of the input billed at the cache-read price.
+- `TokenGuard.Extensions.Anthropic` is covered by unit tests only. No run against the Anthropic API has verified it.
+- The packages target `net10.0` only.
+
 ### Added
 
 - The provider's finish reason and token counts on every summarizer answer, so an empty answer carries its cause. The
@@ -90,7 +132,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   system message as its own text block, in order, and every result of a tool message as a `tool_result` block in one
   user message. It used to send the first text segment and the first tool result only, so a recorded response with
   two text blocks came back as one. A request built from such messages is larger than before.
-
 - A summarizer call that threw, or returned a summary too large for the budget, is not repeated while the history and
   the available tokens stay the same. Calling `PrepareAsync()` again without recording a message used to send a new
   summarizer request every time; it now sends none, returns the same fallback result, and logs the new `Debug` event
@@ -265,7 +306,8 @@ followed at 1.0.1.
   network error), TokenGuard degrades to sliding-window masking instead of crashing the agent loop and
   reports the captured exception for logging.
 
-[Unreleased]: https://github.com/svetstoykov/TokenGuard/compare/1.1.0...HEAD
+[Unreleased]: https://github.com/svetstoykov/TokenGuard/compare/1.2.0...HEAD
+[1.2.0]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.2.0
 [1.1.0]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.1.0
 [1.0.1]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.0.1
 [1.0.0]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.0.0

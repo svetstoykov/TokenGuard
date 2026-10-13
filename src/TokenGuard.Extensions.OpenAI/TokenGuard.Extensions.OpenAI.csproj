@@ -13,7 +13,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <Version>1.1.0</Version>
+        <Version>1.2.0</Version>
         <PackageId>TokenGuard.Extensions.OpenAI</PackageId>
         <Title>TokenGuard.Extensions.OpenAI</Title>
         <Authors>Svetlozar Stoykov</Authors>
@@ -26,11 +26,11 @@
         <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
-        <PackageReleaseNotes>Requires exactly TokenGuard.Core 1.1.0, and OpenAI 2.14.0 or later. The summarizer logs and traces through the logger factory configured on the conversation.
+        <PackageReleaseNotes>Requires exactly TokenGuard.Core 1.2.0, and OpenAI 2.14.0 or later. The package dependency on TokenGuard.Core is the exact version [1.2.0], so NuGet reports a mismatched Core version at restore. The summarizer reports the provider's finish reason, output tokens, and reasoning tokens, and the exception for an empty summarizer answer states them.
 
-Behavior changes, with no signature changes: ForOpenAI() sends every text segment of a message and throws InvalidOperationException for a message it cannot represent and for tool calls left unanswered at the end of the list, where it used to shorten or drop content silently. ResponseSegments() and ToolUseSegments() record a tool call with empty arguments as {}.
+Behavior changes come from TokenGuard.Core 1.2.0, with no signature changes: the default token budget is 40,000 instead of 25,000; tool-result masking moves its boundary in steps and the default placeholder of a masked result has a new text; a call that starts while another call on the same context is still running throws InvalidOperationException.
 
-Known limits: the token counter, summarizer, summary formatter, and builder registration of a custom compaction strategy are closed to consumers; one ConversationContext is for one caller at a time; token estimates leave out request overhead such as tool schemas; the package targets net10.0 only.
+Known limits: summarization works with the built-in providers only, and a custom summarizer, compaction strategy, or token counter cannot be registered through the builder; one ConversationContext is for one caller at a time, and overlapping calls are detected on a best-effort basis; token estimates leave out request overhead such as tool schemas and undercount pretty-printed JSON by 17% to 30% until the first provider report; one tool result larger than the window cannot be fitted and the prepare returns CompactionInsufficient; the package targets net10.0 only.
 
 Full details: https://github.com/svetstoykov/TokenGuard/blob/main/CHANGELOG.md</PackageReleaseNotes>
     </PropertyGroup>

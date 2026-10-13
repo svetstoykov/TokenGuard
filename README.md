@@ -630,6 +630,20 @@ What is current:
 - runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`,
   `PrepareAsync(...)`, `RecordModelResponse(...)`, and `RecordToolResult(...)`
 
+Known limits:
+
+- summarization works with the built-in providers only; a custom summarizer, compaction strategy, or token counter
+  cannot be registered through the builder
+- one `ConversationContext` is for one caller at a time; overlapping calls are detected on a best-effort basis and throw
+- token estimates leave out request overhead such as tool schemas until the first provider report
+- the estimator undercounts pretty-printed JSON by 17% to 30% against the `o200k_base` tokenizer until the first
+  provider report corrects it, and runs 15% to 49% high on source code and non-Latin text
+- one tool result larger than the window cannot be fitted; the prepare returns `CompactionInsufficient` and the caller
+  decides whether to send the request
+- on a provider with a prompt cache the money saving differs from the token saving, because masking changes earlier
+  messages
+- the packages target `net10.0` only
+
 What remains planned:
 
 - broader multi-strategy pipeline expansion beyond current masking + summarization + emergency fallback
