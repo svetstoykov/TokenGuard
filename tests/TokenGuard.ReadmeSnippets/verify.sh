@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the README's OpenAI quick start against packages packed from the working tree,
+# Builds the README's OpenAI and Anthropic quick starts against packages packed from the working tree,
 # then checks that the READMEs still carry the compiled text.
 set -euo pipefail
 
@@ -9,10 +9,12 @@ work_dir="$repo_root/artifacts/readme-snippets"
 program="$project_dir/Program.cs"
 readmes=("README.md" "src/TokenGuard.Core/PackageReadme.md")
 blocks=("QuickStart")
+anthropic_program="$project_dir/AnthropicQuickStart.cs"
+anthropic_package_readme="src/TokenGuard.Extensions.Anthropic/PackageReadme.md"
 
 rm -rf "$work_dir" "$project_dir/bin" "$project_dir/obj"
 
-for package in TokenGuard.Core TokenGuard.Extensions.OpenAI; do
+for package in TokenGuard.Core TokenGuard.Extensions.OpenAI TokenGuard.Extensions.Anthropic; do
   dotnet pack "$repo_root/src/$package/$package.csproj" --configuration Release --nologo --output "$work_dir/feed"
 done
 
@@ -20,21 +22,39 @@ done
 dotnet build "$project_dir/TokenGuard.ReadmeSnippets.csproj" --configuration Release --nologo --packages "$work_dir/packages"
 
 failed=0
-for block in "${blocks[@]}"; do
-  text="$(awk -v first="// <$block>" -v last="// </$block>" '$0 == last { on = 0 } on { print } $0 == first { on = 1 }' "$program")"
-  if [ -z "$text" ]; then
-    echo "Block <$block> is missing from $program" >&2
-    failed=1
-    continue
-  fi
 
-  for readme in "${readmes[@]}"; do
+# check_blocks <source file> <readme> <block>...
+# Fails when the readme does not carry a tagged block of the source file verbatim.
+# A block is compared without the indentation of its opening tag, so a block inside a method matches an unindented code fence.
+check_blocks() {
+  local source="$1" readme="$2" block text
+  shift 2
+
+  for block in "$@"; do
+    text="$(awk -v first="// <$block>" -v last="// </$block>" '
+      { line = $0; sub(/^[ \t]+/, "", line) }
+      line == last { on = 0 }
+      on { print substr($0, indent + 1) }
+      line == first { on = 1; indent = length($0) - length(line) }' "$source")"
+    if [ -z "$text" ]; then
+      echo "Block <$block> is missing from $source" >&2
+      failed=1
+      continue
+    fi
+
     if [[ "$(cat "$repo_root/$readme")" != *"$text"* ]]; then
-      echo "$readme does not carry block <$block> from tests/TokenGuard.ReadmeSnippets/Program.cs verbatim" >&2
+      echo "$readme does not carry block <$block> from ${source#"$repo_root/"} verbatim" >&2
       failed=1
     fi
   done
+}
+
+for readme in "${readmes[@]}"; do
+  check_blocks "$program" "$readme" "${blocks[@]}"
 done
+
+check_blocks "$anthropic_program" "README.md" "AnthropicLoop"
+check_blocks "$anthropic_program" "$anthropic_package_readme" "AnthropicUsings" "AnthropicSetup" "AnthropicLoop"
 
 if [ "$failed" -ne 0 ]; then
   exit 1

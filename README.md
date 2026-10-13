@@ -406,19 +406,69 @@ conversationContext.RecordModelResponse(response.ResponseSegments(), response.In
 
 **Anthropic**
 
-```csharp
-var prepared = await conversationContext.PrepareAsync(cancellationToken);
-var (messages, systemPrompt) = prepared.Messages.ForAnthropic();
+The loop below continues with a `conversationContext`, an `AnthropicClient` named `anthropicClient` and an Anthropic `Tool`
+named `readFile`. The [Anthropic package readme](src/TokenGuard.Extensions.Anthropic/PackageReadme.md) has the whole
+program, with the usings and the setup, ready to paste.
 
-// Attach both to your Anthropic request.
+```csharp
+conversationContext.SetSystemPrompt("You are a precise coding assistant.");
+conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
+conversationContext.AddUserMessage("Summarize the failing tests.");
+
+while (true)
+{
+    var prepared = await conversationContext.PrepareAsync(cancellationToken);
+
+    if (prepared.Outcome == PrepareOutcome.CannotCompact)
+        throw new InvalidOperationException(prepared.BudgetFailureReason);
+
+    var (messages, systemPrompt) = prepared.Messages.ForAnthropic();
+
+    Message response = await anthropicClient.Messages.Create(
+        new MessageCreateParams
+        {
+            Model = "claude-opus-5-5",
+            MaxTokens = 16_000,
+            System = systemPrompt,
+            Messages = messages,
+            Tools = [readFile],
+        },
+        cancellationToken);
+
+    conversationContext.RecordModelResponse(
+        response.ResponseSegments(),
+        response.InputTokens());
+
+    var toolCalls = response.ToolUseSegments();
+
+    if (toolCalls.Count == 0)
+    {
+        Console.WriteLine(string.Join(Environment.NewLine, response.TextSegments().Select(segment => segment.Content)));
+        break;
+    }
+
+    foreach (var toolCall in toolCalls)
+    {
+        var result = ExecuteTool(toolCall.ToolName, toolCall.Content);
+        conversationContext.RecordToolResult(toolCall.ToolCallId, toolCall.ToolName, result);
+    }
+}
+
+// Replace with your own tool dispatch. The arguments arrive as a JSON object.
+static string ExecuteTool(string toolName, string argumentsJson) => $"Executed {toolName} with {argumentsJson}.";
 ```
 
 `ForOpenAI()` sends every text segment of a message as its own content part and throws `InvalidOperationException` for a
 message it cannot represent, for an orphaned tool result, and for tool calls left without results, including at the end
-of the list. `ForAnthropic()` returns a tuple because Anthropic carries system content separately from the normal message list.
-After the Anthropic call completes, record the response with `RecordModelResponse(response.ResponseSegments())` unless your
-response includes usage data. When usage is present, you can pass `response.InputTokens()` as the optional second
-argument to anchor later estimates.
+of the list.
+
+`ForAnthropic()` follows the same rule: it sends every text segment as its own text block and every result of a tool
+message, and throws `InvalidOperationException` for a message it cannot represent, for tool-call arguments that are not a
+JSON object, for an orphaned tool result, and for tool calls left without results. It returns a tuple because Anthropic
+carries system content separately from the message list; the text of every system message goes to that system value.
+The Anthropic adapter is covered by unit tests only; the
+[package readme](src/TokenGuard.Extensions.Anthropic/PackageReadme.md) lists what no run against the Anthropic API has
+verified.
 
 ---
 
@@ -430,8 +480,9 @@ builder or factory hook to swap token counters at runtime yet.
 Provider-reported input tokens still help when they are available:
 
 - OpenAI: `response.InputTokens()` returns `null` when usage is absent
-- Anthropic: only call `response.InputTokens()` when the SDK response includes `usage`; otherwise record the response
-  without the second argument and TokenGuard stays on heuristic estimates
+- Anthropic: `response.InputTokens()` returns the total input of the request, the sum of `input_tokens`,
+  `cache_creation_input_tokens` and `cache_read_input_tokens`, so the value stays correct when prompt caching serves
+  part of the request. It returns `null` when usage is absent
 
 ---
 
@@ -565,6 +616,7 @@ What is current:
 - pinned messages survive all compaction stages
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available
+- the Anthropic adapter is covered by unit tests only; no run against the Anthropic API has verified it
 - runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`,
   `PrepareAsync(...)`, `RecordModelResponse(...)`, and `RecordToolResult(...)`
 

@@ -19,95 +19,99 @@ namespace TokenGuard.Extensions.Anthropic;
 public static class AnthropicExtensions
 {
     /// <summary>
-    /// Converts TokenGuard messages into Anthropic-compatible message content, preserving order.
-    /// Call this on the result of <c>ConversationContext.PrepareAsync()</c> immediately before constructing a <see cref="MessageCreateParams"/> request.
+    /// Converts TokenGuard messages into Anthropic-compatible message content, preserving order and content.
+    /// Call this on the result of <c>ConversationContext.PrepareAsync()</c> immediately before constructing a
+    /// <see cref="MessageCreateParams"/> request.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every text segment that holds non-whitespace text becomes its own text block, in order. The message list has one entry per
+    /// user, model and tool message: a model message carries its text blocks followed by one tool-use block per tool call, and a
+    /// tool message becomes one user message with one tool-result block per result.
+    /// </para>
+    /// <para>
+    /// System messages are kept out of the message list. Their text blocks form the separate system payload, in order.
+    /// </para>
+    /// </remarks>
     /// <param name="messages">The prepared TokenGuard messages.</param>
     /// <returns>
-    /// A tuple containing the Anthropic <see cref="MessageParam"/> list and the optional <see cref="MessageCreateParamsSystem"/>
-    /// built from system messages.
+    /// A tuple containing the Anthropic <see cref="MessageParam"/> list and the system payload built from system messages,
+    /// or <see langword="null"/> as the system payload when there is no system message.
     /// </returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a message holds content its role cannot carry in an Anthropic request, such as a user message without text,
+    /// a tool message without a tool result, or a tool call whose arguments are not a JSON object,
+    /// -or-
+    /// when the history contains tool calls without matching results or tool results without a preceding tool call.
+    /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when a message has an unrecognized role.</exception>
     public static (List<MessageParam> Messages, MessageCreateParamsSystem? System) ForAnthropic(this IReadOnlyList<ContextMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
 
         List<MessageParam> result = new(messages.Count);
+        List<TextBlockParam> systemBlocks = [];
+        HashSet<string> pendingToolCallIds = [];
 
         foreach (var message in messages)
         {
             switch (message.Role)
             {
                 case MessageRole.System:
+                    EnsureNoPendingToolCalls(message.Role, pendingToolCallIds);
+                    systemBlocks.AddRange(TextBlocks(message, requireText: true));
                     break;
 
                 case MessageRole.User:
-                    result.Add(new MessageParam
-                    {
-                        Role = Role.User,
-                        Content = new MessageParamContent(
-                            new List<ContentBlockParam>
-                            {
-                                new TextBlockParam
-                                {
-                                    Text = ExtractText(message),
-                                },
-                            }),
-                    });
+                    EnsureNoPendingToolCalls(message.Role, pendingToolCallIds);
+                    List<ContentBlockParam> userBlocks = [.. TextBlocks(message, requireText: true)];
+                    result.Add(new MessageParam { Role = Role.User, Content = userBlocks });
                     break;
 
                 case MessageRole.Model:
-                    List<ContentBlockParam> assistantBlocks = [];
-                    var text = ExtractText(message);
-
-                    if (!string.IsNullOrWhiteSpace(text))
-                    {
-                        assistantBlocks.Add(new TextBlockParam
-                        {
-                            Text = text,
-                        });
-                    }
+                    EnsureNoPendingToolCalls(message.Role, pendingToolCallIds);
+                    List<ContentBlockParam> assistantBlocks = [.. TextBlocks(message, requireText: false)];
 
                     foreach (var toolUse in message.Segments.OfType<ToolUseContent>())
                     {
-                        var input = JsonSerializer.Deserialize<IReadOnlyDictionary<string, JsonElement>>(toolUse.Content);
-
-                        assistantBlocks.Add(new ToolUseBlockParam
-                        {
-                            ID = toolUse.ToolCallId,
-                            Name = toolUse.ToolName,
-                            Input = input ?? throw new JsonException("Tool arguments must deserialize to a JSON object."),
-                        });
+                        var input = ToolInput(message.Role, toolUse);
+                        assistantBlocks.Add(new ToolUseBlockParam { ID = toolUse.ToolCallId, Name = toolUse.ToolName, Input = input });
+                        pendingToolCallIds.Add(toolUse.ToolCallId);
                     }
 
-                    result.Add(new MessageParam
+                    if (assistantBlocks.Count == 0)
                     {
-                        Role = Role.Assistant,
-                        Content = assistantBlocks,
-                    });
+                        throw new InvalidOperationException(
+                            $"A {message.Role} message cannot be sent to Anthropic because it contains neither text nor a tool call.");
+                    }
+
+                    result.Add(new MessageParam { Role = Role.Assistant, Content = assistantBlocks });
                     break;
 
                 case MessageRole.Tool:
-                    var toolResult = message.Segments.OfType<ToolResultContent>().FirstOrDefault();
+                    var toolResults = message.Segments.OfType<ToolResultContent>().ToList();
 
-                    if (toolResult is not null)
+                    if (toolResults.Count == 0 || toolResults.Count != message.Segments.Count)
                     {
-                        result.Add(new MessageParam
-                        {
-                            Role = Role.User,
-                            Content = new MessageParamContent(
-                                new List<ContentBlockParam>
-                                {
-                                    new ToolResultBlockParam
-                                    {
-                                        ToolUseID = toolResult.ToolCallId,
-                                        Content = toolResult.Content,
-                                    },
-                                }),
-                        });
+                        throw new InvalidOperationException(
+                            $"A {message.Role} message cannot be sent to Anthropic because it must contain only tool results and at least one.");
                     }
 
+                    List<ContentBlockParam> toolResultBlocks = new(toolResults.Count);
+
+                    foreach (var toolResult in toolResults)
+                    {
+                        if (!pendingToolCallIds.Remove(toolResult.ToolCallId))
+                        {
+                            throw new InvalidOperationException(
+                                $"Tool result '{toolResult.ToolCallId}' has no preceding assistant tool call in the prepared history.");
+                        }
+
+                        toolResultBlocks.Add(new ToolResultBlockParam { ToolUseID = toolResult.ToolCallId, Content = toolResult.Content });
+                    }
+
+                    result.Add(new MessageParam { Role = Role.User, Content = toolResultBlocks });
                     break;
 
                 default:
@@ -115,7 +119,14 @@ public static class AnthropicExtensions
             }
         }
 
-        return (result, BuildSystemPrompt(messages));
+        if (pendingToolCallIds.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Assistant tool calls {string.Join(", ", pendingToolCallIds.Order(StringComparer.Ordinal).Select(id => $"'{id}'"))} " +
+                "have no matching tool results at the end of the prepared history.");
+        }
+
+        return (result, systemBlocks.Count == 0 ? null : new MessageCreateParamsSystem(systemBlocks));
     }
 
     /// <summary>
@@ -190,38 +201,84 @@ public static class AnthropicExtensions
     }
 
     /// <summary>
-    /// Extracts the provider-reported input token count from an Anthropic response message.
+    /// Extracts the provider-reported total input token count of the request from an Anthropic response message.
     /// Pass this as the second argument to <c>ConversationContext.RecordModelResponse</c> to enable
     /// anchor-based token estimation correction.
     /// </summary>
+    /// <remarks>
+    /// The total is the sum of the uncached input tokens, the tokens written to the prompt cache and the tokens read from it,
+    /// so it covers the whole request whether or not prompt caching served part of it.
+    /// </remarks>
     /// <param name="response">The Anthropic response message.</param>
-    /// <returns>The input token count, or <see langword="null"/> if usage data was not included in the response.</returns>
+    /// <returns>The total input token count, or <see langword="null"/> if usage data was not included in the response.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="response"/> is null.</exception>
     public static int? InputTokens(this Message response)
     {
         ArgumentNullException.ThrowIfNull(response);
-        return (int?)response.Usage?.InputTokens;
+
+        // The SDK throws on reading Usage when the payload carries none, so presence is checked on the raw payload.
+        if (!response.RawData.TryGetValue("usage", out var rawUsage) || rawUsage.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var usage = response.Usage;
+        return (int)(usage.InputTokens + (usage.CacheCreationInputTokens ?? 0) + (usage.CacheReadInputTokens ?? 0));
     }
 
-    private static string ExtractText(ContextMessage message) =>
-        message.Segments.OfType<TextContent>().FirstOrDefault()?.Content ?? string.Empty;
-
-    private static MessageCreateParamsSystem? BuildSystemPrompt(IReadOnlyList<ContextMessage> messages)
+    private static List<TextBlockParam> TextBlocks(ContextMessage message, bool requireText)
     {
-        List<TextBlockParam> systemBlocks = [];
+        List<TextBlockParam> blocks = [];
 
-        foreach (var message in messages.Where(message => message.Role == MessageRole.System))
+        foreach (var segment in message.Segments)
         {
-            var text = ExtractText(message);
-            if (!string.IsNullOrWhiteSpace(text))
+            if (segment is TextContent text)
             {
-                systemBlocks.Add(new TextBlockParam
+                // Anthropic rejects a text block without non-whitespace text.
+                if (!string.IsNullOrWhiteSpace(text.Content))
                 {
-                    Text = text,
-                });
+                    blocks.Add(new TextBlockParam { Text = text.Content });
+                }
+            }
+            else if (segment is not ToolUseContent || message.Role != MessageRole.Model)
+            {
+                throw new InvalidOperationException(
+                    $"A {message.Role} message cannot be sent to Anthropic because it contains a {segment.GetType().Name} segment.");
             }
         }
 
-        return systemBlocks.Count == 0 ? null : new MessageCreateParamsSystem(systemBlocks);
+        if (blocks.Count == 0 && requireText)
+        {
+            throw new InvalidOperationException($"A {message.Role} message cannot be sent to Anthropic because it contains no text.");
+        }
+
+        return blocks;
+    }
+
+    private static IReadOnlyDictionary<string, JsonElement> ToolInput(MessageRole role, ToolUseContent toolUse)
+    {
+        var problem =
+            $"A {role} message cannot be sent to Anthropic because the arguments of tool call '{toolUse.ToolCallId}' are not a JSON object.";
+
+        try
+        {
+            var input = JsonSerializer.Deserialize<IReadOnlyDictionary<string, JsonElement>>(toolUse.Content);
+            return input ?? throw new InvalidOperationException(problem);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException(problem, exception);
+        }
+    }
+
+    private static void EnsureNoPendingToolCalls(MessageRole nextRole, IReadOnlyCollection<string> pendingToolCallIds)
+    {
+        if (pendingToolCallIds.Count == 0)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Assistant tool calls must be followed by matching tool results before the next {nextRole} message.");
     }
 }
