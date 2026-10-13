@@ -449,6 +449,13 @@ It also prints each report's partial flag and unrun task IDs.
 By default, models, effective budget/summarization/generation settings, task budgets, and manifest hash must match.
 On matching tasks, check-ID sets (ignoring case) and probe presence/required kind must also match. Comparison prints changed
 check verdicts/reasons and missing declarations, both probe statuses/reasons/code-presence flags, and failed-side kind counters.
+For each task that lost a check it prints one line naming the lost checks and the compaction that ran in the task that lost them,
+for example `task rg-encoding lost checks against control: fact; compaction in treatment: masking, summarization (masked=12
+summarized=3 dropped=0 emergencyTruncations=0)`. The kinds are masking (`messagesMasked` above zero), summarization
+(`messagesSummarized` above zero) and emergency truncation (`emergencyTruncations` or `messagesDropped` above zero); `none` means
+no strategy ran. Between a control and a treatment report a lost check passed in the control task and failed in the treatment task,
+in either argument order. Between two reports of one arm it passed in the baseline task and failed in the candidate task, and the
+line reads `against baseline` and `compaction in candidate`.
 A treatment/control pair may differ only in context-window tokens. `--allow-incompatible` prints mismatches and permits an
 informational comparison; an invalid or incomplete control never permits a measured-reduction claim.
 

@@ -140,6 +140,7 @@ internal static class ComparisonCommand
             output.WriteLine($"task {id} measurementsComplete: baseline={previous.MeasurementsComplete} candidate={current.MeasurementsComplete}");
             output.WriteLine($"task {id} summaryCrossCheck: baseline={previous.SummaryCrossCheck} candidate={current.SummaryCrossCheck}");
             PrintScoring(output, id, previous, current);
+            PrintLostCheckAttribution(output, id, previous, current, baseline.Run.Arm, candidate.Run.Arm);
         }
 
         output.WriteLine("Baseline-only tasks: " + string.Join(", ", baselineTasks.Keys.Except(candidateTasks.Keys).Order(StringComparer.Ordinal)));
@@ -489,6 +490,48 @@ internal static class ComparisonCommand
         }
     }
 
+    /// <summary>
+    ///     Prints, for a task that lost a check, whether compaction ran in the task that lost it and which kinds ran.
+    /// </summary>
+    /// <remarks>
+    ///     Between a control and a treatment report, a lost check passed in the control task and failed in the treatment task, in either
+    ///     argument order. Between two reports of the same arm, it passed in the baseline task and failed in the candidate task.
+    ///     A check that one side does not declare is a declaration difference and is not a lost check.
+    /// </remarks>
+    /// <param name="output">The comparison output.</param>
+    /// <param name="id">The task identifier.</param>
+    /// <param name="baseline">The baseline task.</param>
+    /// <param name="candidate">The candidate task.</param>
+    /// <param name="baselineArm">The arm of the baseline report.</param>
+    /// <param name="candidateArm">The arm of the candidate report.</param>
+    private static void PrintLostCheckAttribution(TextWriter output, string id, TaskReport baseline, TaskReport candidate,
+        string baselineArm, string candidateArm)
+    {
+        var pair = baselineArm != candidateArm;
+        var (reference, losing) = pair && baselineArm == "treatment" ? (candidate, baseline) : (baseline, candidate);
+        var passed = reference.Checks.Where(check => check.Passed).Select(check => check.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var lost = losing.Checks.Where(check => !check.Passed && passed.Contains(check.Id)).Select(check => check.Id)
+            .Order(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (lost.Length == 0)
+        {
+            return;
+        }
+
+        var metrics = losing.Metrics;
+        var kinds = new[]
+        {
+            (Name: "masking", Ran: metrics.MessagesMasked > 0), (Name: "summarization", Ran: metrics.MessagesSummarized > 0),
+            (Name: "emergency truncation", Ran: metrics.EmergencyTruncations > 0 || metrics.MessagesDropped > 0)
+        }.Where(kind => kind.Ran).Select(kind => kind.Name).ToArray();
+        var compaction = kinds.Length > 0
+            ? $"{string.Join(", ", kinds)} (masked={metrics.MessagesMasked} summarized={metrics.MessagesSummarized} "
+                + $"dropped={metrics.MessagesDropped} emergencyTruncations={metrics.EmergencyTruncations})"
+            : metrics.StrategyRuns > 0 ? $"ran without masking, summarizing or dropping a message (strategyRuns={metrics.StrategyRuns})"
+            : "none";
+        output.WriteLine($"task {id} lost checks against {(pair ? "control" : "baseline")}: {string.Join(", ", lost)}; "
+            + $"compaction in {(pair ? "treatment" : "candidate")}: {compaction}");
+    }
+
     private static void PrintMetrics(TextWriter output, string label, IReadOnlyDictionary<string, double?> baseline,
         IReadOnlyDictionary<string, double?> candidate)
     {
@@ -584,6 +627,9 @@ internal static class ComparisonCommand
             + "so that comparison is skipped and reported.");
         output.WriteLine("A probe of a task where nothing was summarized or dropped is notApplicable and outside probePassRate. "
             + "A version 4 or 5 report counts such a probe as invalid, which is reported when it declares probes.");
+        output.WriteLine("For each task that lost a check, one line names the lost checks and the compaction that ran in the task that "
+            + "lost them: masking, summarization, emergency truncation, or none. Between a control and a treatment report that task "
+            + "is the treatment task; between two reports of one arm it is the candidate task.");
         output.WriteLine("Metrics: " + string.Join(", ", typeof(ReportMetrics).GetProperties()
             .Where(property => property.Name != nameof(ReportMetrics.ProviderCachedInputTokens))
             .Where(property => property.PropertyType == typeof(long) || property.PropertyType == typeof(long?)

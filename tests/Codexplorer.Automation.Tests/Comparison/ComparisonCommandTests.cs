@@ -778,6 +778,77 @@ public sealed class ComparisonCommandTests
         (await CompareAsync(baseline, candidate)).Text.Should().Contain("baseline=fail(notFound) candidate=fail(forbiddenValuePresent)");
     }
 
+    /// <summary>Verifies a check lost in the treatment task is attributed to the compaction kinds that ran in that task.</summary>
+    /// <param name="masked">The treatment task's masked counter.</param>
+    /// <param name="summarized">The treatment task's summarized counter.</param>
+    /// <param name="dropped">The treatment task's dropped counter.</param>
+    /// <param name="emergencyTruncations">The treatment task's emergency truncation counter.</param>
+    /// <param name="strategyRuns">The treatment task's strategy runs.</param>
+    /// <param name="compaction">The expected compaction statement.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(12, 0, 0, 0, 1, "masking (masked=12 summarized=0 dropped=0 emergencyTruncations=0)")]
+    [InlineData(12, 3, 0, 0, 2, "masking, summarization (masked=12 summarized=3 dropped=0 emergencyTruncations=0)")]
+    [InlineData(12, 3, 7, 1, 3, "masking, summarization, emergency truncation (masked=12 summarized=3 dropped=7 emergencyTruncations=1)")]
+    [InlineData(0, 0, 7, 1, 0, "emergency truncation (masked=0 summarized=0 dropped=7 emergencyTruncations=1)")]
+    [InlineData(0, 0, 0, 0, 2, "ran without masking, summarizing or dropping a message (strategyRuns=2)")]
+    [InlineData(0, 0, 0, 0, 0, "none")]
+    public async Task RunAsync_TreatmentTaskLostCheck_StatesCompactionKinds(long masked, long summarized, long dropped,
+        long emergencyTruncations, long strategyRuns, string compaction)
+    {
+        var treatment = CheckedReport("treatment", passed: false, masked, summarized, dropped, emergencyTruncations, strategyRuns);
+
+        var result = await CompareAsync(CheckedReport("control", passed: true), treatment);
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain($"task task lost checks against control: fact; compaction in treatment: {compaction}{Environment.NewLine}");
+    }
+
+    /// <summary>Verifies the attribution describes the treatment task when the treatment report is the baseline argument.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_TreatmentBaselineLostCheck_StatesTreatmentCompaction()
+    {
+        var treatment = CheckedReport("treatment", passed: false, masked: 12);
+
+        var result = await CompareAsync(treatment, CheckedReport("control", passed: true));
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain("task task lost checks against control: fact; compaction in treatment: masking (masked=12 ");
+    }
+
+    /// <summary>Verifies two reports of one arm attribute a check lost by the candidate to the candidate task's compaction.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_SameArmCandidateLostCheck_StatesCandidateCompaction()
+    {
+        var baseline = CheckedReport("treatment", passed: true, masked: 5);
+        var candidate = CheckedReport("treatment", passed: false, masked: 12, summarized: 3);
+
+        var result = await CompareAsync(baseline, candidate);
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain("task task lost checks against baseline: fact; compaction in candidate: masking, summarization (masked=12 ");
+    }
+
+    /// <summary>Verifies no attribution is printed when the treatment task lost no check.</summary>
+    /// <param name="controlPassed">Whether the control task passed the check.</param>
+    /// <param name="treatmentPassed">Whether the treatment task passed the check.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task RunAsync_TreatmentTaskLostNoCheck_PrintsNoAttribution(bool controlPassed, bool treatmentPassed)
+    {
+        var treatment = CheckedReport("treatment", treatmentPassed, masked: 12);
+
+        var result = await CompareAsync(CheckedReport("control", controlPassed), treatment);
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().NotContain("lost checks");
+    }
+
     /// <summary>Verifies missing checks/probes and different required kinds require the compatibility override.</summary>
     /// <param name="change">The declaration change.</param>
     /// <returns>A task that represents the asynchronous test operation.</returns>
@@ -815,6 +886,32 @@ public sealed class ComparisonCommandTests
     private static RunReport QualityReport(bool passed) => ReportFixture.Scored(
         [new CheckResult { Id = "fact", Passed = passed, Reason = passed ? null : "notFound" }],
         new ProbeResult { Requires = null, Status = passed ? "passed" : "failed", Reason = passed ? null : "canaryMissing", CanaryPresent = passed });
+
+    /// <summary>Creates a one-task report with one check named fact and the given compaction counters.</summary>
+    /// <param name="arm">The treatment or control arm.</param>
+    /// <param name="passed">Whether the check passed.</param>
+    /// <param name="masked">The masked counter.</param>
+    /// <param name="summarized">The summarized counter.</param>
+    /// <param name="dropped">The dropped counter.</param>
+    /// <param name="emergencyTruncations">The emergency truncation counter.</param>
+    /// <param name="strategyRuns">The strategy runs of the task's prepare.</param>
+    /// <returns>The valid report.</returns>
+    private static RunReport CheckedReport(string arm, bool passed, long masked = 0, long summarized = 0, long dropped = 0,
+        long emergencyTruncations = 0, long strategyRuns = 0)
+    {
+        var template = ReportFixture.Create(arm);
+        var task = template.Tasks[0];
+        var measurements = ReportAggregator.ToMeasurements(task) with
+        {
+            MessagesMasked = masked, MessagesSummarized = summarized, MessagesDropped = dropped, EmergencyTruncations = emergencyTruncations,
+            PrepareRecords = [task.PrepareRecords[0] with { StrategyRuns = strategyRuns }],
+        };
+        var aggregator = new ReportAggregator();
+        var check = new CheckResult { Id = "fact", Passed = passed, Reason = passed ? null : "notFound" };
+        var scored = aggregator.CreateTask(task.TaskId, task.Size, task.Outcome, task.ProtocolCompletion, task.ModelCallBudget, measurements,
+            [], 0, null, new AnswerScoringResult { Checks = [check], Probe = null });
+        return aggregator.CreateReport(template.Run, [scored], [], false);
+    }
 
     /// <summary>Verifies schema-3 check/probe fields are required and unknown/null/duplicate data is rejected.</summary>
     /// <param name="corruption">The independent JSON corruption.</param>
