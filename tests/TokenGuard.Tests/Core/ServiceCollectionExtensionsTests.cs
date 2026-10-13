@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Extensions;
 using TokenGuard.Tests.Diagnostics;
@@ -286,5 +287,25 @@ public sealed class ServiceCollectionExtensionsTests
 
         // Assert
         context.History.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void AddConversationContext_WhenTheConcreteFactoryIsResolved_ContextsDoNotLogThroughTheContainer()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var services = new ServiceCollection();
+        services.AddSingleton<ILoggerFactory>(logs);
+        services.AddConversationContext(cfg => cfg.WithMaxTokens(150_000));
+
+        using var provider = services.BuildServiceProvider();
+        using var context = provider.GetRequiredService<ConversationContextFactory>().Create();
+
+        // Act
+        context.AddUserMessage("hello");
+
+        // Assert
+        context.History.Should().ContainSingle();
+        logs.Records.Should().BeEmpty();
     }
 }
