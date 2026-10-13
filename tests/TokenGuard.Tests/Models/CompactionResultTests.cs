@@ -7,29 +7,30 @@ namespace TokenGuard.Tests.Models;
 public sealed class CompactionResultTests
 {
     [Fact]
-    public void Constructor_DefaultsSummarizationErrorToNull()
+    public void Constructor_WhenMessagesIsNull_ThrowsArgumentNullException()
     {
         // Arrange
-        var messages = new List<ContextMessage> { ContextMessage.FromText(MessageRole.User, "hi") };
 
         // Act
-        var result = new CompactionResult(messages, 10, 5, 1, "TestStrategy");
+        Action act = () => _ = new CompactionResult(null!, 10, 5, 1, "TestStrategy");
 
         // Assert
-        Assert.Null(result.SummarizationError);
+        Assert.Equal("messages", Assert.Throws<ArgumentNullException>(act).ParamName);
     }
 
-    [Fact]
-    public void Constructor_PreservesSuppliedSummarizationError()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Constructor_WhenStrategyNameIsNullOrWhitespace_ThrowsArgumentException(string? strategyName)
     {
         // Arrange
         var messages = new List<ContextMessage> { ContextMessage.FromText(MessageRole.User, "hi") };
-        var error = new InvalidOperationException("boom");
 
         // Act
-        var result = new CompactionResult(messages, 10, 5, 1, "TestStrategy", error);
+        Action act = () => _ = new CompactionResult(messages, 10, 5, 1, strategyName!);
 
         // Assert
-        Assert.Same(error, result.SummarizationError);
+        Assert.Equal("strategyName", Assert.ThrowsAny<ArgumentException>(act).ParamName);
     }
 }

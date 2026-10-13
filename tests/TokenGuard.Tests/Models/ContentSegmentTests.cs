@@ -122,30 +122,4 @@ public sealed class ContentSegmentTests
         // Assert
         Assert.Throws<ArgumentException>(act);
     }
-
-    [Fact]
-    public void ContentSegment_PatternMatching()
-    {
-        // Arrange
-        static string Describe(ContentSegment segment)
-        {
-            return segment switch
-            {
-                TextContent => "text",
-                ToolUseContent => "tool_use",
-                ToolResultContent => "tool_result",
-                _ => "unknown",
-            };
-        }
-
-        // Act
-        var textDescription = Describe(new TextContent("hello"));
-        var toolUseDescription = Describe(new ToolUseContent("call_1", "run", "{}"));
-        var toolResultDescription = Describe(new ToolResultContent("call_1", "run", "ok"));
-
-        // Assert
-        Assert.Equal("text", textDescription);
-        Assert.Equal("tool_use", toolUseDescription);
-        Assert.Equal("tool_result", toolResultDescription);
-    }
 }

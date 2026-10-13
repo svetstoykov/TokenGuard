@@ -483,7 +483,7 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
-    public async Task CompactAsync_SummarizerThrowsOnFirstCall_LeavesCheckpointAtDefaults()
+    public async Task CompactAsync_SummarizerThrowsOnFirstCall_SummarizesTheWholePrefixOnTheNextCall()
     {
         // Arrange
         var old = ContextMessage.FromText(MessageRole.User, "old");
@@ -505,21 +505,19 @@ public sealed class LlmSummarizationStrategyTests
 
         // Act
         await Assert.ThrowsAsync<InvalidOperationException>(() => strategy.CompactAsync([old, keep], 10));
-        var afterFailure = ReadCheckpoint(strategy);
-        _ = await strategy.CompactAsync([old, keep, next], 10);
-        var afterSuccess = ReadCheckpoint(strategy);
+        var afterSuccess = await strategy.CompactAsync([old, keep, next], 10);
 
         // Assert
-        Assert.Equal(0, afterFailure.CoveredCount);
-        Assert.Equal(0L, afterFailure.Fingerprint);
-        Assert.Null(afterFailure.Summary);
         Assert.Equal(2, summarizer.CallCount);
-        Assert.Equal(2, afterSuccess.CoveredCount);
-        Assert.NotNull(afterSuccess.Summary);
+        Assert.Equal([old, keep], summarizer.LastMessages);
+        Assert.Equal(2, afterSuccess.Messages.Count);
+        Assert.Equal(CompactionState.Summarized, afterSuccess.Messages[0].State);
+        Assert.Equal("summary-2", ReadText(afterSuccess.Messages[0]));
+        Assert.Same(next, afterSuccess.Messages[1]);
     }
 
     [Fact]
-    public async Task CompactAsync_SummarizerThrowsDuringPromotion_PreservesOriginalCheckpoint()
+    public async Task CompactAsync_SummarizerThrowsDuringPromotion_ReusesTheEarlierSummaryForTheEarlierHistory()
     {
         // Arrange
         var a = ContextMessage.FromText(MessageRole.User, "A");
@@ -552,24 +550,23 @@ public sealed class LlmSummarizationStrategyTests
             new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
 
         // Act
-        _ = await strategy.CompactAsync([a, b, c, d], 6);
-        var checkpointBeforePromotion = ReadCheckpoint(strategy);
+        var beforePromotion = await strategy.CompactAsync([a, b, c, d], 6);
         await Assert.ThrowsAsync<InvalidOperationException>(() => strategy.CompactAsync([a, b, c, d, e], 6));
-        var checkpointAfterFailure = ReadCheckpoint(strategy);
-        _ = await strategy.CompactAsync([a, b, c, d, e, f], 6);
-        var checkpointAfterRetry = ReadCheckpoint(strategy);
+        var afterFailure = await strategy.CompactAsync([a, b, c, d], 6);
+        var callsAfterFailure = summarizer.CallCount;
+        var afterRetry = await strategy.CompactAsync([a, b, c, d, e, f], 6);
 
         // Assert
+        Assert.Equal(2, callsAfterFailure);
+        Assert.Same(beforePromotion.Messages[0], afterFailure.Messages[0]);
+        Assert.Equal([c, d], afterFailure.Messages.Skip(1));
         Assert.Equal(3, summarizer.CallCount);
-        Assert.Equal(checkpointBeforePromotion.CoveredCount, checkpointAfterFailure.CoveredCount);
-        Assert.Equal(checkpointBeforePromotion.Fingerprint, checkpointAfterFailure.Fingerprint);
-        Assert.Same(checkpointBeforePromotion.Summary, checkpointAfterFailure.Summary);
-        Assert.Equal(4, checkpointAfterRetry.CoveredCount);
-        Assert.Equal("summary-3", ReadText(checkpointAfterRetry.Summary!));
+        Assert.Equal("summary-3", ReadText(afterRetry.Messages[0]));
+        Assert.Equal([e, f], afterRetry.Messages.Skip(1));
     }
 
     [Fact]
-    public async Task CompactAsync_CancellationBeforeLlmCall_ThrowsAndLeavesCheckpointUntouched()
+    public async Task CompactAsync_CancellationBeforeLlmCall_ThrowsWithoutCallingTheSummarizerAndSummarizesOnTheNextCall()
     {
         // Arrange
         var old = ContextMessage.FromText(MessageRole.User, "old");
@@ -589,17 +586,18 @@ public sealed class LlmSummarizationStrategyTests
 
         // Act
         await Assert.ThrowsAsync<OperationCanceledException>(() => strategy.CompactAsync([old, keep], 10, cts.Token));
-        var checkpoint = ReadCheckpoint(strategy);
+        var callsAfterCancellation = summarizer.CallCount;
+        var afterCancellation = await strategy.CompactAsync([old, keep], 10);
 
         // Assert
-        Assert.Equal(0, summarizer.CallCount);
-        Assert.Equal(0, checkpoint.CoveredCount);
-        Assert.Equal(0L, checkpoint.Fingerprint);
-        Assert.Null(checkpoint.Summary);
+        Assert.Equal(0, callsAfterCancellation);
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Equal(CompactionState.Summarized, afterCancellation.Messages[0].State);
+        Assert.Equal([keep], afterCancellation.Messages.Skip(1));
     }
 
     [Fact]
-    public async Task CompactAsync_CancellationDuringPromotion_PreservesCheckpointFromPriorCall()
+    public async Task CompactAsync_CancellationDuringPromotion_ReusesTheEarlierSummaryForTheEarlierHistory()
     {
         // Arrange
         var a = ContextMessage.FromText(MessageRole.User, "A");
@@ -632,8 +630,7 @@ public sealed class LlmSummarizationStrategyTests
             tokenCounter,
             new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
 
-        _ = await strategy.CompactAsync([a, b, c, d], 6);
-        var checkpointBeforeCancellation = ReadCheckpoint(strategy);
+        var beforeCancellation = await strategy.CompactAsync([a, b, c, d], 6);
 
         using var cts = new CancellationTokenSource();
 
@@ -641,13 +638,12 @@ public sealed class LlmSummarizationStrategyTests
         var compactionTask = strategy.CompactAsync([a, b, c, d, e], 6, cts.Token);
         await cts.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => compactionTask);
-        var checkpointAfterCancellation = ReadCheckpoint(strategy);
+        var afterCancellation = await strategy.CompactAsync([a, b, c, d], 6);
 
         // Assert
         Assert.Equal(2, summarizer.CallCount);
-        Assert.Equal(checkpointBeforeCancellation.CoveredCount, checkpointAfterCancellation.CoveredCount);
-        Assert.Equal(checkpointBeforeCancellation.Fingerprint, checkpointAfterCancellation.Fingerprint);
-        Assert.Same(checkpointBeforeCancellation.Summary, checkpointAfterCancellation.Summary);
+        Assert.Same(beforeCancellation.Messages[0], afterCancellation.Messages[0]);
+        Assert.Equal([c, d], afterCancellation.Messages.Skip(1));
     }
 
     [Fact]
@@ -675,18 +671,16 @@ public sealed class LlmSummarizationStrategyTests
 
         // Act — first call sets checkpoint: summary-1(2T)+c(2T)+d(2T)=6T≤10 → commit.
         //        second call: cached 6T>5 → rewrite; summary-2(1T)+c(2T)+d(2T)=5T≤5 → commit new summary.
-        _ = await strategy.CompactAsync([a, b, c, d], 10);
-        var before = ReadCheckpoint(strategy);
+        var first = await strategy.CompactAsync([a, b, c, d], 10);
         var compacted = await strategy.CompactAsync([a, b, c, d], 5);
-        var after = ReadCheckpoint(strategy);
 
         // Assert
         Assert.Equal(2, summarizer.CallCount);
         Assert.Equal([a, b], summarizer.Calls[1].Messages);
-        Assert.Equal(before.CoveredCount, after.CoveredCount);
-        Assert.Equal(before.Fingerprint, after.Fingerprint);
-        Assert.NotSame(before.Summary, after.Summary);
+        Assert.Equal("summary-1", ReadText(first.Messages[0]));
         Assert.Equal("summary-2", ReadText(compacted.Messages[0]));
+        Assert.Equal([c, d], first.Messages.Skip(1));
+        Assert.Equal([c, d], compacted.Messages.Skip(1));
     }
 
     [Fact]
@@ -955,7 +949,7 @@ public sealed class LlmSummarizationStrategyTests
     }
 
     [Fact]
-    public async Task CompactAsync_FirstTimeSummaryOvershoots_DoesNotSetCheckpointAndReturnsOriginalMessages()
+    public async Task CompactAsync_FirstTimeSummaryOvershoots_ReturnsOriginalMessages()
     {
         // Arrange
         var old = ContextMessage.FromText(MessageRole.User, "old");
@@ -976,19 +970,17 @@ public sealed class LlmSummarizationStrategyTests
             new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
 
         // Act — protectedTail=[keep2(4T)], remainingBudget=10-4=6≥1; LLM fires;
-        //        summary(100T)+keep2(4T)=104>10 → overshoot; checkpoint must not be set.
+        //        summary(100T)+keep2(4T)=104>10 → overshoot.
         var compacted = await strategy.CompactAsync(messages, 10);
-        var checkpoint = ReadCheckpoint(strategy);
 
         // Assert
         Assert.Equal(1, summarizer.CallCount);
         Assert.Same(messages, compacted.Messages);
         Assert.Equal(0, compacted.MessagesAffected);
-        Assert.Null(checkpoint.Summary);
     }
 
     [Fact]
-    public async Task CompactAsync_CheckpointRewriteOvershoots_PreservesExistingCheckpointAndReturnsOriginalMessages()
+    public async Task CompactAsync_CheckpointRewriteOvershoots_ReturnsOriginalMessagesAndReusesTheEarlierSummaryWhenItFitsAgain()
     {
         // Arrange — windowSize=1 so only the last message is the protected tail.
         var a = ContextMessage.FromText(MessageRole.User, "A");
@@ -1013,22 +1005,22 @@ public sealed class LlmSummarizationStrategyTests
             new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 100));
 
         // First call: protectedTail=[d(2T)], summary-1(2T)+d(2T)=4≤20 → checkpoint set covering [a,b,c].
-        _ = await strategy.CompactAsync(messages, 20);
-        var checkpointAfterFirst = ReadCheckpoint(strategy);
+        var first = await strategy.CompactAsync(messages, 20);
 
         // Second call: cachedResult=[summary-1(2T),d(2T)]=4>3 → rewrite; remainingBudget=3-2=1≥1; LLM fires;
-        //              big-summary-2(1000T)+d(2T)=1002>3 → overshoot; checkpoint must remain unchanged.
+        //              big-summary-2(1000T)+d(2T)=1002>3 → overshoot.
         var compacted = await strategy.CompactAsync(messages, 3);
-        var checkpointAfterSecond = ReadCheckpoint(strategy);
+
+        // Third call: the budget of the first call is back, so the summary of the first call fits again.
+        var third = await strategy.CompactAsync(messages, 20);
 
         // Assert
         Assert.Equal(2, summarizer.CallCount);
         Assert.Same(messages, compacted.Messages);
         Assert.Equal(0, compacted.MessagesAffected);
-        Assert.Equal(checkpointAfterFirst.CoveredCount, checkpointAfterSecond.CoveredCount);
-        Assert.Equal(checkpointAfterFirst.Fingerprint, checkpointAfterSecond.Fingerprint);
-        Assert.Same(checkpointAfterFirst.Summary, checkpointAfterSecond.Summary);
-        Assert.Equal("summary-1", ReadText(checkpointAfterSecond.Summary!));
+        Assert.Same(first.Messages[0], third.Messages[0]);
+        Assert.Equal("summary-1", ReadText(third.Messages[0]));
+        Assert.Equal([d], third.Messages.Skip(1));
     }
 
     [Fact]
@@ -1150,11 +1142,12 @@ public sealed class LlmSummarizationStrategyTests
 
         // Act
         var compacted = await strategy.CompactAsync(messages, 5);
+        var withFirstBudget = await strategy.CompactAsync(messages, 20);
 
         // Assert
         Assert.Equal(2, summarizer.CallCount);
         Assert.Same(messages, compacted.Messages);
-        Assert.Equal("summary-1", ReadText(ReadCheckpoint(strategy).Summary!));
+        Assert.Equal("summary-1", ReadText(withFirstBudget.Messages[0]));
     }
 
     /// <summary>
@@ -1204,26 +1197,6 @@ public sealed class LlmSummarizationStrategyTests
         }
 
         return messages;
-    }
-
-    private static (int CoveredCount, long Fingerprint, ContextMessage? Summary) ReadCheckpoint(LlmSummarizationStrategy strategy)
-    {
-        var strategyType = typeof(LlmSummarizationStrategy);
-        var checkpoint = strategyType
-            .GetField("_checkpoint", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .GetValue(strategy);
-
-        if (checkpoint is null)
-        {
-            return (0, 0L, null);
-        }
-
-        var checkpointType = checkpoint.GetType();
-        var coveredCount = (int)checkpointType.GetProperty("SummarizedMessageCount")!.GetValue(checkpoint)!;
-        var fingerprint = (long)checkpointType.GetProperty("Fingerprint")!.GetValue(checkpoint)!;
-        var summary = (ContextMessage?)checkpointType.GetProperty("SummaryMessage")!.GetValue(checkpoint);
-
-        return (coveredCount, fingerprint, summary);
     }
 
     private static string ReadText(ContextMessage message)
