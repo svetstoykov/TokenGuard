@@ -29,21 +29,29 @@ conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
-while (true)
+const int maxTurns = 20;
+
+for (var turn = 1; turn <= maxTurns; turn++)
 {
     var prepared = await conversationContext.PrepareAsync();
 
-    if (prepared.Outcome == PrepareOutcome.CannotCompact)
+    // Both outcomes mean the prepared request is still over the budget, so stop before the provider rejects it.
+    if (prepared.Outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
     ChatCompletion response = await chatClient.CompleteChatAsync(prepared.Messages.ForOpenAI(), chatOptions);
+    var segments = response.ResponseSegments();
 
-    conversationContext.RecordModelResponse(response.ResponseSegments(), response.InputTokens());
+    // A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+    if (segments.Count == 0)
+        throw new InvalidOperationException("The model returned an empty reply.");
+
+    conversationContext.RecordModelResponse(segments, response.InputTokens());
 
     if (response.ToolCalls.Count == 0)
     {
-        Console.WriteLine(response.Content[0].Text);
-        break;
+        Console.WriteLine(string.Join(Environment.NewLine, response.TextSegments().Select(segment => segment.Content)));
+        return;
     }
 
     foreach (var toolCall in response.ToolCalls)
@@ -52,6 +60,8 @@ while (true)
         conversationContext.RecordToolResult(toolCall.Id, toolCall.FunctionName, result);
     }
 }
+
+Console.WriteLine($"Stopped after {maxTurns} model calls without a final answer.");
 
 static string ExecuteTool(ChatToolCall toolCall) => toolCall.FunctionName switch
 {

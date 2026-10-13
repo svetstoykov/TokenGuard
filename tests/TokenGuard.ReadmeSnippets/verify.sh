@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds the README's OpenAI and Anthropic quick starts against packages packed from the working tree,
-# then checks that the READMEs still carry the compiled text.
+# Builds the README's OpenAI and Anthropic quick starts and the fragments of the OpenAI package readme against packages
+# packed from the working tree, then checks that the READMEs still carry the compiled text.
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,6 +11,9 @@ readmes=("README.md" "src/TokenGuard.Core/PackageReadme.md")
 blocks=("QuickStart")
 anthropic_program="$project_dir/AnthropicQuickStart.cs"
 anthropic_package_readme="src/TokenGuard.Extensions.Anthropic/PackageReadme.md"
+anthropic_blocks=("AnthropicUsings" "AnthropicSetup" "AnthropicLoop")
+openai_fragments="$project_dir/OpenAIPackageReadme.cs"
+openai_package_readme="src/TokenGuard.Extensions.OpenAI/PackageReadme.md"
 
 rm -rf "$work_dir" "$project_dir/bin" "$project_dir/obj"
 
@@ -53,8 +56,9 @@ for readme in "${readmes[@]}"; do
   check_blocks "$program" "$readme" "${blocks[@]}"
 done
 
-check_blocks "$anthropic_program" "README.md" "AnthropicLoop"
-check_blocks "$anthropic_program" "$anthropic_package_readme" "AnthropicUsings" "AnthropicSetup" "AnthropicLoop"
+check_blocks "$anthropic_program" "README.md" "${anthropic_blocks[@]}"
+check_blocks "$anthropic_program" "$anthropic_package_readme" "${anthropic_blocks[@]}"
+check_blocks "$openai_fragments" "$openai_package_readme" "OpenAIUsings" "OpenAIOverview" "OpenAIRegistration" "OpenAIPrepare" "OpenAISend"
 
 if [ "$failed" -ne 0 ]; then
   exit 1
