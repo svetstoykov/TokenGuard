@@ -29,10 +29,14 @@ internal interface IConversationSummaryFormatter
     /// </remarks>
     /// <param name="messages">The ordered source messages that should appear in the summarization transcript.</param>
     /// <param name="targetTokens">The maximum token budget requested for the generated summary.</param>
+    /// <param name="requestTokenBudget">
+    /// The largest request to build, in tokens, counting the summarizer system prompt and the returned user prompt. A
+    /// transcript above it is shortened; the newest exchange is always included, even when it alone is above the budget.
+    /// </param>
     /// <returns>The fully formatted user prompt content for one summarization request.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="targetTokens"/> is less than or equal to zero.</exception>
-    string BuildUserPrompt(IReadOnlyList<ContextMessage> messages, int targetTokens);
+    string BuildUserPrompt(IReadOnlyList<ContextMessage> messages, int targetTokens, int requestTokenBudget);
 
     /// <summary>
     /// Formats the supplied messages into the compact transcript consumed by the summarization prompt.

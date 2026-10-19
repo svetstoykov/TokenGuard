@@ -35,10 +35,15 @@ internal interface ILlmSummarizer
     /// A strategy-enforced upper bound on the summary token budget. Always positive. Treat as guidance for how
     /// large the summary should be, not as a requirement to fill the entire allowance.
     /// </param>
+    /// <param name="requestTokenBudget">
+    /// The largest request the summarizer should send, in tokens, counting its instructions and the transcript of
+    /// <paramref name="messages"/>. The strategy passes the tokens available to the compacted conversation.
+    /// </param>
     /// <param name="cancellationToken">A token that can cancel the summarization request.</param>
     /// <returns>A task that resolves to the summary text generated for <paramref name="messages"/>.</returns>
     Task<string> SummarizeAsync(
         IReadOnlyList<ContextMessage> messages,
         int targetTokens,
+        int requestTokenBudget,
         CancellationToken cancellationToken = default);
 }
