@@ -207,6 +207,65 @@ public sealed class ConversationContextProviderCorrectionTests
         result.Outcome.Should().Be(PrepareOutcome.Compacted);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task PrepareAsync_WhenTheProviderReportIsZeroOrLess_StillCompactsAHistoryAboveTheTrigger(int providerInputTokens)
+    {
+        // Arrange
+        using var context = CreateContext(StubCompactionStrategy.KeepNewest(2));
+        context.AddUserMessage(Text(300));
+        context.RecordModelResponse([new TextContent(Text(100))]);
+        context.AddUserMessage(Text(450));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(50))], providerInputTokens);
+
+        // Act
+        var result = await context.PrepareAsync();
+
+        // Assert
+        // The messages sum to 900, above the trigger of 800, and no correction was learned.
+        result.Outcome.Should().Be(PrepareOutcome.Compacted);
+        result.TokensBeforeCompaction.Should().Be(900);
+        result.TokensAfterCompaction.Should().Be(500);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public async Task PrepareAsync_WhenAProviderReportOfZeroOrLessFollowsACorrection_AppliesTheSameCorrectionAgain(int providerInputTokens)
+    {
+        // Arrange
+        using var context = await CreateCorrectedConversationAsync(StubCompactionStrategy.Unchanged());
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(10))], providerInputTokens);
+
+        // Act
+        var result = await context.PrepareAsync();
+
+        // Assert
+        // The messages sum to 660 and the correction stays 300.
+        result.TokensBeforeCompaction.Should().Be(960);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenAPositiveProviderReportFollowsAReportOfZero_ReplacesTheCorrection()
+    {
+        // Arrange
+        using var context = await CreateCorrectedConversationAsync(StubCompactionStrategy.Unchanged());
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(10))], providerInputTokens: 0);
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(10))], providerInputTokens: 700);
+
+        // Act
+        var result = await context.PrepareAsync();
+
+        // Assert
+        // The messages sum to 670 and the correction is 700 - 660 = 40.
+        result.TokensBeforeCompaction.Should().Be(710);
+    }
+
     // The messages sum to 650, and the correction is 900 - 600 = 300, learned on a payload of 600.
     private static async Task<ConversationContext> CreateCorrectedConversationAsync(ICompactionStrategy strategy)
     {

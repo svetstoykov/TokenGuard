@@ -44,7 +44,7 @@ internal static partial class SummarizerLog
         EventName = "SummarizerCallCompleted",
         Level = LogLevel.Debug,
         Message = "{Provider} summarizer call completed in {ElapsedMilliseconds:F1} ms: summary of {SummaryLength} characters, provider "
-            + "reported {InputTokens} input and {OutputTokens} output tokens ({ReasoningTokens} reasoning), finish reason {FinishReason}.")]
+            + "reported {InputTokens} input and {OutputTokens} output tokens, finish reason {FinishReason}, reasoning tokens: {ReasoningTokens}.")]
     internal static partial void SummarizerCallCompleted(
         ILogger logger, string provider, double elapsedMilliseconds, int summaryLength, long? inputTokens, long? outputTokens,
         long? reasoningTokens, string? finishReason);
@@ -71,4 +71,21 @@ internal static partial class SummarizerLog
     internal static partial void SummarizerCallFailed(
         ILogger logger, string provider, double elapsedMilliseconds, string exceptionType, long? outputTokens, long? reasoningTokens,
         string? finishReason);
+
+    /// <summary>
+    ///     Logs that a provider returned a summary that it cut at the output limit of the request.
+    /// </summary>
+    /// <remarks>
+    ///     The summary is used as it arrived. Its last section can be incomplete.
+    /// </remarks>
+    /// <param name="logger">The logger to write to.</param>
+    /// <param name="provider">The name of the provider.</param>
+    /// <param name="outputCap">The output limit of the request in tokens.</param>
+    /// <param name="outputTokens">The output tokens reported by the provider, or <see langword="null" /> when not reported.</param>
+    [LoggerMessage(
+        EventId = 5003,
+        EventName = "SummarizerOutputCut",
+        Level = LogLevel.Warning,
+        Message = "{Provider} summary was cut at the output limit of {OutputCap} tokens; provider-reported output tokens: {OutputTokens}.")]
+    internal static partial void SummarizerOutputCut(ILogger logger, string provider, int outputCap, long? outputTokens);
 }

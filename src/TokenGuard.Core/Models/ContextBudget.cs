@@ -83,6 +83,11 @@ public readonly record struct ContextBudget
     /// after the primary compaction strategy has already run.
     /// </para>
     /// <para>
+    /// The emergency pass keeps a summary message and every message after it. A prepared view that starts with a summary
+    /// is returned with nothing dropped, and one that is still above the budget surfaces as
+    /// <see cref="Enums.PrepareOutcome.CompactionInsufficient"/>.
+    /// </para>
+    /// <para>
     /// When <see langword="null"/>, the runtime skips the emergency pass entirely after the primary compaction strategy
     /// runs. A conversation that still exceeds the budget at that point surfaces as
     /// <see cref="Enums.PrepareOutcome.CompactionInsufficient"/> or <see cref="Enums.PrepareOutcome.CannotCompact"/> instead of
@@ -131,7 +136,16 @@ public readonly record struct ContextBudget
     /// </summary>
     public int? EmergencyTriggerTokens => this.EmergencyThreshold.HasValue
         ? (int)Math.Floor(this.MaxTokens * this.EmergencyThreshold.Value)
-        : null; 
+        : null;
+
+    /// <summary>
+    /// Gets a value indicating whether this value was created by the constructor.
+    /// </summary>
+    /// <value>
+    /// <see langword="true"/> if the constructor produced this value; <see langword="false"/> for
+    /// <c>default(ContextBudget)</c>, whose <see cref="MaxTokens"/> is zero.
+    /// </value>
+    internal bool IsInitialized => this.MaxTokens > 0;
 
     /// <summary>
     /// Creates a <see cref="ContextBudget"/> that uses the library's default threshold policy.

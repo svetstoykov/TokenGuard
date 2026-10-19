@@ -29,7 +29,8 @@ internal sealed class ScriptedSummarizer(Func<int, string> summarize) : ILlmSumm
     public static ScriptedSummarizer Throwing(Exception exception) => new(_ => throw exception);
 
     /// <inheritdoc />
-    public Task<string> SummarizeAsync(IReadOnlyList<ContextMessage> messages, int targetTokens, CancellationToken cancellationToken = default)
+    public Task<string> SummarizeAsync(
+        IReadOnlyList<ContextMessage> messages, int targetTokens, int requestTokenBudget, CancellationToken cancellationToken = default)
     {
         this.Calls++;
         return Task.FromResult(summarize(this.Calls));

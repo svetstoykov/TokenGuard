@@ -46,9 +46,14 @@ public sealed class ConversationContextFactory : IConversationContextFactory
     /// <see cref="AddNamed(string, ConversationContextConfiguration)"/>.
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="config"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when the budget of <paramref name="config"/> is the uninitialized <see langword="default"/> value of
+    /// <see cref="ContextBudget"/>.
+    /// </exception>
     public ConversationContextFactory(ConversationContextConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(config);
+        ThrowIfBudgetIsUninitialized(config, nameof(config));
         this._default = config;
         this._named = new Dictionary<string, ConversationContextConfiguration>(StringComparer.Ordinal);
     }
@@ -86,10 +91,15 @@ public sealed class ConversationContextFactory : IConversationContextFactory
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="name"/> or <paramref name="config"/> is null.
     /// </exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when the budget of <paramref name="config"/> is the uninitialized <see langword="default"/> value of
+    /// <see cref="ContextBudget"/>.
+    /// </exception>
     public ConversationContextFactory AddNamed(string name, ConversationContextConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(config);
+        ThrowIfBudgetIsUninitialized(config, nameof(config));
         this._named[name] = config;
         return this;
     }
@@ -148,5 +158,16 @@ public sealed class ConversationContextFactory : IConversationContextFactory
             : config.StrategyFactory(counter);
 
         return new ConversationContext(config.Budget, counter, strategy, diagnostics);
+    }
+
+    private static void ThrowIfBudgetIsUninitialized(ConversationContextConfiguration config, string paramName)
+    {
+        if (!config.Budget.IsInitialized)
+        {
+            throw new ArgumentException(
+                "The configuration budget was not initialized. "
+                + "Create it with the ContextBudget constructor or ContextBudget.For(...) instead of default(ContextBudget).",
+                paramName);
+        }
     }
 }

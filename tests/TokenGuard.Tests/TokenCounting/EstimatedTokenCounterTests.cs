@@ -79,6 +79,44 @@ public class EstimatedTokenCounterTests
         Assert.Empty(outside);
     }
 
+    [Theory]
+    [InlineData("partial tool output �", 0xD83D)]
+    [InlineData("� rest of the tool output", 0xDE00)]
+    [InlineData("before � after", 0xD83D)]
+    [InlineData("before � after", 0xDE00)]
+    [InlineData("word�word", 0xD83D)]
+    [InlineData("123�456", 0xD83D)]
+    [InlineData("�", 0xD83D)]
+    [InlineData("���", 0xD83D)]
+    public void Count_WhenTheTextHoldsHalfOfASurrogatePair_CountsItLikeTheReplacementCharacter(string replaced, int surrogate)
+    {
+        // Arrange
+        // The test runner replaces half a surrogate pair in theory data, so the text is built here.
+        var text = replaced.Replace('�', (char)surrogate);
+        var message = ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_1", "read_file", text));
+        var expected = this._counter.Count(ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_1", "read_file", replaced)));
+
+        // Act
+        var result = this._counter.Count(message);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Count_WhenAJsonToolResultHoldsHalfOfASurrogatePair_ReturnsAPositiveCount()
+    {
+        // Arrange
+        var json = "{\"output\":\"cut in an emoji " + '\uD83D' + "\"}";
+        var message = ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_1", "read_file", json));
+
+        // Act
+        var result = this._counter.Count(message);
+
+        // Assert
+        Assert.True(result > 0, $"Expected a positive count, got {result}.");
+    }
+
     [Fact]
     public void Count_ForAnEmptyMessageList_ReturnsZero()
     {

@@ -30,7 +30,8 @@ namespace TokenGuard.Core.Models;
 /// </remarks>
 /// <param name="Budget">
 /// Defines the token limits for conversations created from this configuration, including the
-/// compaction trigger threshold and the number of tokens reserved for the next model response.
+/// compaction trigger threshold and the emergency truncation threshold. The built-in factory rejects a configuration
+/// whose budget is <c>default(ContextBudget)</c>.
 /// </param>
 /// <param name="StrategyFactory">
 /// Creates the <see cref="ICompactionStrategy"/> used by one conversation-context instance from that context's
