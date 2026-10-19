@@ -10,11 +10,20 @@ namespace TokenGuard.Tests.Diagnostics;
 /// <param name="json">The JSON body of the response.</param>
 internal sealed class StubHttpMessageHandler(HttpStatusCode statusCode, string json) : HttpMessageHandler
 {
+    /// <summary>
+    ///     Gets the body of the last request, or <see langword="null" /> before the first request or when it had no body.
+    /// </summary>
+    public string? LastRequestBody { get; private set; }
+
     /// <inheritdoc />
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-        Task.FromResult(new HttpResponseMessage(statusCode)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        this.LastRequestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+
+        return new HttpResponseMessage(statusCode)
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
             RequestMessage = request,
-        });
+        };
+    }
 }

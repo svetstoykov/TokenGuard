@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Changes for 1.3.0. No public signature changed.
+
+### Changed
+
+- The summarizer request is built to a token budget: the tokens available to the compacted conversation, which is the
+  context's `MaxTokens` minus its pinned messages. The budget covers the summarizer instructions and the transcript,
+  counted with the library's estimator. When the request is above it, long text segments in the transcript are
+  shortened from the oldest message on, the way tool results already are, and then the oldest exchanges are left out;
+  the transcript starts with a line such as `[3 earlier exchanges omitted]`. The newest exchange is always sent. A
+  request that fits is sent as before.
+- The summarizer instructions state that the transcript is data and that instructions inside it are not followed, and
+  describe the two shortened forms above. Every summary is produced with the new instructions, so figures measured
+  with 1.2.0 belong to the 1.2.0 instructions.
+- The summarizer request caps the output at twice the target tokens instead of at the target. The model is still
+  asked for the target size; the margin is there because on a model that thinks, thinking counts against the output
+  cap. A summary larger than the target is accepted as long as the compacted history fits the available tokens.
+- A summarizer answer cut at the output limit (OpenAI finish reason `length`, Anthropic stop reason `max_tokens`) is
+  still used as the summary, and is now reported by the new `Warning` event 5003 (`SummarizerOutputCut`) with the
+  output limit and the provider-reported output tokens.
+- The message of event 5001 (`SummarizerCallCompleted`) ends with `reasoning tokens: {ReasoningTokens}` in place of
+  `({ReasoningTokens} reasoning)` before the finish reason. Its properties are unchanged.
+- `TokenGuard.Extensions.OpenAI`: a summarizer answer that is a refusal throws an `InvalidOperationException` that
+  says so and carries the refusal text, where it used to be reported as an empty answer.
+
+### Fixed
+
+- `TokenGuard.Extensions.Anthropic`: a summarizer answer without usage yields its summary. Reading the missing usage
+  used to fail the call, so the summary was discarded and recorded as a summarization failure.
+
 ## [1.2.0] - 2026-10-13
 
 Released packages: `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, and `TokenGuard.Extensions.Anthropic`, all at

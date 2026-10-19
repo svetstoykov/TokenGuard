@@ -448,6 +448,7 @@ public sealed class ConversationConfigBuilderTests
         public Task<string> SummarizeAsync(
             IReadOnlyList<ContextMessage> messages,
             int targetTokens,
+            int requestTokenBudget,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();

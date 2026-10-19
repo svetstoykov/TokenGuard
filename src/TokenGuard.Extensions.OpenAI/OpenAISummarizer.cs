@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpenAI.Chat;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Summarization;
@@ -58,6 +59,7 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
     public async Task<string> SummarizeAsync(
         IReadOnlyList<ContextMessage> messages,
         int targetTokens,
+        int requestTokenBudget,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
@@ -71,6 +73,7 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
         var startTimestamp = logCall ? Stopwatch.GetTimestamp() : 0;
         SummarizerLog.SummarizerCallStarting(this._logger, ProviderName, model: null, messages.Count, targetTokens);
 
+        var outputCap = (int)Math.Min((long)targetTokens * LlmSummarizationDefaults.OutputCapFactor, int.MaxValue);
         string? finishReason = null;
         long? outputTokens = null;
         long? reasoningTokens = null;
@@ -80,11 +83,11 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
             var completion = (await this._client.CompleteChatAsync(
                     [
                         new SystemChatMessage(ConversationSummaryPrompt.SystemPrompt),
-                        new UserChatMessage(this._formatter.BuildUserPrompt(messages, targetTokens)),
+                        new UserChatMessage(this._formatter.BuildUserPrompt(messages, targetTokens, requestTokenBudget)),
                     ],
                     new ChatCompletionOptions
                     {
-                        MaxOutputTokenCount = targetTokens,
+                        MaxOutputTokenCount = outputCap,
                     },
                     cancellationToken)
                 .ConfigureAwait(false)).Value;
@@ -93,6 +96,13 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
             outputTokens = completion.Usage?.OutputTokenCount;
             reasoningTokens = completion.Usage?.OutputTokenDetails?.ReasoningTokenCount;
             TokenGuardTelemetry.RecordSummarizerResponse(finishReason, outputTokens, reasoningTokens);
+
+            if (!string.IsNullOrWhiteSpace(completion.Refusal))
+            {
+                throw new InvalidOperationException(
+                    $"OpenAI summarization was refused. Finish reason: {finishReason}; output tokens: {Reported(outputTokens)}; "
+                    + $"reasoning tokens: {Reported(reasoningTokens)}. Refusal: {completion.Refusal}");
+            }
 
             var summary = string.Join(
                     Environment.NewLine,
@@ -106,6 +116,11 @@ internal sealed class OpenAISummarizer : ILlmSummarizer
                 throw new InvalidOperationException(
                     $"OpenAI summarization returned an empty answer. Finish reason: {finishReason}; output tokens: {Reported(outputTokens)}; "
                     + $"reasoning tokens: {Reported(reasoningTokens)}.");
+            }
+
+            if (completion.FinishReason == ChatFinishReason.Length)
+            {
+                SummarizerLog.SummarizerOutputCut(this._logger, ProviderName, outputCap, outputTokens);
             }
 
             if (logCall)

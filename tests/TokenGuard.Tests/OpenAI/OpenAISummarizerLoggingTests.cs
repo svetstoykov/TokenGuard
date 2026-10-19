@@ -2,6 +2,7 @@ using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Diagnostics;
 using System.Net;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using OpenAI;
@@ -22,6 +23,7 @@ public sealed class OpenAISummarizerLoggingTests
     private const int CallStarting = 5000;
     private const int CallCompleted = 5001;
     private const int CallFailed = 5002;
+    private const int OutputCut = 5003;
     private const string Summary = "SENTINEL-summary of the older turns";
 
     private const string CompletionJson = """
@@ -46,6 +48,122 @@ public sealed class OpenAISummarizerLoggingTests
           }
         }
         """;
+
+    private const string RefusalCompletionJson = """
+        {
+          "id": "chatcmpl-3", "object": "chat.completion", "created": 1, "model": "gpt-test",
+          "choices": [
+            {
+              "index": 0, "finish_reason": "stop",
+              "message": { "role": "assistant", "content": null, "refusal": "I cannot summarize this conversation." }
+            }
+          ],
+          "usage": { "prompt_tokens": 11, "completion_tokens": 9, "total_tokens": 20 }
+        }
+        """;
+
+    private const string CutCompletionJson = """
+        {
+          "id": "chatcmpl-4", "object": "chat.completion", "created": 1, "model": "gpt-test",
+          "choices": [
+            { "index": 0, "message": { "role": "assistant", "content": "SENTINEL-summary of the older turns" }, "finish_reason": "length" }
+          ],
+          "usage": { "prompt_tokens": 11, "completion_tokens": 80, "total_tokens": 91 }
+        }
+        """;
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerWasCutAtTheOutputLimit_YieldsTheSummary()
+    {
+        // Arrange
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, CutCompletionJson);
+
+        // Act
+        var result = await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        result.SummarizationError.Should().BeNull();
+        result.Messages[0].Segments.Should().ContainSingle().Which.Content.Should().Be(Summary);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerWasCutAtTheOutputLimit_LogsAWarningWithTheCapAndTheOutputTokens()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, CutCompletionJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        var cut = logs.WithEventId(OutputCut).Should().ContainSingle().Subject;
+        cut.Level.Should().Be(LogLevel.Warning);
+        cut.Property("Provider").Should().Be("OpenAI");
+        cut.Property("OutputCap").Should().Be(80);
+        cut.Property("OutputTokens").Should().Be(80L);
+        cut.Message.Should().Be("OpenAI summary was cut at the output limit of 80 tokens; provider-reported output tokens: 80.");
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_CapsTheOutputAtTwiceTheTargetTokens()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var handler = new StubHttpMessageHandler(HttpStatusCode.OK, CompletionJson);
+        var strategy = CreateStrategy(logs, handler);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        logs.WithEventId(CallStarting).Single().Property("TargetTokens").Should().Be(40);
+        using var request = JsonDocument.Parse(handler.LastRequestBody!);
+        request.RootElement.GetProperty("max_completion_tokens").GetInt32().Should().Be(80);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheAnswerEndedNormally_LogsNoCutWarning()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var strategy = CreateStrategy(logs, HttpStatusCode.OK, CompletionJson);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        logs.WithEventId(OutputCut).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheModelRefuses_ThrowsNamingTheRefusalAndItsText()
+    {
+        // Arrange
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), HttpStatusCode.OK, RefusalCompletionJson);
+
+        // Act
+        var result = await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        result.SummarizationError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be(
+            "OpenAI summarization was refused. Finish reason: stop; output tokens: 9; reasoning tokens: not reported. "
+            + "Refusal: I cannot summarize this conversation.");
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WhenTheTranscriptIsAboveTheRequestBudget_SendsARequestThatSaysWhatWasLeftOut()
+    {
+        // Arrange
+        var handler = new StubHttpMessageHandler(HttpStatusCode.OK, CompletionJson);
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), handler);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
+
+        // Assert
+        handler.LastRequestBody.Should().Contain("[1 earlier exchange omitted]").And.Contain("SENTINEL-2").And.NotContain("SENTINEL-0");
+    }
 
     [Fact]
     public async Task SummarizeAsync_WhenTheCallSucceeds_LogsOneRecordBeforeAndOneAfter()
@@ -223,11 +341,14 @@ public sealed class OpenAISummarizerLoggingTests
     /// <summary>
     ///     Builds the strategy the way <c>UseLlmSummarization</c> wires it, with the OpenAI client answering from a stub.
     /// </summary>
-    private static ICompactionStrategy CreateStrategy(CapturingLoggerFactory logs, HttpStatusCode statusCode, string json)
+    private static ICompactionStrategy CreateStrategy(CapturingLoggerFactory logs, HttpStatusCode statusCode, string json) =>
+        CreateStrategy(logs, new StubHttpMessageHandler(statusCode, json));
+
+    private static ICompactionStrategy CreateStrategy(CapturingLoggerFactory logs, StubHttpMessageHandler handler)
     {
         var options = new OpenAIClientOptions
         {
-            Transport = new HttpClientPipelineTransport(new HttpClient(new StubHttpMessageHandler(statusCode, json))),
+            Transport = new HttpClientPipelineTransport(new HttpClient(handler)),
         };
         var configuration = new ConversationConfigBuilder()
             .WithMaxTokens(1_000)
