@@ -40,6 +40,11 @@ Changes for 1.3.0. No public signature changed.
   `({ReasoningTokens} reasoning)` before the finish reason. Its properties are unchanged.
 - `TokenGuard.Extensions.OpenAI`: a summarizer answer that is a refusal throws an `InvalidOperationException` that
   says so and carries the refusal text, where it used to be reported as an empty answer.
+- Tool-result masking leaves a tool result as it is when its estimated tokens are not above those of its placeholder,
+  measured against the configured `SlidingWindowOptions.PlaceholderFormat`. A message is marked `Masked` only when at
+  least one of its results was replaced, and `PrepareResult.MessagesCompacted` and the `ToolResultMasked` log records
+  count only replaced results. A prepared view can differ from the one 1.2.0 produces for the same history when that
+  history holds tool results shorter than the placeholder.
 
 ### Fixed
 

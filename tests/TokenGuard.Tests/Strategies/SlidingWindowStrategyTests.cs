@@ -4,6 +4,8 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
+using TokenGuard.Core.TokenCounting;
+using TokenGuard.Tests.Diagnostics;
 
 namespace TokenGuard.Tests.Strategies;
 
@@ -124,7 +126,7 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
-        Assert.Equal(10, tokenCounter.CountCalls);
+        Assert.Equal(11, tokenCounter.CountCalls);
         Assert.Same(messages[1], compacted.Messages[1]);
         Assert.Same(messages[2], compacted.Messages[2]);
         Assert.Same(messages[3], compacted.Messages[3]);
@@ -161,7 +163,7 @@ public sealed class SlidingWindowStrategyTests
         var compacted = await strategy.CompactAsync(messages, 10);
 
         // Assert
-        Assert.Equal(10, tokenCounter.CountCalls);
+        Assert.Equal(11, tokenCounter.CountCalls);
         Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
         Assert.Same(messages[1], compacted.Messages[1]);
         Assert.Same(messages[2], compacted.Messages[2]);
@@ -217,6 +219,7 @@ public sealed class SlidingWindowStrategyTests
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(newest, 4);
         tokenCounter.Set(olderToolResult, 4);
+        tokenCounter.Set(oldestToolResult, 4);
 
         var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.40));
 
@@ -387,6 +390,8 @@ public sealed class SlidingWindowStrategyTests
 
         var tokenCounter = new TrackingTokenCounter();
         tokenCounter.Set(protectedMessage, 7);
+        tokenCounter.Set(firstToolResult, 5);
+        tokenCounter.Set(secondToolResult, 5);
 
         var strategy = new SlidingWindowStrategy(tokenCounter, new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
@@ -469,7 +474,7 @@ public sealed class SlidingWindowStrategyTests
         // Arrange
         var messages = new List<ContextMessage>
         {
-            CreateToolResultMessage("call_1", "read_file", "file text"),
+            CreateToolResultMessage("call_1", "read_file", "file text") with { TokenCount = 6 },
             ContextMessage.FromText(MessageRole.User, "recent") with { TokenCount = 6 },
         };
 
@@ -653,6 +658,194 @@ public sealed class SlidingWindowStrategyTests
         // Assert
         Assert.Same(messages, compacted.Messages);
         Assert.Equal(0, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenToolResultIsShorterThanItsPlaceholder_ReturnsItUnchangedAndMasksLongerNeighbour()
+    {
+        // Arrange
+        var shortResult = CreateToolResultMessage("call_0", "write_file", "ok");
+        var longResult = CreateToolResultMessage("call_1", "read_file", string.Join(' ', Enumerable.Repeat("a line of file text", 40)));
+        var newest = ContextMessage.FromText(MessageRole.User, "recent");
+        var messages = new List<ContextMessage> { shortResult, longResult, newest };
+
+        var strategy = new SlidingWindowStrategy(new EstimatedTokenCounter(), new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Same(shortResult, compacted.Messages[0]);
+        Assert.Equal(CompactionState.Original, compacted.Messages[0].State);
+        Assert.Equal(CompactionState.Masked, compacted.Messages[1].State);
+        Assert.Equal(
+            "[Tool result removed to save context — read_file, call_1. Call the tool again if you need this content.]",
+            Assert.Single(compacted.Messages[1].Segments).Content);
+        Assert.Same(newest, compacted.Messages[2]);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenMessageHoldsShortAndLongToolResults_ReplacesOnlyTheLongOnes()
+    {
+        // Arrange
+        var shortFirst = new ToolResultContent("call_0", "write_file", "ok");
+        var longResult = new ToolResultContent("call_1", "read_file", new string('x', 400));
+        var shortLast = new ToolResultContent("call_2", "run", "exit 0");
+        var mixed = new ContextMessage { Role = MessageRole.Tool, Segments = [shortFirst, longResult, shortLast] };
+        var messages = new List<ContextMessage> { mixed, ContextMessage.FromText(MessageRole.User, "recent") };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20);
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        var segments = compacted.Messages[0].Segments;
+        Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
+        Assert.Equal(3, segments.Count);
+        Assert.Same(shortFirst, segments[0]);
+        Assert.Equal(
+            "[Tool result removed to save context — read_file, call_1. Call the tool again if you need this content.]",
+            segments[1].Content);
+        Assert.Same(shortLast, segments[2]);
+        Assert.Equal(1, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenEveryToolResultInMessageIsShorterThanItsPlaceholder_ReturnsSameMessageWithItsTokenCount()
+    {
+        // Arrange
+        var allShort = new ContextMessage
+        {
+            Role = MessageRole.Tool,
+            Segments = [new ToolResultContent("call_0", "write_file", "ok"), new ToolResultContent("call_1", "run", "exit 0")],
+            TokenCount = 8,
+        };
+        var messages = new List<ContextMessage> { allShort, ContextMessage.FromText(MessageRole.User, "recent") };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20);
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Same(allShort, compacted.Messages[0]);
+        Assert.Equal(CompactionState.Original, compacted.Messages[0].State);
+        Assert.Equal(8, compacted.Messages[0].TokenCount);
+        Assert.Equal(0, compacted.MessagesAffected);
+        Assert.Equal(compacted.TokensBefore, compacted.TokensAfter);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenToolResultIsLongerThanCustomPlaceholderButShorterThanDefaultOne_MasksIt()
+    {
+        // Arrange
+        var messages = new List<ContextMessage>
+        {
+            CreateToolResultMessage("call_1", "run", "Build succeeded with 0 warnings and 0 errors."),
+            ContextMessage.FromText(MessageRole.User, "recent"),
+        };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20, placeholderFormat: "[cleared: {0} / {1}]");
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
+        Assert.Equal("[cleared: run / call_1]", Assert.Single(compacted.Messages[0].Segments).Content);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenToolResultIsShorterThanCustomPlaceholderButLongerThanDefaultOne_ReturnsItUnchanged()
+    {
+        // Arrange
+        var result = CreateToolResultMessage("call_1", "read_file", new string('x', 150));
+        var messages = new List<ContextMessage> { result, ContextMessage.FromText(MessageRole.User, "recent") };
+
+        var placeholderFormat = "[{0} / {1}: " + new string('-', 200) + "]";
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20, placeholderFormat: placeholderFormat);
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Same(result, compacted.Messages[0]);
+        Assert.Equal(0, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenToolResultCostsTheSameAsItsPlaceholder_ReturnsItUnchanged()
+    {
+        // Arrange
+        var result = CreateToolResultMessage("call_1", "run", new string('x', "[cleared: run / call_1]".Length));
+        var messages = new List<ContextMessage> { result, ContextMessage.FromText(MessageRole.User, "recent") };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20, placeholderFormat: "[cleared: {0} / {1}]");
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Same(result, compacted.Messages[0]);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenShortToolResultsStayUnmaskedBeforeBoundary_KeepsBoundaryOnItsStepLine()
+    {
+        // Arrange
+        // The counter returns the content length, so the history costs 200, 2, 200, 2 and then six times 200 tokens.
+        // With 1,000 available tokens the high mark is 800, the step is 200 and the low mark is 600. The walk with the
+        // low mark stops at index 7, and the step lines fall at 1, 3, 5, 6 and 7, so the boundary is index 7.
+        var messages = new[] { 200, 2, 200, 2, 200, 200, 200, 200, 200, 200 }
+            .Select((length, i) => CreateToolResultMessage($"call_{i}", "read_file", new string('x', length)))
+            .ToList();
+
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), new SlidingWindowOptions(windowSize: 1));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 1_000);
+
+        // Assert
+        var states = compacted.Messages.Select(message => message.State).ToArray();
+        Assert.Equal(
+            [
+                CompactionState.Masked, CompactionState.Original, CompactionState.Masked, CompactionState.Original, CompactionState.Masked,
+                CompactionState.Masked, CompactionState.Masked, CompactionState.Original, CompactionState.Original, CompactionState.Original,
+            ],
+            states);
+        Assert.Same(messages[1], compacted.Messages[1]);
+        Assert.Same(messages[3], compacted.Messages[3]);
+        Assert.All(compacted.Messages.Skip(7).Zip(messages.Skip(7)), pair => Assert.Same(pair.Second, pair.First));
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenSomeToolResultsStayUnmasked_CountsOnlyMessagesWithReplacedResult()
+    {
+        // Arrange
+        var messages = new List<ContextMessage>
+        {
+            CreateToolResultMessage("call_0", "write_file", "ok"),
+            CreateToolResultMessage("call_1", "read_file", new string('x', 400)),
+            CreateToolResultMessage("call_2", "run", "exit 0"),
+            CreateToolResultMessage("call_3", "read_file", new string('y', 400)),
+            ContextMessage.FromText(MessageRole.User, "recent"),
+        };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20);
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Equal(2, compacted.MessagesAffected);
+        Assert.Equal(2, CountMasked(compacted.Messages));
     }
 
     [Fact]

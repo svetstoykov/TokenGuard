@@ -351,7 +351,8 @@ Want architecture detail and trade-offs? Read [How TokenGuard Thinks About Conte
 Three ordered tiers:
 
 **1. Observation masking.** The sliding-window strategy walks backward through compactable history and masks older
-`ToolResultContent` payloads outside the protected tail. Recent messages stay intact and structure is preserved.
+`ToolResultContent` payloads outside the protected tail. Recent messages stay intact and structure is preserved. A tool
+result that costs no more tokens than its placeholder, such as `ok` or an exit code, keeps its content.
 
 A masked tool result is gone from the request, and the model can get it back only by calling the tool again. Say so in
 your system prompt, and do not tell the model to avoid re-reading: the default placeholder reads
