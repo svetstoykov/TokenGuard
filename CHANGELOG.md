@@ -35,6 +35,24 @@ Changes for 1.3.0. No public signature changed.
 
 - `TokenGuard.Extensions.Anthropic`: a summarizer answer without usage yields its summary. Reading the missing usage
   used to fail the call, so the summary was discarded and recorded as a summarization failure.
+- Behavior change: text that holds half of a surrogate pair, such as tool output cut at a character limit in the middle
+  of an emoji, is counted with that character as one replacement character. Recording it used to throw
+  `ArgumentOutOfRangeException` after the message was stored, and every later `PrepareAsync()` call on that context
+  threw as well. TokenGuard does not rewrite the content; the provider SDK decides what is sent for such text.
+- Behavior change: a recording call counts the message before it stores it, so a call that fails while counting leaves
+  the history and the pinned token total as they were.
+- Behavior change: `RecordModelResponse` treats a provider input token count of zero or less like `null`: the message
+  is recorded and the provider correction stays as it was. Such a report used to be stored as a correction that
+  cancelled the whole estimate, so `PrepareAsync()` returned a history above the compaction trigger as `Ready`. It is
+  also left out of the `EstimateAnchored` log event.
+- Behavior change: `SlidingWindowOptions` throws `ArgumentException` when `placeholderFormat` is not a valid composite
+  format string or uses an index other than `{0}` and `{1}`. Such a format used to be accepted and then threw
+  `FormatException` from `PrepareAsync()` the first time a tool result was masked.
+- Behavior change: `ConversationContextFactory` and `AddNamed()` throw `ArgumentException` for a configuration whose
+  budget is `default(ContextBudget)`, which has a `MaxTokens` of zero and used to be accepted.
+- XML documentation: `TokenCountSafetyMode.Balanced` is named as the mode the built-in counter uses, the budget is
+  described without a response reserve that does not exist, and the emergency threshold states that a summary message
+  and everything after it are kept.
 
 ## [1.2.0] - 2026-10-13
 

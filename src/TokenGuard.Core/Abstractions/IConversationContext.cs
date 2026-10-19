@@ -142,6 +142,8 @@ public interface IConversationContext : IDisposable
     /// The exact input token count reported by the provider for the request that produced this
     /// response. When supplied, this value is used to correct future token estimates so
     /// <see cref="PrepareAsync"/> can stay aligned with the provider's actual counting behaviour.
+    /// <see langword="null"/> or a value of zero or less means the provider reported no usage, and the correction
+    /// already in use stays in place.
     /// </param>
     /// <remarks>
     /// <para>
