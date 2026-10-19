@@ -21,9 +21,30 @@ public sealed class GrepTool : IWorkspaceTool
     /// </summary>
     public const int MatchCap = 100;
 
+    /// <summary>
+    /// Maximum number of characters kept from one matched or context line.
+    /// </summary>
+    public const int LineCharacterCap = 200;
+
+    /// <summary>
+    /// Maximum number of characters in one result, including its truncation marker.
+    /// </summary>
+    /// <remarks>
+    /// At about four characters per token one full result is about 4,000 tokens, and about 8,000 for dense text
+    /// at two characters per token, which leaves it well under the smallest 20,000-token context window.
+    /// </remarks>
+    public const int ResultCharacterCap = 16_000;
+
+    /// <summary>
+    /// Characters of <see cref="ResultCharacterCap"/> held back for the truncation marker that follows the matches.
+    /// </summary>
+    private const int TruncationMarkerReserve = 160;
+
     private static readonly ToolSchema CachedSchema = ToolSchema.CreateFunction(
         "grep",
-        "Search workspace text files with a .NET regular expression. Prefer this to reading many files when you need to find a name, literal, or content pattern quickly.",
+        "Search workspace text files with a .NET regular expression. Prefer this to reading many files when you need to find a name, literal, or "
+        + $"content pattern quickly. Each returned line is cut at {LineCharacterCap} characters and one result holds at most {ResultCharacterCap} "
+        + "characters; when a result is truncated, narrow the pattern or pathGlob.",
         """
         {
           "type": "object",
@@ -76,6 +97,10 @@ public sealed class GrepTool : IWorkspaceTool
     /// <param name="workspace">The workspace that constrains file access.</param>
     /// <param name="ct">The cancellation token for the current tool call.</param>
     /// <returns>Formatted match blocks, a truncation marker, or a recoverable error string.</returns>
+    /// <remarks>
+    /// Every returned line is cut at <see cref="LineCharacterCap"/> characters. Matches are added until <see cref="MatchCap"/> or
+    /// <see cref="ResultCharacterCap"/> is reached; the remaining matches are counted and reported in the truncation marker.
+    /// </remarks>
     public async Task<string> HandleAsync(Parameters parameters, WorkspaceModel workspace, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(parameters);
@@ -113,6 +138,7 @@ public sealed class GrepTool : IWorkspaceTool
 
         var totalMatches = 0;
         var displayedMatches = 0;
+        var resultCapHit = false;
         var builder = new StringBuilder();
 
         foreach (var filePath in filePaths)
@@ -157,10 +183,20 @@ public sealed class GrepTool : IWorkspaceTool
                     {
                         totalMatches++;
 
-                        if (displayedMatches < effectiveMaxMatches)
+                        if (!resultCapHit && displayedMatches < effectiveMaxMatches)
                         {
-                            AppendMatchBlock(builder, relativePath, lineNumber, previousLine, currentLine, nextLine);
-                            displayedMatches++;
+                            var block = FormatMatchBlock(relativePath, lineNumber, previousLine, currentLine, nextLine);
+                            var separator = builder.Length > 0 ? Environment.NewLine + Environment.NewLine : string.Empty;
+
+                            if (builder.Length + separator.Length + block.Length > ResultCharacterCap - TruncationMarkerReserve)
+                            {
+                                resultCapHit = true;
+                            }
+                            else
+                            {
+                                builder.Append(separator).Append(block);
+                                displayedMatches++;
+                            }
                         }
                     }
                 }
@@ -180,7 +216,13 @@ public sealed class GrepTool : IWorkspaceTool
             return string.Empty;
         }
 
-        if (totalMatches > effectiveMaxMatches)
+        if (resultCapHit)
+        {
+            builder.AppendLine();
+            builder.Append(ToolResultFormatting.TruncationMarker(
+                totalMatches - displayedMatches, "matches", ResultCharacterCap, "characters", "narrow the pattern or pathGlob"));
+        }
+        else if (totalMatches > effectiveMaxMatches)
         {
             builder.AppendLine();
             builder.Append(ToolResultFormatting.TruncationMarker(totalMatches - effectiveMaxMatches, effectiveMaxMatches, "matches"));
@@ -201,25 +243,15 @@ public sealed class GrepTool : IWorkspaceTool
         return matcher;
     }
 
-    private static void AppendMatchBlock(
-        StringBuilder builder,
-        string relativePath,
-        int lineNumber,
-        string? previousLine,
-        string currentLine,
-        string? nextLine)
+    private static string FormatMatchBlock(string relativePath, int lineNumber, string? previousLine, string currentLine, string? nextLine)
     {
-        if (builder.Length > 0)
-        {
-            builder.AppendLine();
-            builder.AppendLine();
-        }
-
+        var matchedLine = ToolResultFormatting.CutLine(currentLine, LineCharacterCap);
+        var builder = new StringBuilder();
         builder.Append(relativePath);
         builder.Append(':');
         builder.Append(lineNumber);
         builder.Append(": ");
-        builder.Append(currentLine);
+        builder.Append(matchedLine);
 
         if (previousLine is not null)
         {
@@ -227,14 +259,14 @@ public sealed class GrepTool : IWorkspaceTool
             builder.Append("  ");
             builder.Append(lineNumber - 1);
             builder.Append("| ");
-            builder.Append(previousLine);
+            builder.Append(ToolResultFormatting.CutLine(previousLine, LineCharacterCap));
         }
 
         builder.AppendLine();
         builder.Append("> ");
         builder.Append(lineNumber);
         builder.Append("| ");
-        builder.Append(currentLine);
+        builder.Append(matchedLine);
 
         if (nextLine is not null)
         {
@@ -242,7 +274,9 @@ public sealed class GrepTool : IWorkspaceTool
             builder.Append("  ");
             builder.Append(lineNumber + 1);
             builder.Append("| ");
-            builder.Append(nextLine);
+            builder.Append(ToolResultFormatting.CutLine(nextLine, LineCharacterCap));
         }
+
+        return builder.ToString();
     }
 }
