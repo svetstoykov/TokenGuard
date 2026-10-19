@@ -25,4 +25,13 @@ internal static class LlmSummarizationDefaults
     /// Gets the default maximum token budget forwarded to the summarizer as a target.
     /// </summary>
     internal const int MaxSummaryTokens = 4096;
+
+    /// <summary>
+    /// The factor by which a provider summarizer's output cap exceeds the summary size it asks the model for.
+    /// </summary>
+    /// <remarks>
+    /// The model is asked for the target size, and the cap sits above it so a summary slightly over the target is not
+    /// cut. On a model that thinks, thinking counts against the output cap, and it can take about half of the output.
+    /// </remarks>
+    internal const int OutputCapFactor = 2;
 }

@@ -275,6 +275,26 @@ For a first-time summary:
 
 For checkpoint rewrites, TokenGuard clamps the target into `[MinSummaryTokens, MaxSummaryTokens]`.
 
+The summarizer prompt asks the model for a summary of at most the target tokens, and the request caps the output at
+twice the target. The margin exists because on a model that thinks, thinking counts against the output cap and can take
+about half of the output. An answer that still reaches the cap is used as the summary as it arrived, and the provider
+summarizer logs `Warning` event 5003; the last section of such a summary can be incomplete. A summary that is larger
+than the target is accepted as long as the compacted history fits the available tokens.
+
+### Size of the summarizer request
+
+The summarizer request is built to a token budget: the tokens available to the compacted conversation, which is
+`MaxTokens` minus the pinned messages. The budget covers the summarizer instructions and the transcript, counted with
+the library's estimator. A request that fits is sent whole. When it does not fit:
+
+1. Long text segments are shortened from the oldest message on, the way tool results are: an excerpt of the first,
+   last, and salient lines above 300 tokens, and metadata only above 1,200 tokens. Shortening stops as soon as the request fits.
+2. If it still does not fit, whole exchanges are left out from the oldest on. An exchange is a user message and
+   everything up to the next user message. The transcript then starts with a line such as
+   `[3 earlier exchanges omitted]`.
+
+The newest exchange is always sent, so a request can be above the budget when that exchange alone is.
+
 ### Checkpoint reuse and promotion
 
 The current implementation already caches summary checkpoints inside `LlmSummarizationStrategy`.
@@ -383,6 +403,12 @@ That floor is:
   tool exchanges between it and the newest one can still be dropped, so the kept messages are that user message
   followed by the newest tool exchange
 - when the conversation ends with a model reply, TokenGuard also preserves the triggering user message
+
+The first rule means that emergency truncation drops nothing from a view that starts with a summary. The summarization
+stage puts the summary before every unpinned message it keeps, so no unpinned message is left before the floor, however
+many turn groups follow the summary. When that view is above the emergency trigger it is returned whole, and the outcome
+follows the rule below. Messages are dropped only on a `PrepareAsync()` call whose view holds no summary, for example
+when the summarizer call failed or was skipped and the result fell back to masking.
 
 If that preserved floor is still above the emergency threshold, TokenGuard returns the over-budget floor unchanged. It
 prefers preserving the newest indispensable tail over forcing a structurally broken fit. When the final estimate is

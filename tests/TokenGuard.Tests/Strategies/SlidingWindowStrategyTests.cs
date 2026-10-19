@@ -877,6 +877,37 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Theory]
+    [InlineData("{0} {1} {2}")]
+    [InlineData("{0} {")]
+    [InlineData("removed }")]
+    public void SlidingWindowOptions_ThrowsForAPlaceholderFormatThatCannotBeFormatted(string placeholderFormat)
+    {
+        // Arrange
+
+        // Act
+        Action act = () => _ = new SlidingWindowOptions(placeholderFormat: placeholderFormat);
+
+        // Assert
+        var exception = Assert.Throws<ArgumentException>(act);
+        Assert.Equal("placeholderFormat", exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData("removed")]
+    [InlineData("{1}")]
+    [InlineData("{{{0}}} {1,10}")]
+    public void SlidingWindowOptions_AcceptsAPlaceholderFormatThatUsesOnlyTheToolNameAndCallId(string placeholderFormat)
+    {
+        // Arrange
+
+        // Act
+        var options = new SlidingWindowOptions(placeholderFormat: placeholderFormat);
+
+        // Assert
+        Assert.Equal(placeholderFormat, options.PlaceholderFormat);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(-1)]
     public void SlidingWindowOptions_ThrowsForInvalidWindowSize(int windowSize)

@@ -28,6 +28,33 @@ public sealed class ConversationContextFactoryTests
     }
 
     [Fact]
+    public void Constructor_WhenTheBudgetIsTheDefaultValue_ThrowsArgumentException()
+    {
+        // Arrange
+        var configuration = ConversationConfigBuilder.Default() with { Budget = default };
+
+        // Act
+        Action act = () => _ = new ConversationContextFactory(configuration);
+
+        // Assert
+        act.Should().Throw<ArgumentException>().WithParameterName("config").WithMessage("*default(ContextBudget)*");
+    }
+
+    [Fact]
+    public void AddNamed_WhenTheBudgetIsTheDefaultValue_ThrowsArgumentException()
+    {
+        // Arrange
+        var factory = new ConversationContextFactory(ConversationConfigBuilder.Default());
+        var configuration = ConversationConfigBuilder.Default() with { Budget = default };
+
+        // Act
+        Action act = () => factory.AddNamed("profile", configuration);
+
+        // Assert
+        act.Should().Throw<ArgumentException>().WithParameterName("config").WithMessage("*default(ContextBudget)*");
+    }
+
+    [Fact]
     public void Create_ReturnsContextsThatShareNoHistory()
     {
         // Arrange

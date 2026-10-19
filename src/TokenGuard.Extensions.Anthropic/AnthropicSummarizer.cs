@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.Json;
 using Anthropic;
 using Anthropic.Models.Messages;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Summarization;
@@ -65,6 +67,7 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
     public async Task<string> SummarizeAsync(
         IReadOnlyList<ContextMessage> messages,
         int targetTokens,
+        int requestTokenBudget,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
@@ -78,6 +81,7 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
         var startTimestamp = logCall ? Stopwatch.GetTimestamp() : 0;
         SummarizerLog.SummarizerCallStarting(this._logger, ProviderName, this._model, messages.Count, targetTokens);
 
+        var outputCap = (int)Math.Min((long)targetTokens * LlmSummarizationDefaults.OutputCapFactor, int.MaxValue);
         string? stopReason = null;
         long? outputTokens = null;
 
@@ -87,7 +91,7 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                     new MessageCreateParams
                     {
                         Model = this._model,
-                        MaxTokens = targetTokens,
+                        MaxTokens = outputCap,
                         System = new MessageCreateParamsSystem(
                         [
                             new TextBlockParam
@@ -104,7 +108,7 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                                 [
                                     new TextBlockParam
                                     {
-                                        Text = this._formatter.BuildUserPrompt(messages, targetTokens),
+                                        Text = this._formatter.BuildUserPrompt(messages, targetTokens, requestTokenBudget),
                                     },
                                 ]),
                             },
@@ -113,8 +117,13 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            // The SDK throws on reading Usage when the payload carries none, so presence is checked on the raw payload.
+            var usage = response.RawData.TryGetValue("usage", out var rawUsage) && rawUsage.ValueKind == JsonValueKind.Object
+                ? response.Usage
+                : null;
+
             stopReason = response.StopReason?.Raw();
-            outputTokens = response.Usage.OutputTokens;
+            outputTokens = usage?.OutputTokens;
             TokenGuardTelemetry.RecordSummarizerResponse(stopReason, outputTokens, reasoningTokens: null);
 
             var summary = string.Join(
@@ -128,14 +137,19 @@ internal sealed class AnthropicSummarizer : ILlmSummarizer
             {
                 throw new InvalidOperationException(
                     $"Anthropic summarization returned an empty answer. Stop reason: {stopReason ?? "not reported"}; "
-                    + $"output tokens: {outputTokens.Value.ToString(CultureInfo.InvariantCulture)}.");
+                    + $"output tokens: {outputTokens?.ToString(CultureInfo.InvariantCulture) ?? "not reported"}.");
+            }
+
+            if (stopReason == "max_tokens")
+            {
+                SummarizerLog.SummarizerOutputCut(this._logger, ProviderName, outputCap, outputTokens);
             }
 
             if (logCall)
             {
                 SummarizerLog.SummarizerCallCompleted(
                     this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, summary.Length,
-                    response.Usage.InputTokens, outputTokens, reasoningTokens: null, stopReason);
+                    usage?.InputTokens, outputTokens, reasoningTokens: null, stopReason);
             }
 
             return summary;

@@ -87,11 +87,14 @@ conversationContext.SetSystemPrompt("You are a precise coding assistant.");
 conversationContext.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
 conversationContext.AddUserMessage("Summarize the failing tests.");
 
-while (true)
+const int maxTurns = 20;
+
+for (var turn = 1; turn <= maxTurns; turn++)
 {
     var prepared = await conversationContext.PrepareAsync(cancellationToken);
 
-    if (prepared.Outcome == PrepareOutcome.CannotCompact)
+    // Both outcomes mean the prepared request is still over the budget, so stop before the provider rejects it.
+    if (prepared.Outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
         throw new InvalidOperationException(prepared.BudgetFailureReason);
 
     var (messages, systemPrompt) = prepared.Messages.ForAnthropic();
@@ -106,17 +109,20 @@ while (true)
             Tools = [readFile],
         },
         cancellationToken);
+    var segments = response.ResponseSegments();
 
-    conversationContext.RecordModelResponse(
-        response.ResponseSegments(),
-        response.InputTokens());
+    // A reply with no text and no tool call cannot be recorded: RecordModelResponse throws for it.
+    if (segments.Count == 0)
+        throw new InvalidOperationException("The model returned an empty reply.");
+
+    conversationContext.RecordModelResponse(segments, response.InputTokens());
 
     var toolCalls = response.ToolUseSegments();
 
     if (toolCalls.Count == 0)
     {
         Console.WriteLine(string.Join(Environment.NewLine, response.TextSegments().Select(segment => segment.Content)));
-        break;
+        return;
     }
 
     foreach (var toolCall in toolCalls)
@@ -125,6 +131,8 @@ while (true)
         conversationContext.RecordToolResult(toolCall.ToolCallId, toolCall.ToolName, result);
     }
 }
+
+Console.WriteLine($"Stopped after {maxTurns} model calls without a final answer.");
 
 // Replace with your own tool dispatch. The arguments arrive as a JSON object.
 static string ExecuteTool(string toolName, string argumentsJson) => $"Executed {toolName} with {argumentsJson}.";

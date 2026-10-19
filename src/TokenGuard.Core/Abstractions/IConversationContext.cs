@@ -142,6 +142,8 @@ public interface IConversationContext : IDisposable
     /// The exact input token count reported by the provider for the request that produced this
     /// response. When supplied, this value is used to correct future token estimates so
     /// <see cref="PrepareAsync"/> can stay aligned with the provider's actual counting behaviour.
+    /// <see langword="null"/> or a value of zero or less means the provider reported no usage, and the correction
+    /// already in use stays in place.
     /// </param>
     /// <remarks>
     /// <para>
@@ -155,6 +157,11 @@ public interface IConversationContext : IDisposable
     /// provider correction. That correction is applied to every later <see cref="PrepareAsync"/> call, including calls
     /// that compact, until the next provider report replaces it. <see cref="PrepareResult.TokensAfterCompaction"/>
     /// describes how it is scaled to a smaller payload.
+    /// </para>
+    /// <para>
+    /// A reply with no segments, one with no text and no tool call, is not recorded: the call throws
+    /// <see cref="ArgumentException"/> and the history stays as it was. Check the segments before calling, and retry the
+    /// model call or stop the loop when there are none.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>

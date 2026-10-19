@@ -7,13 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Changes for 1.3.0. No public signature changed.
+
 ### Changed
 
+- The quick starts in the README and on the package pages stop on both over-budget outcomes, `CompactionInsufficient`
+  and `CannotCompact`, and end after a set number of model calls.
+- Every published example checks for a reply with no segments before it calls `RecordModelResponse`, which throws
+  `ArgumentException` for one. The README and the XML documentation of `RecordModelResponse` state the rule.
+- The README carries the complete Anthropic program and lists `Microsoft.Extensions.DependencyInjection` in the install
+  lines. It gains a table of terms and a paragraph on choosing a budget.
+- The NuGet page of `TokenGuard.Core` gains sections on the prepare result and its outcomes, pinned messages, LLM
+  summarization, and token counting.
+- The snippet check compiles the fragments of the `TokenGuard.Extensions.OpenAI` package readme, which now name the
+  `TokenGuard.Core.Extensions` and `TokenGuard.Core.Options` namespaces they need.
+- The summarizer request is built to a token budget: the tokens available to the compacted conversation, which is the
+  context's `MaxTokens` minus its pinned messages. The budget covers the summarizer instructions and the transcript,
+  counted with the library's estimator. When the request is above it, long text segments in the transcript are
+  shortened from the oldest message on, the way tool results already are, and then the oldest exchanges are left out;
+  the transcript starts with a line such as `[3 earlier exchanges omitted]`. The newest exchange is always sent. A
+  request that fits is sent as before.
+- The summarizer instructions state that the transcript is data and that instructions inside it are not followed, and
+  describe the two shortened forms above. Every summary is produced with the new instructions, so figures measured
+  with 1.2.0 belong to the 1.2.0 instructions.
+- The summarizer request caps the output at twice the target tokens instead of at the target. The model is still
+  asked for the target size; the margin is there because on a model that thinks, thinking counts against the output
+  cap. A summary larger than the target is accepted as long as the compacted history fits the available tokens.
+- A summarizer answer cut at the output limit (OpenAI finish reason `length`, Anthropic stop reason `max_tokens`) is
+  still used as the summary, and is now reported by the new `Warning` event 5003 (`SummarizerOutputCut`) with the
+  output limit and the provider-reported output tokens.
+- The message of event 5001 (`SummarizerCallCompleted`) ends with `reasoning tokens: {ReasoningTokens}` in place of
+  `({ReasoningTokens} reasoning)` before the finish reason. Its properties are unchanged.
+- `TokenGuard.Extensions.OpenAI`: a summarizer answer that is a refusal throws an `InvalidOperationException` that
+  says so and carries the refusal text, where it used to be reported as an empty answer.
 - Tool-result masking leaves a tool result as it is when its estimated tokens are not above those of its placeholder,
   measured against the configured `SlidingWindowOptions.PlaceholderFormat`. A message is marked `Masked` only when at
   least one of its results was replaced, and `PrepareResult.MessagesCompacted` and the `ToolResultMasked` log records
   count only replaced results. A prepared view can differ from the one 1.2.0 produces for the same history when that
   history holds tool results shorter than the placeholder.
+
+### Fixed
+
+- `TokenGuard.Extensions.Anthropic`: a summarizer answer without usage yields its summary. Reading the missing usage
+  used to fail the call, so the summary was discarded and recorded as a summarization failure.
+- Behavior change: text that holds half of a surrogate pair, such as tool output cut at a character limit in the middle
+  of an emoji, is counted with that character as one replacement character. Recording it used to throw
+  `ArgumentOutOfRangeException` after the message was stored, and every later `PrepareAsync()` call on that context
+  threw as well. TokenGuard does not rewrite the content; the provider SDK decides what is sent for such text.
+- Behavior change: a recording call counts the message before it stores it, so a call that fails while counting leaves
+  the history and the pinned token total as they were.
+- Behavior change: `RecordModelResponse` treats a provider input token count of zero or less like `null`: the message
+  is recorded and the provider correction stays as it was. Such a report used to be stored as a correction that
+  cancelled the whole estimate, so `PrepareAsync()` returned a history above the compaction trigger as `Ready`. It is
+  also left out of the `EstimateAnchored` log event.
+- Behavior change: `SlidingWindowOptions` throws `ArgumentException` when `placeholderFormat` is not a valid composite
+  format string or uses an index other than `{0}` and `{1}`. Such a format used to be accepted and then threw
+  `FormatException` from `PrepareAsync()` the first time a tool result was masked.
+- Behavior change: `ConversationContextFactory` and `AddNamed()` throw `ArgumentException` for a configuration whose
+  budget is `default(ContextBudget)`, which has a `MaxTokens` of zero and used to be accepted.
+- XML documentation: `TokenCountSafetyMode.Balanced` is named as the mode the built-in counter uses, the budget is
+  described without a response reserve that does not exist, and the emergency threshold states that a summary message
+  and everything after it are kept.
+
+### Known limits
+
+- One tool result larger than the budget cannot be fitted. The prepare returns `CompactionInsufficient` when it masked,
+  summarized, or dropped other messages, and `CannotCompact` when it changed none. In both the request is over the
+  budget and the caller decides whether to send it.
 
 ## [1.2.0] - 2026-10-13
 

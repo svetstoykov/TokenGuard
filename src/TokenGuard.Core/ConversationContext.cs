@@ -34,7 +34,7 @@ namespace TokenGuard.Core;
 /// requiring a separate role-based preservation path.
 /// </para>
 /// <para>
-/// Token counts are estimated through the configured <see cref="ITokenCounter"/> and cached on
+/// Token counts are estimated by the built-in heuristic <see cref="ITokenCounter"/> and cached on
 /// each recorded <see cref="ContextMessage"/>. If the provider later reports an exact input token count,
 /// that value can be supplied through <see cref="RecordModelResponse(IEnumerable{ContentSegment}, int?)"/>
 /// so future preparation stays better aligned with the provider's own counting behavior.
@@ -88,8 +88,7 @@ public sealed class ConversationContext : IConversationContext
     /// that define how requests are prepared.
     /// </summary>
     /// <param name="budget">
-    /// Defines the token limits for the conversation, including when compaction starts and how
-    /// many tokens should remain reserved for the next response.
+    /// Defines the token limits for the conversation, including when compaction and emergency truncation start.
     /// </param>
     /// <param name="counter">
     /// Counts tokens for individual messages. This should match the target provider as closely
@@ -322,6 +321,8 @@ public sealed class ConversationContext : IConversationContext
     /// The exact input token count reported by the provider for the request that produced this
     /// response. When supplied, this value is used to correct future token estimates so
     /// <see cref="PrepareAsync(CancellationToken)"/> can stay aligned with the provider's counting behavior.
+    /// <see langword="null"/> or a value of zero or less means the provider reported no usage, and the correction
+    /// already in use stays in place.
     /// </param>
     /// <remarks>
     /// <para>
@@ -335,9 +336,14 @@ public sealed class ConversationContext : IConversationContext
     /// <see cref="PrepareAsync(CancellationToken)"/> call, including calls that compact, until the next provider report
     /// replaces it. <see cref="PrepareResult.TokensAfterCompaction"/> describes how it is scaled to a smaller payload.
     /// </para>
+    /// <para>
+    /// A reply with no segments, one with no text and no tool call, is not recorded: the call throws
+    /// <see cref="ArgumentException"/> and the history stays as it was. Check the segments before calling, and retry the
+    /// model call or stop the loop when there are none.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> is empty.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> contains no segments.</exception>
     /// <exception cref="InvalidOperationException">
     /// Thrown when the call starts while a recording call or a <see cref="PrepareAsync(CancellationToken)"/> call on this
     /// context is still running. The detection is best effort.
@@ -819,6 +825,11 @@ public sealed class ConversationContext : IConversationContext
     /// dropped oldest first like any other candidate.
     /// </para>
     /// <para>
+    /// When the prepared list holds a summary message, the floor starts at that message, so the summary and every message
+    /// after it are kept. Only unpinned messages before the summary are candidates. A list that starts with its summary
+    /// has none, and the method returns it unchanged even when it is above the emergency trigger.
+    /// </para>
+    /// <para>
     /// Candidates are removed oldest first. The loop stops as soon as the running token total
     /// reaches or falls below <see cref="ContextBudget.EmergencyTriggerTokens"/>, or when the
     /// remaining list has reached its safety floor and no further eligible candidates remain. If
@@ -1163,12 +1174,18 @@ public sealed class ConversationContext : IConversationContext
     /// <summary>
     /// Inserts a message into history and updates pinned token bookkeeping.
     /// </summary>
+    /// <remarks>
+    /// The message is counted before it is stored, so a token counter that throws leaves the history, its version, and
+    /// the pinned token total as they were.
+    /// </remarks>
     /// <param name="message">The message to record.</param>
     /// <param name="index">
     /// The optional insertion index. When omitted, the message is appended to the end of history.
     /// </param>
     private void AddMessage(ContextMessage message, int? index = null)
     {
+        var tokenCount = this.EnsureCounted(message);
+
         if (index.HasValue)
         {
             this._history.Insert(index.Value, message);
@@ -1179,8 +1196,6 @@ public sealed class ConversationContext : IConversationContext
         }
 
         this._historyVersion++;
-
-        var tokenCount = this.EnsureCounted(message);
 
         if (message.IsPinned)
         {
@@ -1193,20 +1208,26 @@ public sealed class ConversationContext : IConversationContext
     /// <summary>
     /// Replaces one history entry while keeping pinned token bookkeeping consistent.
     /// </summary>
+    /// <remarks>
+    /// Both messages are counted before anything is changed, so a token counter that throws leaves the history, its
+    /// version, and the pinned token total as they were.
+    /// </remarks>
     /// <param name="index">The history index to replace.</param>
     /// <param name="message">The replacement message.</param>
     private void ReplaceMessage(int index, ContextMessage message)
     {
         var existing = this._history[index];
+        var existingTokenCount = this.EnsureCounted(existing);
+        var tokenCount = this.EnsureCounted(message);
+
         if (existing.IsPinned)
         {
-            this._pinnedTokenTotal -= this.EnsureCounted(existing);
+            this._pinnedTokenTotal -= existingTokenCount;
         }
 
         this._history[index] = message;
         this._historyVersion++;
 
-        var tokenCount = this.EnsureCounted(message);
         if (message.IsPinned)
         {
             this._pinnedTokenTotal += tokenCount;
@@ -1306,11 +1327,13 @@ public sealed class ConversationContext : IConversationContext
     /// </para>
     /// </remarks>
     /// <param name="providerInputTokens">
-    /// The exact provider-reported input token total for the most recently prepared payload.
+    /// The exact provider-reported input token total for the most recently prepared payload. <see langword="null"/>
+    /// or a value of zero or less is treated as no report: the correction, the health signals, the log, and the
+    /// error-ratio measurement stay as they were.
     /// </param>
     private void ApplyAnchor(int? providerInputTokens)
     {
-        if (!providerInputTokens.HasValue)
+        if (providerInputTokens is not > 0)
             return;
 
         this._anchorCorrection = providerInputTokens.Value - this._lastPreparedMessageTokens;
@@ -1324,12 +1347,9 @@ public sealed class ConversationContext : IConversationContext
                 this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, providerInputTokens.Value,
                 this._lastEstimatedTotalTokens, this._anchorCorrection);
 
-            if (providerInputTokens.Value > 0)
-            {
-                TokenGuardTelemetry.EstimateErrorRatio.Record(
-                    (double)(providerInputTokens.Value - this._lastEstimatedTotalTokens) / providerInputTokens.Value,
-                    this._diagnostics.ContextNameTag);
-            }
+            TokenGuardTelemetry.EstimateErrorRatio.Record(
+                (double)(providerInputTokens.Value - this._lastEstimatedTotalTokens) / providerInputTokens.Value,
+                this._diagnostics.ContextNameTag);
         }
         catch (Exception)
         {

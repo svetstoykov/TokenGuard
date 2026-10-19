@@ -6,17 +6,17 @@ namespace TokenGuard.Core.Enums;
 public enum TokenCountSafetyMode
 {
     /// <summary>
-    /// Returns the raw heuristic estimate without any additional safety margin.
+    /// Returns the raw heuristic estimate without any additional safety margin. The built-in token counter uses this mode.
     /// </summary>
     Balanced,
 
     /// <summary>
-    /// Applies a moderate upward bias suitable for TokenGuard's default protection behavior.
+    /// Applies a moderate upward bias of 5%.
     /// </summary>
     Safe,
 
     /// <summary>
-    /// Applies a larger upward bias when minimizing undercount risk matters more than precision.
+    /// Applies a larger upward bias of 10% when minimizing undercount risk matters more than precision.
     /// </summary>
     Conservative,
 }

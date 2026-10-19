@@ -9,6 +9,22 @@ internal static class ToolResultFormatting
         return $"[... truncated: {omittedCount} more {unit}; cap {cap} {unit} hit ...]";
     }
 
+    public static string TruncationMarker(int omittedCount, string unit, int cap, string capUnit, string advice)
+    {
+        return $"[... truncated: {omittedCount} more {unit}; cap {cap} {capUnit} hit; {advice} ...]";
+    }
+
+    public static string CutLine(string line, int cap)
+    {
+        if (line.Length <= cap)
+        {
+            return line;
+        }
+
+        var keptLength = char.IsHighSurrogate(line[cap - 1]) ? cap - 1 : cap;
+        return $"{line[..keptLength]} [... line cut at {cap} characters ...]";
+    }
+
     public static string ToWorkspaceRelativePath(WorkspaceModel workspace, string absolutePath)
     {
         var workspaceRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workspace.LocalPath));

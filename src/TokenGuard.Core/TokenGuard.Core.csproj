@@ -35,8 +35,6 @@ Full details: https://github.com/svetstoykov/TokenGuard/blob/main/CHANGELOG.md</
     <ItemGroup>
         <InternalsVisibleTo Include="TokenGuard.Tests" />
         <InternalsVisibleTo Include="TokenGuard.IntegrationTests" />
-        <InternalsVisibleTo Include="TokenGuard.Samples.Console" />
-        <InternalsVisibleTo Include="TokenGuard.Benchmark" />
         <InternalsVisibleTo Include="TokenGuard.Extensions.OpenAI" />
         <InternalsVisibleTo Include="TokenGuard.Extensions.Anthropic" />
         <InternalsVisibleTo Include="Codexplorer" />

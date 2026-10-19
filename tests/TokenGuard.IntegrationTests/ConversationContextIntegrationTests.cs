@@ -762,6 +762,7 @@ public sealed class ConversationContextIntegrationTests
         public async Task<string> SummarizeAsync(
             IReadOnlyList<ContextMessage> messages,
             int targetTokens,
+            int requestTokenBudget,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -783,6 +784,7 @@ public sealed class ConversationContextIntegrationTests
         public Task<string> SummarizeAsync(
             IReadOnlyList<ContextMessage> messages,
             int targetTokens,
+            int requestTokenBudget,
             CancellationToken cancellationToken = default)
             => Task.FromException<string>(this._toThrow);
     }
