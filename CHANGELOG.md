@@ -11,6 +11,16 @@ Changes for 1.3.0. No public signature changed.
 
 ### Changed
 
+- The quick starts in the README and on the package pages stop on both over-budget outcomes, `CompactionInsufficient`
+  and `CannotCompact`, and end after a set number of model calls.
+- Every published example checks for a reply with no segments before it calls `RecordModelResponse`, which throws
+  `ArgumentException` for one. The README and the XML documentation of `RecordModelResponse` state the rule.
+- The README carries the complete Anthropic program and lists `Microsoft.Extensions.DependencyInjection` in the install
+  lines. It gains a table of terms and a paragraph on choosing a budget.
+- The NuGet page of `TokenGuard.Core` gains sections on the prepare result and its outcomes, pinned messages, LLM
+  summarization, and token counting.
+- The snippet check compiles the fragments of the `TokenGuard.Extensions.OpenAI` package readme, which now name the
+  `TokenGuard.Core.Extensions` and `TokenGuard.Core.Options` namespaces they need.
 - The summarizer request is built to a token budget: the tokens available to the compacted conversation, which is the
   context's `MaxTokens` minus its pinned messages. The budget covers the summarizer instructions and the transcript,
   counted with the library's estimator. When the request is above it, long text segments in the transcript are
@@ -53,6 +63,12 @@ Changes for 1.3.0. No public signature changed.
 - XML documentation: `TokenCountSafetyMode.Balanced` is named as the mode the built-in counter uses, the budget is
   described without a response reserve that does not exist, and the emergency threshold states that a summary message
   and everything after it are kept.
+
+### Known limits
+
+- One tool result larger than the budget cannot be fitted. The prepare returns `CompactionInsufficient` when it masked,
+  summarized, or dropped other messages, and `CannotCompact` when it changed none. In both the request is over the
+  budget and the caller decides whether to send it.
 
 ## [1.2.0] - 2026-10-13
 

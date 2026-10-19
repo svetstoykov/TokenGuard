@@ -39,7 +39,7 @@ Tests use xUnit and FluentAssertions. Keep one behavior per test, assert on publ
 
 ## README snippet check
 
-`tests/TokenGuard.ReadmeSnippets` is outside the solution. It holds the quick-start code shown in `README.md` and in the package readme files under `src/`. Run the check with:
+`tests/TokenGuard.ReadmeSnippets` is outside the solution. It holds the quick-start code and the fragments shown in `README.md` and in the package readme files under `src/`. Run the check with:
 
 ```bash
 ./tests/TokenGuard.ReadmeSnippets/verify.sh
@@ -49,7 +49,7 @@ The script does three things:
 
 1. Packs the three packages from the working tree into `artifacts/readme-snippets/feed`.
 2. Builds `tests/TokenGuard.ReadmeSnippets` against those packed packages, using a private packages folder so a cached package of the same version is not picked up.
-3. Checks that each tagged block in `Program.cs` and `AnthropicQuickStart.cs` appears verbatim in the readme files that show it.
+3. Checks that each tagged block in `Program.cs`, `AnthropicQuickStart.cs` and `OpenAIPackageReadme.cs` appears verbatim in the readme files that show it.
 
 It builds the snippets and does not run them, so it needs no API key. It restores the other package references from nuget.org, so it needs network access. Its output goes to `artifacts/`, which is gitignored.
 
