@@ -46,6 +46,14 @@ internal static class ToolResultShortener
         return new ToolResultContent(result.ToolCallId, result.ToolName, text);
     }
 
+    /// <summary>
+    /// Selects whole head and tail lines after reserving space for the notice, then checks the assembled estimate.
+    /// </summary>
+    /// <param name="result">The original result and its metadata.</param>
+    /// <param name="lines">The ranges of complete lines, including their terminators.</param>
+    /// <param name="maxTokens">The largest stored estimate.</param>
+    /// <param name="counter">The context's token counter.</param>
+    /// <returns>The shortened text, or <see langword="null"/> when a head or tail line cannot fit.</returns>
     private static string? ShortenByLines(ToolResultContent result, List<Range> lines, int maxTokens, ITokenCounter counter)
     {
         var content = result.Content;
@@ -74,6 +82,12 @@ internal static class ToolResultShortener
         return null;
     }
 
+    /// <summary>
+    /// Fills half the available tokens with head lines and the remainder with tail lines, leaving at least one line out.
+    /// </summary>
+    /// <param name="costs">The estimated content cost of each line, without the message overhead.</param>
+    /// <param name="available">The tokens left after reserving the notice and message overhead.</param>
+    /// <returns>The number of whole lines to keep at each end.</returns>
     private static (int Head, int Tail) SelectLines(int[] costs, int available)
     {
         var headTokens = 0;
@@ -95,6 +109,13 @@ internal static class ToolResultShortener
         return (head, tail);
     }
 
+    /// <summary>
+    /// Fits a head and tail around the character notice, moving each cut outside a surrogate pair.
+    /// </summary>
+    /// <param name="result">The original result and its metadata.</param>
+    /// <param name="maxTokens">The largest stored estimate.</param>
+    /// <param name="counter">The context's token counter.</param>
+    /// <returns>The shortened text, or <see langword="null"/> when both ends cannot fit alongside the notice.</returns>
     private static string? ShortenByCharacters(ToolResultContent result, int maxTokens, ITokenCounter counter)
     {
         var content = result.Content;
@@ -121,6 +142,14 @@ internal static class ToolResultShortener
         return null;
     }
 
+    /// <summary>
+    /// Finds a prefix within the content budget by binary search and backs off a cut inside a surrogate pair.
+    /// </summary>
+    /// <param name="result">The original result and its metadata.</param>
+    /// <param name="budget">The token budget for the prefix's content.</param>
+    /// <param name="emptyTokens">The message overhead estimated with empty content.</param>
+    /// <param name="counter">The context's token counter.</param>
+    /// <returns>The number of UTF-16 code units in the prefix.</returns>
     private static int LongestPrefix(ToolResultContent result, int budget, int emptyTokens, ITokenCounter counter)
     {
         var content = result.Content;
@@ -138,6 +167,15 @@ internal static class ToolResultShortener
         return IsInsideSurrogatePair(content, low) ? low - 1 : low;
     }
 
+    /// <summary>
+    /// Finds the earliest suffix within the content budget and advances a cut inside a surrogate pair.
+    /// </summary>
+    /// <param name="result">The original result and its metadata.</param>
+    /// <param name="earliestStart">The earliest permitted suffix start, after the kept prefix.</param>
+    /// <param name="budget">The token budget for the suffix's content.</param>
+    /// <param name="emptyTokens">The message overhead estimated with empty content.</param>
+    /// <param name="counter">The context's token counter.</param>
+    /// <returns>The UTF-16 index of the suffix's first code unit.</returns>
     private static int ShortestSuffixStart(ToolResultContent result, int earliestStart, int budget, int emptyTokens, ITokenCounter counter)
     {
         var content = result.Content;

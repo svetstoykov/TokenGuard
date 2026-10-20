@@ -410,6 +410,38 @@ public sealed class TokenGuardTelemetryTests
         capture.MeasurementsOf("tokenguard.tool_result.truncated", contextName).Should().BeEmpty();
     }
 
+    [Fact]
+    public void RecordToolResult_WhenTheTruncationListenerThrows_DoesNotThrowAndStoresTheShortenedMessageOnce()
+    {
+        // Arrange
+        var contextName = NewContextName();
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == TokenGuardDiagnostics.MeterName && instrument.Name == "tokenguard.tool_result.truncated")
+                    meterListener.EnableMeasurementEvents(instrument);
+            },
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (contextName.Equals(tag.Value))
+                    throw new InvalidOperationException("The meter listener failed.");
+            }
+        });
+        listener.Start();
+        using var context = CreateLimitedContext(contextName, maxToolResultTokens: 300);
+
+        // Act
+        var act = () => context.RecordToolResult("call_1", "search", string.Concat(Enumerable.Repeat("result line\n", 100)));
+
+        // Assert
+        act.Should().NotThrow();
+        context.History.Should().ContainSingle().Which.TokenCount.Should().BeLessThanOrEqualTo(300);
+    }
+
     private static ConversationContext CreateLimitedContext(string contextName, int maxToolResultTokens) =>
         new(CreateBudget(emergencyThreshold: 1.0), new TextLengthTokenCounter(), StubCompactionStrategy.Unchanged(),
             new ConversationDiagnostics(NullLoggerFactory.Instance, contextName), maxToolResultTokens);

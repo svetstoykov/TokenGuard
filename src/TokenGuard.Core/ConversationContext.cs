@@ -1301,20 +1301,26 @@ public sealed class ConversationContext : IConversationContext
         }
     }
 
+    /// <summary>
+    /// Reports the committed cut while containing failures from logging and metric listeners.
+    /// </summary>
+    /// <param name="result">The original result's identifiers and content.</param>
+    /// <param name="originalTokens">The original result's estimate.</param>
+    /// <param name="storedTokens">The shortened result's estimate.</param>
+    /// <param name="maxToolResultTokens">The configured limit.</param>
     private void ReportToolResultShortened(ToolResultContent result, int originalTokens, int storedTokens, int maxToolResultTokens)
     {
-        TokenGuardTelemetry.ToolResultsTruncated.Add(
-            1, this._diagnostics.ContextNameTag, TokenGuardTelemetry.Tag(TokenGuardTelemetry.ToolNameTag, result.ToolName));
-
         try
         {
+            TokenGuardTelemetry.ToolResultsTruncated.Add(
+                1, this._diagnostics.ContextNameTag, TokenGuardTelemetry.Tag(TokenGuardTelemetry.ToolNameTag, result.ToolName));
             ConversationContextLog.ToolResultShortened(
                 this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, result.ToolCallId, result.ToolName,
                 originalTokens, storedTokens, maxToolResultTokens);
         }
         catch (Exception)
         {
-            // The shortened result is already stored; a failing logger must not make the recording call look failed.
+            // The shortened result is already stored; a failing logger or listener must not make the recording call look failed.
         }
     }
 
