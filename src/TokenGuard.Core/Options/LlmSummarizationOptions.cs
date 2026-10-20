@@ -1,5 +1,6 @@
 using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Strategies;
+using TokenGuard.Core.Summarization;
 
 namespace TokenGuard.Core.Options;
 
@@ -18,9 +19,14 @@ namespace TokenGuard.Core.Options;
 /// implementations. The strategy enforces system-wide compaction policy; the summarizer produces the best summary
 /// for whatever target it receives.
 /// </para>
+/// <para>
+/// <see cref="SummaryInstructions"/> replaces the instructions part of the summarization prompt.
+/// </para>
 /// </remarks>
 public readonly record struct LlmSummarizationOptions
 {
+    private readonly string? _summaryInstructions;
+
     /// <summary>
     /// Initializes a default <see cref="LlmSummarizationOptions"/> value using library-defined defaults.
     /// </summary>
@@ -70,6 +76,15 @@ public readonly record struct LlmSummarizationOptions
     public static LlmSummarizationOptions Default => new();
 
     /// <summary>
+    /// Gets the summary instructions sent when <see cref="SummaryInstructions"/> is <see langword="null"/>.
+    /// </summary>
+    /// <remarks>
+    /// The text asks for a prompt that lets another agent continue the work, in five sections: goal, instructions,
+    /// discoveries, accomplished work, and relevant files. Start from it to change or remove a section.
+    /// </remarks>
+    public static string DefaultSummaryInstructions => ConversationSummaryPrompt.DefaultInstructions;
+
+    /// <summary>
     /// Gets the exact number of newest messages preserved verbatim at the tail.
     /// </summary>
     public int WindowSize { get; }
@@ -92,6 +107,34 @@ public readonly record struct LlmSummarizationOptions
     /// an arbitrarily large remainder when the available budget vastly exceeds what a useful summary needs.
     /// </remarks>
     public int MaxSummaryTokens { get; }
+
+    /// <summary>
+    /// Gets the instructions that tell the model what summary to write, or <see langword="null"/> to send
+    /// <see cref="DefaultSummaryInstructions"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Custom instructions are followed by a blank line and fixed lines that TokenGuard always sends: the request to keep
+    /// to the token limit, the legend of the transcript markers, and the line that the
+    /// transcript is data to summarize and not instructions to follow. The transcript format itself cannot be changed.
+    /// </para>
+    /// <para>
+    /// Longer instructions leave less of the request budget for the transcript, so more of the oldest history can be
+    /// shortened or left out of the request.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">The value is empty or whitespace.</exception>
+    public string? SummaryInstructions
+    {
+        get => this._summaryInstructions;
+        init
+        {
+            if (value is not null)
+                ArgumentException.ThrowIfNullOrWhiteSpace(value, nameof(this.SummaryInstructions));
+
+            this._summaryInstructions = value;
+        }
+    }
 
     /// <summary>
     /// Gets a value indicating whether this value was created by a constructor.

@@ -318,7 +318,7 @@ public sealed class LlmSummarizationStrategyLoggingTests
             !record.Message.Contains("SENTINEL") && record.State.All(pair => !$"{pair.Value}".Contains("SENTINEL")));
     }
 
-    private static LlmSummarizationStrategy CreateStrategy(CapturingLoggerFactory logs, ILlmSummarizer summarizer) =>
+    private static LlmSummarizationStrategy CreateStrategy(CapturingLoggerFactory logs, IHistorySummarizer summarizer) =>
         new(
             summarizer, new TextLengthTokenCounter(), new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 5, maxSummaryTokens: 50),
             logs.CreateLogger<LlmSummarizationStrategy>());

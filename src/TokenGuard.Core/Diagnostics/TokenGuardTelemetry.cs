@@ -271,14 +271,14 @@ internal static class TokenGuardTelemetry
     internal static KeyValuePair<string, object?> Tag(string name, object? value) => new(name, value);
 
     /// <summary>
-    ///     Adds what the provider reported about a summarizer answer to the current summarize activity.
+    ///     Adds what the summarizer reported about an answer to the current summarize activity.
     /// </summary>
     /// <remarks>
-    ///     Provider summarizers call this as soon as a response arrives, so the tags are present on an answer that is
-    ///     then rejected as empty. A value that is <see langword="null" /> adds no tag. Nothing is added when the
+    ///     The summarizer invoker calls this as soon as a response arrives, so the tags are present on an answer that is
+    ///     then rejected as empty or refused. A value that is <see langword="null" /> adds no tag. Nothing is added when the
     ///     current activity is not the <see cref="SummarizeActivityName" /> activity of <see cref="ActivitySource" />.
     /// </remarks>
-    /// <param name="finishReason">The provider's reason for ending the answer, or <see langword="null" /> when not reported.</param>
+    /// <param name="finishReason">The name of the summarizer's finish reason, or <see langword="null" /> when not known.</param>
     /// <param name="outputTokens">The output tokens reported by the provider, or <see langword="null" /> when not reported.</param>
     /// <param name="reasoningTokens">The reasoning tokens reported by the provider, or <see langword="null" /> when not reported.</param>
     internal static void RecordSummarizerResponse(string? finishReason, long? outputTokens, long? reasoningTokens)

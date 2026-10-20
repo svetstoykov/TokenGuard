@@ -70,7 +70,7 @@ public sealed class ConversationContextSummarizerAttemptTests
     private static IConversationContext CreateOverBudgetContext(ILlmSummarizer summarizer)
     {
         var builder = new ConversationConfigBuilder().WithMaxTokens(1_500);
-        builder.SetLlmSummarizer(() => summarizer, "Test", new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 100, maxSummaryTokens: 500));
+        builder.UseLlmSummarization(summarizer, new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 100, maxSummaryTokens: 500));
         var context = new ConversationContextFactory(builder.Build()).Create();
 
         for (var turn = 0; turn < 5; turn++)

@@ -9,6 +9,8 @@ namespace TokenGuard.Tests.Summarization;
 
 public sealed class ConversationSummaryFormatterTests
 {
+    private static readonly string SystemPrompt = ConversationSummaryPrompt.BuildSystemPrompt(instructions: null);
+
     private readonly ConversationSummaryFormattingOptions _options = new(
         fullToolResultMaxTokens: 10,
         excerptToolResultMaxTokens: 20,
@@ -42,7 +44,7 @@ public sealed class ConversationSummaryFormatterTests
             },
         };
 
-        var prompt = formatter.BuildUserPrompt(messages, 256, int.MaxValue);
+        var prompt = formatter.BuildUserPrompt(messages, 256, int.MaxValue, SystemPrompt);
 
         Assert.Equal(
             """
@@ -77,10 +79,10 @@ public sealed class ConversationSummaryFormatterTests
             ContextMessage.FromText(MessageRole.User, Lines("beta", 12)),
             ContextMessage.FromText(MessageRole.Model, "done"),
         };
-        var budget = RequestTokens(counter, formatter.BuildUserPrompt(messages, 256, int.MaxValue)) - 1;
+        var budget = RequestTokens(counter, formatter.BuildUserPrompt(messages, 256, int.MaxValue, SystemPrompt)) - 1;
 
         // Act
-        var prompt = formatter.BuildUserPrompt(messages, 256, budget);
+        var prompt = formatter.BuildUserPrompt(messages, 256, budget, SystemPrompt);
 
         // Assert
         Assert.Equal(
@@ -118,10 +120,10 @@ public sealed class ConversationSummaryFormatterTests
             ContextMessage.FromText(MessageRole.User, Lines("alpha", 12)),
             ContextMessage.FromText(MessageRole.Model, "noted"),
         };
-        var budget = RequestTokens(counter, formatter.BuildUserPrompt(messages, 256, int.MaxValue)) - 1;
+        var budget = RequestTokens(counter, formatter.BuildUserPrompt(messages, 256, int.MaxValue, SystemPrompt)) - 1;
 
         // Act
-        var prompt = formatter.BuildUserPrompt(messages, 256, budget);
+        var prompt = formatter.BuildUserPrompt(messages, 256, budget, SystemPrompt);
 
         // Assert
         Assert.Equal(
@@ -160,7 +162,7 @@ public sealed class ConversationSummaryFormatterTests
         var budget = RequestTokens(counter, expected) + 10;
 
         // Act
-        var prompt = formatter.BuildUserPrompt(CreateThreeExchanges(), 256, budget);
+        var prompt = formatter.BuildUserPrompt(CreateThreeExchanges(), 256, budget, SystemPrompt);
 
         // Assert
         Assert.Equal(expected, prompt);
@@ -173,10 +175,10 @@ public sealed class ConversationSummaryFormatterTests
         var counter = new FixedTokenCounter();
         var formatter = new ConversationSummaryFormatter(counter, this._options);
         var messages = CreateThreeExchanges();
-        var budget = RequestTokens(counter, formatter.BuildUserPrompt(messages, 256, int.MaxValue)) - 1;
+        var budget = RequestTokens(counter, formatter.BuildUserPrompt(messages, 256, int.MaxValue, SystemPrompt)) - 1;
 
         // Act
-        var prompt = formatter.BuildUserPrompt(messages, 256, budget);
+        var prompt = formatter.BuildUserPrompt(messages, 256, budget, SystemPrompt);
 
         // Assert
         Assert.Contains("[1 earlier exchange omitted]", prompt, StringComparison.Ordinal);
@@ -196,7 +198,7 @@ public sealed class ConversationSummaryFormatterTests
         };
 
         // Act
-        var prompt = formatter.BuildUserPrompt(messages, 256, requestTokenBudget: 1);
+        var prompt = formatter.BuildUserPrompt(messages, 256, requestTokenBudget: 1, SystemPrompt);
 
         // Assert
         Assert.Equal(
@@ -336,7 +338,7 @@ public sealed class ConversationSummaryFormatterTests
     ///     Counts the tokens of one summarizer request: the system prompt plus the given user prompt.
     /// </summary>
     private static int RequestTokens(FixedTokenCounter counter, string userPrompt) =>
-        counter.Count(ContextMessage.FromText(MessageRole.User, ConversationSummaryPrompt.SystemPrompt))
+        counter.Count(ContextMessage.FromText(MessageRole.User, SystemPrompt))
         + counter.Count(ContextMessage.FromText(MessageRole.User, userPrompt));
 
     /// <summary>

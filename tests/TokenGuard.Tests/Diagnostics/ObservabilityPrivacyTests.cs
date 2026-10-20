@@ -61,7 +61,7 @@ public sealed class ObservabilityPrivacyTests
             .WithMaxTokens(400)
             .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 2))
             .WithLoggerFactory(logs);
-        builder.SetLlmSummarizer(() => summarizer, "Test", new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 10, maxSummaryTokens: 100));
+        builder.UseLlmSummarization(summarizer, new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 10, maxSummaryTokens: 100));
 
         // Act
         using (var context = new ConversationContextFactory(builder.Build()).Create())

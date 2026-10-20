@@ -23,7 +23,7 @@ public sealed class ConversationContextPinnedPlacementTests
     {
         // Arrange
         var builder = new ConversationConfigBuilder().WithMaxTokens(25_000);
-        builder.SetLlmSummarizer(() => ScriptedSummarizer.Returning(Summary), "Test");
+        builder.UseLlmSummarization(ScriptedSummarizer.Returning(Summary));
         using var context = new ConversationContextFactory(builder.Build()).Create();
 
         context.SetSystemPrompt("system");
@@ -175,7 +175,7 @@ public sealed class ConversationContextPinnedPlacementTests
         var random = new Random(seed);
         var builder = new ConversationConfigBuilder().WithMaxTokens(2_000).WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 2));
         var summarization = new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 10, maxSummaryTokens: 100);
-        builder.SetLlmSummarizer(() => ScriptedSummarizer.Returning(Summary), "Test", summarization);
+        builder.UseLlmSummarization(ScriptedSummarizer.Returning(Summary), summarization);
         using var context = new ConversationContextFactory(builder.Build()).Create();
         var violations = new List<string>();
         var pins = 0;

@@ -378,7 +378,7 @@ public sealed class TokenGuardTelemetryTests
     }
 
     private static ConversationContext CreateContext(
-        string contextName, ILlmSummarizer? summarizer, double? emergencyThreshold = 1.0, ILoggerFactory? loggerFactory = null)
+        string contextName, IHistorySummarizer? summarizer, double? emergencyThreshold = 1.0, ILoggerFactory? loggerFactory = null)
     {
         var diagnostics = new ConversationDiagnostics(loggerFactory ?? NullLoggerFactory.Instance, contextName);
         var counter = new TimedTokenCounter(new TextLengthTokenCounter());

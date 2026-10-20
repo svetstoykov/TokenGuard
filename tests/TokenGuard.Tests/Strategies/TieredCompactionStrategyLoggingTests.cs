@@ -118,7 +118,7 @@ public sealed class TieredCompactionStrategyLoggingTests
         record.Property("AvailableTokens").Should().Be(availableTokens);
     }
 
-    private static TieredCompactionStrategy CreateStrategy(CapturingLoggerFactory logs, ILlmSummarizer? summarizer)
+    private static TieredCompactionStrategy CreateStrategy(CapturingLoggerFactory logs, IHistorySummarizer? summarizer)
     {
         var counter = new TextLengthTokenCounter();
         var summarization = summarizer is null
