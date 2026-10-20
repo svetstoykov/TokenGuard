@@ -118,14 +118,14 @@ public sealed class ReportValidatorTests
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
-    [InlineData(7)]
+    [InlineData(8)]
     public void Validate_SchemaVersionOtherThanFourFiveOrSix_ReturnsUnsupportedVersionError(int schemaVersion)
     {
         var report = ReportFixture.Create() with { SchemaVersion = schemaVersion };
 
         var errors = ReportValidator.Validate(report);
 
-        errors.Should().ContainSingle().Which.Should().Contain("expected 4, 5 or 6");
+        errors.Should().ContainSingle().Which.Should().Contain("expected 4, 5, 6 or 7");
     }
 
     /// <summary>
@@ -135,10 +135,11 @@ public sealed class ReportValidatorTests
     [Theory]
     [InlineData(5)]
     [InlineData(6)]
+    [InlineData(7)]
     public void Validate_ReportWithCachedInputTokens_ReturnsNoErrors(int schemaVersion)
     {
         var current = ReportFixture.Create(cachedInputTokens: 40);
-        var report = schemaVersion == 6 ? current : ReportFixture.AsOlderSchemaVersion(current, schemaVersion);
+        var report = schemaVersion == 7 ? current : ReportFixture.AsOlderSchemaVersion(current, schemaVersion);
 
         var errors = ReportValidator.Validate(report);
 

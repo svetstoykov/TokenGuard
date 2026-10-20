@@ -71,9 +71,10 @@ internal sealed class ReportAggregator : IReportAggregator
                 : (double)tasks.Sum(task => task.Metrics.ChecksPassed) / tasks.Sum(task => task.Metrics.ChecksTotal),
         };
         var errors = ReportValidator.GetCollectionErrors(metadata, tasks, unrunTaskIds);
+        var retention = tasks.Where(task => task.Probe?.Kind != "maskedResult").Select(task => task.Probe).OfType<ProbeResult>().ToArray();
         return new RunReport
         {
-            SchemaVersion = 6, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
+            SchemaVersion = 7, Run = metadata, Tasks = tasks.ToArray(), UnrunTaskIds = unrunTaskIds.ToArray(),
             Partial = partial || unrunTaskIds.Count > 0 || tasks.Any(task => task.Outcome is "failed" or "cancelled"),
             Totals = new RunTotals
             {
@@ -83,13 +84,13 @@ internal sealed class ReportAggregator : IReportAggregator
                 DeliverableCompletedTaskCount = tasks.Count(task => task.DeliverableCompletion == "complete"),
                 DeliverableCompletionRate = tasks.Count(task => task.Checks.Count > 0) == 0 ? null
                     : (double)tasks.Count(task => task.DeliverableCompletion == "complete") / tasks.Count(task => task.Checks.Count > 0),
-                ProbeCount = tasks.Count(task => task.Probe is not null), InvalidProbeCount = tasks.Count(task => task.Probe?.Status == "invalid"),
-                NotApplicableProbeCount = tasks.Count(task => task.Probe?.Status == "notApplicable"),
-                PassedProbeCount = tasks.Count(task => task.Probe?.Status == "passed"),
-                CanaryPresentCount = tasks.Count(task => task.Probe?.CanaryPresent == true),
-                ProbePassRate = tasks.Count(task => task.Probe is { Status: "passed" or "failed" }) == 0 ? null
-                    : (double)tasks.Count(task => task.Probe?.Status == "passed")
-                        / tasks.Count(task => task.Probe is { Status: "passed" or "failed" }),
+                ProbeCount = retention.Length, InvalidProbeCount = retention.Count(probe => probe.Status == "invalid"),
+                NotApplicableProbeCount = retention.Count(probe => probe.Status == "notApplicable"),
+                PassedProbeCount = retention.Count(probe => probe.Status == "passed"),
+                CanaryPresentCount = retention.Count(probe => probe.CanaryPresent),
+                ProbePassRate = retention.Count(probe => probe.Status is "passed" or "failed") == 0 ? null
+                    : (double)retention.Count(probe => probe.Status == "passed") / retention.Count(probe => probe.Status is "passed" or "failed"),
+                MaskedResultProbes = MaskedResultProbeTotals.From(tasks.Select(task => task.Probe).OfType<ProbeResult>()),
                 Metrics = metrics
             },
             Validation = new ReportValidation { IsValid = errors.Count == 0, Errors = errors }

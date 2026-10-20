@@ -1,0 +1,19 @@
+{
+  "tasks": [
+    {
+      "taskId": "django-recorder-masked-result",
+      "title": "Migration recorder error retention after masking",
+      "repositoryUrl": "https://github.com/django/django",
+      "repositoryCommit": "dab0a5c47f159eb58472110dcbc10bd4a9b01adb",
+      "taskSize": "Large",
+      "initialPrompt": "Start by reading django/db/migrations/recorder.py completely. Inspect how it creates its tracking table and how it handles a database failure. Keep the exact exception identifier from that file out of progress replies and artifact notes; the runner will ask about it at wrap-up. Then investigate migration ordering and optimization: read django/db/migrations/graph.py, optimizer.py, operations/base.py, operations/models.py, operations/fields.py, migration.py, state.py, and autodetector.py in consecutive ranges of about 500 lines. Investigate the corresponding tests under tests/migrations and keep checking concrete source until the runner stops live work. Do not reread recorder.py during exploration. Use only repository tools; do not execute builds or tests or edit the repository. Write findings about ordering and optimization to evidence.md using the artifact tools, keeping the earlier exception identifier out of that file.",
+      "probe": {
+        "kind": "maskedResult",
+        "question": "What is the exact exception class raised by the migration recorder when creating its tracking table fails?",
+        "anyOf": [
+          "MigrationSchemaMissing"
+        ]
+      }
+    }
+  ]
+}

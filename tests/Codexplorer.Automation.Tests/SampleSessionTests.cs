@@ -481,6 +481,63 @@ public sealed class SampleSessionTests
         measurements.GetProperty("providerCalls")[0].GetProperty("status").GetString().Should().Be("cancelled");
     }
 
+    /// <summary>Verifies probe configuration, question boundaries, assistant contamination, and refetches cross real sample boundaries.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task Protocol_MaskedResult_CollectsEvidenceWithoutCapture()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        var calls = 0;
+        var provider = new SampleChatClient(_ => Task.FromResult(++calls switch
+        {
+            1 => SampleChatClient.Completion("TG-UNIQUE"),
+            2 => SampleChatClient.Completion(toolCall: true),
+            _ => SampleChatClient.Completion("done")
+        }));
+        var explorer = new SampleExplorerAgent(budget => CreateSession(
+            fixture, provider, budget, new SampleToolRegistry(result: "TG-UNIQUE")));
+        var registry = new AutomationSessionRegistry(NullLogger<AutomationSessionRegistry>.Instance, fixture.Collector);
+        var dispatcher = new AutomationCommandDispatcher(
+            explorer, new SampleWorkspaceManager(), registry, fixture.Collector, new EffectiveSettings());
+        var opened = Result(await dispatcher.DispatchAsync(Request("open_session", new
+        {
+            repositoryUrl = "https://github.com/a/b", modelCallBudget = 5, probeValues = new[] { "TG-UNIQUE" }, capture = false
+        }), CancellationToken.None));
+        var id = opened.GetProperty("sessionId").GetString();
+        await dispatcher.DispatchAsync(Request("submit", new { sessionId = id, message = "inspect" }), CancellationToken.None);
+
+        var replied = Result(await dispatcher.DispatchAsync(Request("submit", new
+        {
+            sessionId = id, message = "What was the code?", probeQuestion = true
+        }), CancellationToken.None));
+        await dispatcher.DispatchAsync(Request("close_session", new { sessionId = id }), CancellationToken.None);
+        var measurements = JsonSerializer.Deserialize<Codexplorer.Measurements.SessionMeasurements>(
+            replied.GetProperty("measurements"), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+        measurements.PrepareRecords.Select(record => record.ProbeValueState).Should().Equal("unseen", "unseen", "visible");
+        measurements.PrepareRecords.Select(record => record.ProbeQuestionAsked).Should().Equal(false, true, true);
+        measurements.PrepareRecords.Select(record => record.ProbeRefetched).Should().Equal(false, true, true);
+        measurements.PrepareRecords[1].ProbeFactVisibleElsewhere.Should().BeTrue();
+        measurements.PrepareRecords[0].ProbeFactVisibleElsewhere.Should().BeFalse();
+    }
+
+    /// <summary>Verifies a fact returned by the last allowed tool turn is still reported as refetched.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task MaskedResult_RefetchAtBudgetExhaustion_PreservesRefetchWithoutAnotherPrepare()
+    {
+        using var fixture = new SampleTelemetryFixture();
+        fixture.Collector.Begin(1, ["TG-UNIQUE"]);
+        fixture.Collector.BeginProbeQuestion();
+        var provider = new SampleChatClient(_ => Task.FromResult(SampleChatClient.Completion(toolCall: true)));
+        await using var session = CreateSession(fixture, provider, 1, new SampleToolRegistry(result: "TG-UNIQUE"));
+
+        var result = await session.SubmitAsync("What was the code?", CancellationToken.None);
+
+        result.Should().BeOfType<AgentExchangeTurnBudgetReached>();
+        fixture.Collector.Snapshot().PrepareRecords.Should().ContainSingle().Which.ProbeRefetched.Should().BeTrue();
+    }
+
     /// <summary>Verifies the full retained opening text is compared against typed prepared user messages.</summary>
     /// <param name="mode">The replacement mode.</param>
     /// <param name="expected">Whether the full opening survives the second prepare.</param>

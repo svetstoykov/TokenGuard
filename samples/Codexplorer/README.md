@@ -315,9 +315,52 @@ correct-answer specimens for every check. Freeze the manifest before recording b
 SHA-256 and require new compatible reports. Large source reads accumulate in the control arm, so use recorded provider usage
 to assess cost rather than assuming each call adds only a few thousand tokens.
 
+### Masked-result probes
+
+A masked-result probe asks for a fact that the agent read only in a tool result before masking hid it. Its question is appended
+to the wrap-up prompt; accepted answers are sent to passive measurement and never added to model instructions.
+
+```json
+"probe": {
+  "kind": "maskedResult",
+  "question": "Which exception class did the migration recorder raise when table creation failed?",
+  "anyOf": ["MigrationSchemaMissing"]
+}
+```
+
+This kind requires a nonempty question and accepted literal answers, and forbids `canary` and `requires`. Accepted answers
+must be absent from both the initial prompt and the question. Matching uses the same Markdown normalization and literal
+boundaries as deliverable checks. A probe without `kind` keeps the opening-instruction retention behavior described above.
+
+Eligibility is frozen at the first completed prepare of the wrap-up question, before its first model call. At least one
+accepted value must previously have appeared in an original tool result in a prepared input. The same carrier, identified by
+tool-call ID, must survive as masked. The fact must be absent from the prepared input, all assistant text before the question
+(including text accompanying tool calls), and every file under the task artifacts directory. Unreadable artifacts fail collection.
+
+Each completed prepare records `probeValueState` (`unseen`, `visible`, `masked`, or `removed`), `probeFactVisibleElsewhere`,
+`probeQuestionAsked`, and `probeRefetched`. These fields are null for incomplete prepares and sessions without a masked-result
+probe. `unseen` means no original tool-result carrier has been exposed; `masked` means an exposed carrier survives with masked
+state; `visible` means an exposed carrier still contains the fact without a masked carrier; `removed` means no exposed carrier
+survives in either form. Another visible copy, including an unmasked duplicate result, is recorded separately as contamination.
+
+Verdicts use this order: `invalid/noAnswer`, `notApplicable/noMasking`, `invalid/factNotRead`, `invalid/resultRemoved`,
+`invalid/resultNotMasked`, `invalid/factVisibleElsewhere`, then `passed` or `failed/factMissing`. If a tool returns an accepted
+value after the question, `probe.refetched` is true. Per-prepare refetch flags include that prepare's subsequent tool turn,
+so a refetch at budget exhaustion is retained even without another prepare. Later prepares cannot change the original eligibility; the final answer
+still determines pass or fail. `canaryPresent` records accepted-answer presence for both kinds.
+
+Schema 7 keeps existing retention totals separate from `totals.maskedResultProbes`, whose pass rate also excludes invalid
+and not-applicable probes. Offline validation reconstructs eligibility, reason ordering, refetch flags, and counts from report
+evidence with capture disabled. It checks recorded evidence for consistency; raw content is excluded from reports.
+
+`tasks/masked-result-probes.json` contains a pinned Django scenario. Its expected exception is verified against
+[`recorder.py` at the pinned commit](https://github.com/django/django/blob/dab0a5c47f159eb58472110dcbc10bd4a9b01adb/django/db/migrations/recorder.py).
+The scenario has no live calibration yet; whether its carrier is masked at wrap-up depends on the run. Existing corpus files
+and their hashes are unchanged.
+
 ### Run reports and comparison
 
-Every manifest run writes UTF-8 schema-version-5 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
+Every manifest run writes UTF-8 schema-version-7 JSON to `<OutputDirectory>/<runId>/run-report.json` using an atomic replacement.
 Manifest and checkout identity validation happen before the run folder is created, so a preflight error surfaces its diagnostics
 and leaves the output directory untouched.
 Run these commands from the TokenGuard repository root after building both sample projects:
@@ -336,7 +379,7 @@ Run metadata records the commit and dirty flag at run start, UTC timestamps, eff
 TokenGuard log level, arm, and the SHA-256 hash of the immutable manifest bytes executed. Inline tasks use deterministic JSON
 serialization with explicit inline provenance. Reports exclude prompts, answers, tool content, raw configuration, secrets, and exception messages.
 
-Schema versions 4, 5 and 6 include these location fields:
+Schema versions 4, 5, 6 and 7 include these location fields:
 
 | Where | Field | Meaning |
 | --- | --- | --- |
@@ -435,11 +478,11 @@ dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.c
 dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -- compare --help
 ```
 
-The command accepts schema version 4, 5 and 6 reports; reports of an earlier version must be re-recorded, not relabelled.
+The command accepts schema version 4, 5, 6 and 7 reports; reports of an earlier version must be re-recorded, not relabelled.
 A report must have exactly the shape of its version. The cached input token fields are absent from a version 4 report and read as
 unavailable, and a version 5 or 6 report must carry both. `totals.notApplicableProbeCount` is absent from a version 4 or 5 report
 and read as unavailable, and a version 6 report must carry it. A report that carries a field its version does not have is rejected.
-The three versions compare with each other without `--allow-incompatible`. The command prints both schema versions, and when either
+The four versions compare with each other without `--allow-incompatible`. The command prints both schema versions, and when either
 report has no cached input total it prints that the cached-token comparison is skipped and why. When a version 4 or 5 report declares
 probes it prints that the not-applicable probe comparison is skipped, because that report's `invalidProbeCount` includes the probes
 a version 6 report counts as not applicable. Every other metric is compared as usual.
@@ -447,7 +490,7 @@ It validates schema and aggregates, then prints baseline, candidate, and delta f
 including distributions and unavailable values. It lists tasks present in only one report and categorical completion changes.
 It also prints each report's partial flag and unrun task IDs.
 By default, models, effective budget/summarization/generation settings, task budgets, and manifest hash must match.
-On matching tasks, check-ID sets (ignoring case) and probe presence/required kind must also match. Comparison prints changed
+On matching tasks, check-ID sets (ignoring case) and probe presence, kind, and required compaction kind must also match. Comparison prints changed
 check verdicts/reasons and missing declarations, both probe statuses/reasons/code-presence flags, and failed-side kind counters.
 For each task that lost a check it prints one line naming the lost checks and the compaction that ran in the task that lost them,
 for example `task rg-encoding lost checks against control: fact; compaction in treatment: masking, summarization (masked=12
@@ -483,6 +526,9 @@ increases regress `invalidProbeCount`, `messagesMasked`, and `messagesSummarized
 rates fail. Informational fields cannot have limits: `checksTotal`, `checksPassed`, `evaluatedTaskCount`,
 `deliverableCompletedTaskCount`, `probeCount`, `passedProbeCount`, `canaryPresentCount`. There are no default thresholds.
 Use `probePassRate` limits between the same arm's valid-probe populations.
+For masked-result probes, `maskedResultProbes.probePassRate` decreases and `maskedResultProbes.invalidProbeCount` increases
+accept regression limits. Their other counts are informational. Reports before schema 7 have no masked-result population;
+comparison prints that this population is unavailable.
 
 Baseline reports are local. A baseline is the `run-report.json` of an earlier run, kept in its run folder under the ignored
 `.artifacts/reports/`. Baselines come from real provider calls after committing the implementation; credentials stay in local

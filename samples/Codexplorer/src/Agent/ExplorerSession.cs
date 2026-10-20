@@ -164,6 +164,8 @@ internal sealed class ExplorerSession : IExplorerSession
                     prepareResult.Messages.Any(message => message.Role == MessageRole.User && message.Segments.Count == 1
                         && message.Segments[0] is TextContent text && string.Equals(text.Content, this._openingMessage, StringComparison.Ordinal)));
 
+                this._collector?.ObserveProbePrepare(prepareResult.Messages, this._sessionDirectory.ArtifactsPath);
+
                 await this._sessionLogger.AppendAsync(
                         new PreparedContextEvent(DateTime.UtcNow, globalTurnIndex, prepareResult),
                         CancellationToken.None)
@@ -232,6 +234,7 @@ internal sealed class ExplorerSession : IExplorerSession
                         .Select(segment => segment.Content)
                         .Where(static content => !string.IsNullOrWhiteSpace(content)));
 
+                this._collector?.ObserveProbeAssistant(assistantText);
                 if (!string.IsNullOrWhiteSpace(assistantText))
                 {
                     this._lastAssistantText = assistantText;
@@ -335,6 +338,7 @@ internal sealed class ExplorerSession : IExplorerSession
                         this._collector?.EditCompleted(EditFileTool.IsSuccess(toolResult));
                     }
 
+                    this._collector?.ObserveProbeToolResult(toolResult);
                     this._conversationContext.RecordToolResult(toolCall.ToolCallId, toolCall.ToolName, toolResult);
 
                     await this._sessionLogger.AppendAsync(

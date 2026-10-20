@@ -6,6 +6,9 @@ namespace Codexplorer.Automation.Reporting;
 /// <remarks>Estimator statistics use all eligible paired observations rather than averaging task statistics.</remarks>
 internal sealed record RunTotals
 {
+    /// <summary>Gets the separate masked-result population, or null for reports before schema version 7.</summary>
+    public MaskedResultProbeTotals? MaskedResultProbes { get; init; }
+
     /// <summary>Gets the tasks with checks.</summary>
     public required int EvaluatedTaskCount { get; init; }
 

@@ -500,7 +500,7 @@ public sealed class AutomationRunnerTests : IDisposable
         await fixture.Runner.RunAsync(CancellationToken.None);
 
         var report = fixture.Writer.Report!;
-        report.SchemaVersion.Should().Be(6);
+        report.SchemaVersion.Should().Be(7);
         report.Run.RunId.Should().Be("20261008-141502-treatment");
         report.Run.CaptureEnabled.Should().BeTrue();
         var task = report.Tasks.Single();
@@ -772,6 +772,32 @@ public sealed class AutomationRunnerTests : IDisposable
         report.Tasks.Single().Probe!.Reason.Should().Be("noAnswer");
         report.UnrunTaskIds.Should().Equal("second");
         ReportValidator.Validate(report).Should().BeEmpty();
+    }
+
+    /// <summary>Verifies a masked-result question appears only at wrap-up and observation values stay out of model prompts.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_MaskedResult_AsksAtWrapUpAndPassesPassiveConfiguration()
+    {
+        var probe = new AutomationProbeDefinition { Kind = "maskedResult", Question = "What was the code?", AnyOf = ["TG-UNIQUE"] };
+        var fixture = new Fixture("treatment", [], this._outputDirectory, false, probe: probe);
+        var requests = new List<SubmitRequest>();
+        fixture.Client.Submit = (request, _) =>
+        {
+            requests.Add(request);
+            return Task.FromResult(Response(requests.Count == 1 ? "max_turns_reached" : "reply_received",
+                Snapshot(requests.Count == 1 ? 2 : 3)) with { AssistantText = "unknown" });
+        };
+
+        await fixture.Runner.RunAsync(CancellationToken.None);
+
+        requests.Should().HaveCount(2);
+        requests[0].Message.Should().Be("initial");
+        requests[0].ProbeQuestion.Should().BeFalse();
+        requests[1].Message.Should().Contain(probe.Question).And.NotContain("TG-UNIQUE");
+        requests[1].ProbeQuestion.Should().BeTrue();
+        fixture.Client.OpenRequest!.ProbeValues.Should().Equal("TG-UNIQUE");
+        fixture.Client.OpenRequest.Capture.Should().BeFalse();
     }
 
     private Fixture CreateFixture(params string[] ids) => new("treatment", ids, this._outputDirectory);

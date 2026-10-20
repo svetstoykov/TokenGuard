@@ -206,6 +206,21 @@ public sealed class LongSessionCorpusTests
         result.Passed.Should().BeTrue();
     }
 
+    /// <summary>Verifies the separate masked-result corpus loads with a pinned source and no expected-answer leakage.</summary>
+    [Fact]
+    public void LoadTasks_MaskedResultCorpus_LoadsPinnedQuestionWithoutAnswerLeakage()
+    {
+        var tasks = LoadTasks("masked-result-probes.json");
+
+        tasks.Should().ContainSingle();
+        var task = tasks.Single();
+        task.RepositoryCommit.Should().Be("dab0a5c47f159eb58472110dcbc10bd4a9b01adb");
+        task.Probe!.Kind.Should().Be("maskedResult");
+        task.Probe.AnyOf.Should().Equal("MigrationSchemaMissing");
+        task.InitialPrompt.Should().NotContain("MigrationSchemaMissing");
+        task.Probe.Question.Should().NotContain("MigrationSchemaMissing");
+    }
+
     private static IReadOnlyList<AutomationTaskDefinition> LoadTasks(string manifest)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

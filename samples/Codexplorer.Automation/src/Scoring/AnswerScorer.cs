@@ -19,7 +19,22 @@ internal sealed class AnswerScorer : IAnswerScorer
             check.Artifact is null ? answer : input.ArtifactTexts.GetValueOrDefault(check.Artifact),
             check.Artifact is null ? "noAnswer" : "artifactMissing")).ToArray();
         ProbeResult? result = null;
-        if (probe is not null)
+        if (probe?.Kind == "maskedResult")
+        {
+            var present = answer is not null && (probe.AnyOf ?? []).Any(value =>
+                ValueMatcher.IsMatch(TextNormalizer.Normalize(answer), TextNormalizer.Normalize(value)));
+            var applicable = answer is null || input.Measurements.MessagesMasked > 0;
+            var reason = answer is null ? "noAnswer" : !applicable ? "noMasking"
+                : ProbeValidity.GetMaskedResultInvalidReason(input.Measurements);
+            result = new ProbeResult
+            {
+                Kind = probe.Kind, Requires = null, CanaryPresent = present,
+                Refetched = input.Measurements.PrepareRecords.Any(record => record.ProbeRefetched == true),
+                Status = !applicable ? "notApplicable" : reason is not null ? "invalid" : present ? "passed" : "failed",
+                Reason = reason ?? (present ? null : "factMissing")
+            };
+        }
+        else if (probe is not null)
         {
             var present = answer is not null && ValueMatcher.IsMatch(TextNormalizer.Normalize(answer), TextNormalizer.Normalize(probe.Canary!));
             var applicable = answer is null || ProbeValidity.IsApplicable(input.Measurements);

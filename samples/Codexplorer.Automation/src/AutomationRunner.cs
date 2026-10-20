@@ -222,7 +222,8 @@ internal sealed class AutomationRunner
             ModelCallBudget = state.Budget.MaxTurns,
             WrapUpWindow = state.Budget.WrapUpWindow,
             SessionDirectory = state.SessionDirectory,
-            Capture = this._options.Capture
+            Capture = this._options.Capture,
+            ProbeValues = state.Task.Probe?.Kind == "maskedResult" ? state.Task.Probe.AnyOf : null
         }, ct).ConfigureAwait(false);
         state.SessionId = opened.SessionId;
         state.ArtifactsAtStart = this.ListArtifacts(state.SessionDirectory).Select(file => file.Path).ToArray();
@@ -232,14 +233,15 @@ internal sealed class AutomationRunner
         {
             ct.ThrowIfCancellationRequested();
             var message = state.Task.InitialPrompt!;
-            if (state.Task.Probe is { } probe)
+            if (state.Task.Probe is { Kind: null } probe)
                 message += "\n\n" + AutomationRunnerPrompts.CreateProbeInstruction(probe.Canary!);
             while (true)
             {
-                var response = await this._client.SubmitAsync(new SubmitRequest(opened.SessionId, message), ct).ConfigureAwait(false);
+                var request = new SubmitRequest(opened.SessionId, message, state.WrapUpSent && state.Task.Probe?.Kind == "maskedResult");
+                var response = await this._client.SubmitAsync(request, ct).ConfigureAwait(false);
                 sessionOpen = response.SessionOpen;
                 state.FinalAnswer = response.AssistantText;
-                if (!state.WrapUpSent && state.Task.Probe is { } probeDefinition && response.AssistantText is { } original)
+                if (!state.WrapUpSent && state.Task.Probe is { Kind: null } probeDefinition && response.AssistantText is { } original)
                     state.CanaryRepeated |= ValueMatcher.IsMatch(
                         TextNormalizer.Normalize(original), TextNormalizer.Normalize(probeDefinition.Canary!));
                 state.Record(response);
@@ -301,7 +303,8 @@ internal sealed class AutomationRunner
         if (!state.WrapUpSent && state.CallsConsumed >= state.Budget.WrapUpTriggerTurns)
         {
             state.WrapUpSent = true;
-            return AutomationRunnerPrompts.CreateWrapUpPrompt();
+            var prompt = AutomationRunnerPrompts.CreateWrapUpPrompt();
+            return state.Task.Probe is { Kind: "maskedResult" } probe ? prompt + "\n\n" + probe.Question : prompt;
         }
 
         if (response.AsksRunner)

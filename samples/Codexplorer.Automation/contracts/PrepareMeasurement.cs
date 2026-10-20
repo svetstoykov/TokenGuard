@@ -25,6 +25,18 @@ internal sealed record PrepareMeasurement
     /// </summary>
     public string Status { get; init; } = "incomplete";
 
+    /// <summary>Gets unseen, visible, masked, or removed for the configured fact; null without a probe or on an incomplete prepare.</summary>
+    public string? ProbeValueState { get; init; }
+
+    /// <summary>Gets whether a fact copy contaminates this prepare, or null without probe evidence.</summary>
+    public bool? ProbeFactVisibleElsewhere { get; init; }
+
+    /// <summary>Gets whether the wrap-up question has been submitted, or null without probe evidence.</summary>
+    public bool? ProbeQuestionAsked { get; init; }
+
+    /// <summary>Gets cumulative post-question refetches through this prepare and its tool turn, or null without probe evidence.</summary>
+    public bool? ProbeRefetched { get; init; }
+
     /// <summary>Gets whether the unchanged opening message survived, or null for an incomplete prepare.</summary>
     public bool? OpeningMessagePresent { get; init; } = null;
 

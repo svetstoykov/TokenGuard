@@ -235,6 +235,30 @@ internal sealed class CodexplorerAutomationOptionsValidator : IValidateOptions<C
         }
         if (task.Probe is { } probe)
         {
+            if (probe.Kind == "maskedResult")
+            {
+                var fieldName = $"{prefix}:Probe";
+                void ProbeError(string name, string message) => failures.Add($"Configuration field '{fieldName}:{name}' {message}");
+                if (probe.Canary is not null || probe.Requires is not null)
+                    ProbeError("Kind", "maskedResult forbids Canary and Requires.");
+                if (string.IsNullOrWhiteSpace(probe.Question))
+                    ProbeError("Question", "must be nonempty.");
+                if (probe.AnyOf is null)
+                    ProbeError("AnyOf", "must contain accepted literal answers.");
+                ValidateValues(probe.AnyOf, "AnyOf", ProbeError);
+                foreach (var value in probe.AnyOf ?? [])
+                {
+                    if (string.IsNullOrWhiteSpace(value))
+                        continue;
+                    var normalized = TextNormalizer.Normalize(value);
+                    if (ValueMatcher.IsMatch(TextNormalizer.Normalize(task.InitialPrompt ?? ""), normalized)
+                        || ValueMatcher.IsMatch(TextNormalizer.Normalize(probe.Question ?? ""), normalized))
+                        ProbeError("AnyOf", "must not occur in InitialPrompt or Question.");
+                }
+                return;
+            }
+            if (probe.Kind is not null || probe.Question is not null || probe.AnyOf is not null)
+                failures.Add($"Configuration field '{prefix}:Probe' has an unknown kind or masked-result-only fields.");
             var canary = probe.Canary;
             var field = $"{prefix}:Probe";
             if (canary is null || canary.Length is < 6 or > 32 || !char.IsAsciiLetterOrDigit(canary[0])

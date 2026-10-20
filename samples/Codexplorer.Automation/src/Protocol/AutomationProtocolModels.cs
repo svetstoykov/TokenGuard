@@ -46,6 +46,9 @@ internal sealed record OpenSessionRequest
 
     /// <summary>Gets a value indicating whether the session records every model call in its capture folder.</summary>
     public bool Capture { get; init; }
+
+    /// <summary>Gets accepted probe values for passive measurement, or null for a legacy probe.</summary>
+    public IReadOnlyList<string>? ProbeValues { get; init; }
 }
 
 internal sealed record OpenSessionResponse(
@@ -61,7 +64,11 @@ internal sealed record CloseSessionRequest(string SessionId);
 /// <param name="Measurements">The final cumulative session measurements.</param>
 internal sealed record CloseSessionResponse(string SessionId, string Status, SessionMeasurements? Measurements = null);
 
-internal sealed record SubmitRequest(string SessionId, string Message);
+/// <summary>Represents an exchange and its optional wrap-up probe boundary.</summary>
+/// <param name="SessionId">The active session identifier.</param>
+/// <param name="Message">The submitted instruction.</param>
+/// <param name="ProbeQuestion">Whether this exchange starts the masked-result question.</param>
+internal sealed record SubmitRequest(string SessionId, string Message, bool ProbeQuestion = false);
 
 internal sealed record SubmitFailure(string ExceptionType, string Message);
 
