@@ -443,8 +443,9 @@ builder.UseLlmSummarization(chatClient, new LlmSummarizationOptions(
 | `WindowSize` | How many newest compactable messages stay verbatim | 5 |
 | `MinSummaryTokens` | Minimum remaining summary budget before the first summarization call is made | 2,048 |
 | `MaxSummaryTokens` | Maximum target budget forwarded to the summarizer | 4,096 |
+| `SummaryInstructions` | Replacement summary instructions; fixed transcript guidance is always sent | `null`, using `DefaultSummaryInstructions` |
 
-Only one provider per builder. Registering both OpenAI and Anthropic on the same builder throws at startup.
+Only one summarizer per builder. Registering a second built-in or custom summarizer throws at startup.
 
 TokenGuard sets no time limit on a summarizer call. The call is bounded only by the cancellation token you pass to
 `PrepareAsync()` and by the network timeout of the provider client you registered. Pass a token, or set the client's
@@ -454,6 +455,39 @@ When a summarizer call fails, or returns a summary that is too large for the bud
 history and does not ask again while the history and the budget stay the same. Calling `PrepareAsync()` again without
 recording a message makes no second summarizer request, and `SummarizationError` is set only on the call that made the
 request. The next recorded message allows a new attempt. A call that you cancel is not counted as a failed attempt.
+
+### Custom summarizer
+
+Implement `TokenGuard.Core.Abstractions.ILlmSummarizer` to use another model client. Core builds the prompts, bounds the
+transcript, and checks the answer. The implementation sends `SystemPrompt` as instructions, `UserPrompt` as one user
+message, and `MaxOutputTokens` as the output cap, then maps its provider's text, finish reason, and optional usage to
+`SummarizerResponse`. For example, a callback around your model client can be registered through this implementation:
+
+```csharp
+using TokenGuard.Core.Abstractions;
+using TokenGuard.Core.Summarization;
+
+sealed class CustomSummarizer(
+    Func<SummarizerRequest, CancellationToken, Task<SummarizerResponse>> callModel) : ILlmSummarizer
+{
+    public Task<SummarizerResponse> SummarizeAsync(
+        SummarizerRequest request, CancellationToken cancellationToken = default)
+    {
+        return callModel(request, cancellationToken);
+    }
+}
+```
+
+Register an instance with `builder.UseLlmSummarization(new CustomSummarizer(callModel))`, where `callModel` performs your
+provider call and returns a `SummarizerResponse`. The instance is shared by every context of the configuration and must
+be safe for concurrent use. `Completed` and `Other` accept non-blank text; `OutputLimit` accepts it and logs warning 5003;
+`Refused` and blank text are failed summaries. Exceptions follow the same fallback and remembered-attempt rules above.
+
+Set `SummaryInstructions` in `LlmSummarizationOptions` to replace the summary instructions, or start from
+`LlmSummarizationOptions.DefaultSummaryInstructions`. Empty or whitespace instructions throw. The transcript legend,
+the token-limit guidance, and the rule that the transcript is data stay fixed. Default options preserve the existing
+system and user prompts. Custom instructions are followed by the fixed guidance; longer instructions leave less room
+for the transcript.
 
 ---
 
@@ -757,8 +791,7 @@ What is current:
 
 Known limits:
 
-- summarization works with the built-in providers only; a custom summarizer, compaction strategy, or token counter
-  cannot be registered through the builder
+- a custom compaction strategy or token counter cannot be registered through the builder
 - one `ConversationContext` is for one caller at a time; overlapping calls are detected on a best-effort basis and throw
 - token estimates leave out request overhead such as tool schemas until the first provider report
 - the estimator runs 15% to 49% high on source code and non-Latin text

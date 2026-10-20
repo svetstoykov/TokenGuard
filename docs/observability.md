@@ -46,7 +46,10 @@ TokenGuard writes no log records.
 
 ### Categories
 
-Each type logs under its own full name, so one `TokenGuard` prefix covers the whole library.
+Each library type logs under its full name. Core logs summarizer calls under the summarizer implementation's full type name,
+including a custom `ILlmSummarizer`; configure that category too if it is outside the `TokenGuard` namespace.
+The `Provider` field is the summarizer's type name, such as `OpenAISummarizer`, rather than a provider label.
+The `Model` field of event 5000 is null because the public summarizer contract does not expose a model identifier.
 
 | Category | Writes |
 | --- | --- |
@@ -114,9 +117,9 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | 3021 | SummaryCheckpointReused | Debug | A saved checkpoint was reused without calling the summarizer. |
 | 3022 | SummaryCheckpointCleared | Debug | A saved checkpoint was discarded. `Reason` is `HistoryShorterThanCheckpoint` or `SummarizedPrefixChanged`. |
 | 4000 | TieredResultSelected | Debug | Which stage's result the tiered strategy returned and why. `Reason` is `SlidingWindowSufficient`, `NoSummarizerConfigured`, `SummarizationSucceeded`, `SummarizationOvershot`, or `SummarizationThrew`. |
-| 5000 | SummarizerCallStarting | Debug | A provider summarizer request is about to be sent. Carries provider, message count, target tokens, and the model when the summarizer knows it. |
-| 5001 | SummarizerCallCompleted | Debug | A provider summarizer request returned. Carries elapsed milliseconds, summary length in characters, provider-reported input, output, and reasoning tokens, and the provider's finish reason. |
-| 5002 | SummarizerCallFailed | Debug | A provider summarizer request failed. Carries elapsed milliseconds and the exception type. When the provider answered and the answer was rejected as empty, also carries the provider-reported output and reasoning tokens and the finish reason; these are null when the request itself failed. The exception itself is logged once, by event 1013. |
+| 5000 | SummarizerCallStarting | Debug | A provider summarizer request is about to be sent. Carries the summarizer type name as provider, message count, target tokens, and a null model field. |
+| 5001 | SummarizerCallCompleted | Debug | A provider summarizer request returned. Carries elapsed milliseconds, summary length in characters, provider-reported input, output, and reasoning tokens, and the normalized finish reason. |
+| 5002 | SummarizerCallFailed | Debug | A provider summarizer request failed. Carries elapsed milliseconds and the exception type. When the provider answered and the answer was rejected as empty or refused, also carries the provider-reported output and reasoning tokens and the finish reason; these are null when the request itself failed. The exception itself is logged once, by event 1013. |
 | 5003 | SummarizerOutputCut | Warning | A provider summarizer answer was cut at the output limit of the request (OpenAI finish reason `length`, Anthropic stop reason `max_tokens`). The summary is used as it arrived, so its last section can be incomplete. Carries provider, the output limit in tokens, and the provider-reported output tokens, which are null when not reported. |
 | 6001 | EstimatorDriftDetected | Warning | Health signal started: the token estimate differs from the provider-reported value by more than the threshold. |
 | 6002 | RepeatedCompactionDetected | Warning | Health signal started: the strategy ran on consecutive turns. Carries the tokens reclaimed on each. |
@@ -154,11 +157,11 @@ the token figures of events 1010, 1011, 1012, 1014, and 1016, the `tokenguard.co
 `tokenguard.compaction.tokens_reclaimed` measurements, and the health signals. The same tags on `tokenguard.compact`,
 and the figures logged by the strategies, are sums of per-message estimates without the correction.
 
-`tokenguard.finish_reason`, `tokenguard.tokens.output`, and `tokenguard.tokens.reasoning` are set by the OpenAI and
-Anthropic summarizers when the provider answers, including an answer that is then rejected as empty. The finish reason
-is the provider's own value, such as `stop` or `length` for OpenAI and `end_turn` or `max_tokens` for Anthropic. A value
-the provider does not report adds no tag; `tokenguard.tokens.reasoning` is set by the OpenAI summarizer only. An empty
-answer with `length` and reasoning tokens close to the output tokens means reasoning used the whole summary budget.
+`tokenguard.finish_reason`, `tokenguard.tokens.output`, and `tokenguard.tokens.reasoning` are set by Core when an
+`ILlmSummarizer` returns a response, including one rejected as empty or refused. Finish reasons are normalized to
+`completed`, `output_limit`, `refused`, or `other` from `SummarizerFinishReason`. Unknown enum values map to `other`.
+A token count the summarizer does not report adds no tag. An empty answer with `output_limit` and reasoning tokens
+close to the output tokens means reasoning used the whole summary budget.
 
 Status and events:
 

@@ -24,6 +24,8 @@ done
 # A private packages folder keeps a TokenGuard package of the same version in the global cache out of the build.
 dotnet build "$project_dir/TokenGuard.ReadmeSnippets.csproj" --configuration Release --nologo --packages "$work_dir/packages"
 
+custom_summarizer="$project_dir/CustomSummarizer.cs"
+
 failed=0
 
 # check_blocks <source file> <readme> <block>...
@@ -51,6 +53,8 @@ check_blocks() {
     fi
   done
 }
+
+check_blocks "$custom_summarizer" "README.md" "CustomSummarizerExample"
 
 for readme in "${readmes[@]}"; do
   check_blocks "$program" "$readme" "${blocks[@]}"

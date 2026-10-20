@@ -17,8 +17,19 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
   falls, so large exempt results leave more for summarization and emergency truncation, and a prepare can end as
   `CompactionInsufficient` where it would otherwise end as `Compacted`. Two options values with the same names in any
   order are equal.
+- Public `ILlmSummarizer`, `SummarizerRequest`, `SummarizerResponse`, and `SummarizerFinishReason` contracts and
+  `ConversationConfigBuilder.UseLlmSummarization(ILlmSummarizer, LlmSummarizationOptions?)` for custom model calls.
+  Core owns transcript formatting, request budgets, response validation, logs, and telemetry for every summarizer.
+- `LlmSummarizationOptions.SummaryInstructions` and `DefaultSummaryInstructions` for replacing the instructions while
+  preserving the fixed transcript guidance. Default options preserve the existing prompts.
+
 
 ### Changed
+
+- Both provider extensions use the public summarizer contract and declare a minimum Core dependency instead of an
+  exact version. The 1.3.0 release will publish all three packages from one tag, Core first.
+- Summarizer diagnostic event IDs, fields, and metric names remain stable. `Provider` now carries the summarizer type
+  name, `Model` is null, and finish reasons are normalized to `completed`, `output_limit`, `refused`, or `other`.
 
 - The quick starts in the README and on the package pages stop on both over-budget outcomes, `CompactionInsufficient`
   and `CannotCompact`, and end after a set number of model calls.

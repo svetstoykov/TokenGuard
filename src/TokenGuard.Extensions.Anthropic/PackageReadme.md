@@ -201,6 +201,17 @@ When the conversation has a logger factory (`services.AddLogging()` with `AddCon
 and the reported token usage and finish reason, never its prompt or summary text.
 See [Observability](https://github.com/svetstoykov/TokenGuard/blob/main/docs/observability.md).
 
+## Summary instructions and Core compatibility
+
+Pass `LlmSummarizationOptions` with `SummaryInstructions` set to replace the instructions for a summary, or start from
+`LlmSummarizationOptions.DefaultSummaryInstructions`. Core always includes its transcript legend, token-limit guidance,
+and the rule that the transcript is data. Blank instructions throw. Default options preserve the existing prompts.
+
+The summarizer uses Core's public `ILlmSummarizer` contract. The package declares the Core version it was built with as
+its minimum dependency and can be used with a newer compatible Core version. Core logs summarizer calls under the
+implementation's full type name and records finish reasons as `completed`, `output_limit`, `refused`, or `other`.
+
+
 ## More detail
 
 - [Root README](https://github.com/svetstoykov/TokenGuard/blob/main/README.md)
