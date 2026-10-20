@@ -12,6 +12,7 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Extensions.Anthropic;
 using TokenGuard.Tests.Diagnostics;
+using TokenGuard.Tests.Summarization;
 
 namespace TokenGuard.Tests.Anthropic;
 
@@ -114,6 +115,26 @@ public sealed class AnthropicSummarizerLoggingTests
         logs.WithEventId(CallStarting).Single().Property("TargetTokens").Should().Be(40);
         using var request = JsonDocument.Parse(handler.LastRequestBody!);
         request.RootElement.GetProperty("max_tokens").GetInt32().Should().Be(80);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WithDefaultOptions_SendsTheLockedSystemPromptAndUserPrompt()
+    {
+        // Arrange
+        var handler = new StubHttpMessageHandler(HttpStatusCode.OK, MessageJson);
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), handler);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        using var request = JsonDocument.Parse(handler.LastRequestBody!);
+        var system = request.RootElement.GetProperty("system").EnumerateArray().Select(block => block.GetProperty("text").GetString());
+        var message = request.RootElement.GetProperty("messages").EnumerateArray().Should().ContainSingle().Subject;
+        system.Should().Equal(SummaryPromptLock.SystemPrompt);
+        message.GetProperty("role").GetString().Should().Be("user");
+        message.GetProperty("content").EnumerateArray().Select(block => block.GetProperty("text").GetString()).Should()
+            .Equal(SummaryPromptLock.UserPrompt);
     }
 
     [Fact]

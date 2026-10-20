@@ -15,6 +15,7 @@ using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Extensions.OpenAI;
 using TokenGuard.Tests.Diagnostics;
+using TokenGuard.Tests.Summarization;
 
 namespace TokenGuard.Tests.OpenAI;
 
@@ -120,6 +121,24 @@ public sealed class OpenAISummarizerLoggingTests
         logs.WithEventId(CallStarting).Single().Property("TargetTokens").Should().Be(40);
         using var request = JsonDocument.Parse(handler.LastRequestBody!);
         request.RootElement.GetProperty("max_completion_tokens").GetInt32().Should().Be(80);
+    }
+
+    [Fact]
+    public async Task SummarizeAsync_WithDefaultOptions_SendsTheLockedSystemPromptAndUserPrompt()
+    {
+        // Arrange
+        var handler = new StubHttpMessageHandler(HttpStatusCode.OK, CompletionJson);
+        var strategy = CreateStrategy(new CapturingLoggerFactory(), handler);
+
+        // Act
+        await strategy.CompactAsync(CreateMessages(), availableTokens: 80);
+
+        // Assert
+        using var request = JsonDocument.Parse(handler.LastRequestBody!);
+        var messages = request.RootElement.GetProperty("messages").EnumerateArray()
+            .Select(message => (Role: message.GetProperty("role").GetString(), Content: message.GetProperty("content").GetString()))
+            .ToArray();
+        messages.Should().Equal(("system", SummaryPromptLock.SystemPrompt), ("user", SummaryPromptLock.UserPrompt));
     }
 
     [Fact]
