@@ -788,44 +788,6 @@ or `UseLlmSummarization` throws at `Build()`. Register a custom summarizer inste
 
 ---
 
-## Custom token counter and strategy
-
-Share a counter with the context so your tools and the context measure on the same scale:
-
-```csharp
-var counter = new EstimatedTokenCounter(TokenCountSafetyMode.Safe);
-var config = new ConversationConfigBuilder()
-    .WithMaxTokens(40_000)
-    .WithTokenCounter(counter)
-    .Build();
-```
-
-`EstimatedTokenCounter` is in `TokenGuard.Core.TokenCounting`, and `TokenCountSafetyMode` is in `TokenGuard.Core.Enums`.
-You can also implement `ITokenCounter` from `TokenGuard.Core.Abstractions`. One instance serves all contexts created from
-that configuration and must be safe for concurrent use. It measures recorded messages, tool-result limits, compaction
-and summarizer requests. Provider correction applies on top of its counts.
-
-Supply a factory for a fresh `ICompactionStrategy` per conversation:
-
-```csharp
-var config = new ConversationConfigBuilder()
-    .WithMaxTokens(40_000)
-    .WithCompactionStrategy(context => new MyCompactionStrategy(
-        context.TokenCounter,
-        context.LoggerFactory.CreateLogger<MyCompactionStrategy>()))
-    .Build();
-```
-
-`MyCompactionStrategy` is your implementation of `ICompactionStrategy`. Its factory receives a `CompactionStrategyContext`
-from `TokenGuard.Core.Models`, with the timed counter, resolved logger factory and configuration name. The logger factory
-uses `WithLoggerFactory`, then the DI container's factory, then a factory that writes no records. Include
-`Microsoft.Extensions.Logging` for `CreateLogger<T>()`.
-
-A custom strategy replaces the built-in masking and summarization pipeline. Combining it with `WithSlidingWindowOptions`
-or `UseLlmSummarization` throws at `Build()`. Register a custom summarizer instead when you want to keep the built-in pipeline.
-
----
-
 ## Token counting
 
 TokenGuard uses the public, thread-safe `EstimatedTokenCounter` by default, with `TokenCountSafetyMode.Balanced`.
