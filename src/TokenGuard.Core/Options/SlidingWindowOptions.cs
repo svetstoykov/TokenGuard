@@ -1,5 +1,8 @@
+using System.Collections.Frozen;
 using TokenGuard.Core.Defaults;
+using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
+using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Strategies;
 
 namespace TokenGuard.Core.Options;
@@ -14,6 +17,8 @@ namespace TokenGuard.Core.Options;
 /// </remarks>
 public readonly record struct SlidingWindowOptions
 {
+    private readonly FrozenSet<string>? _exemptToolNames;
+
     /// <summary>
     /// Initializes a default <see cref="SlidingWindowOptions"/> value using library-defined defaults.
     /// </summary>
@@ -92,6 +97,42 @@ public readonly record struct SlidingWindowOptions
     public string PlaceholderFormat { get; }
 
     /// <summary>
+    /// Gets the names of the tools whose results masking never replaces. The default is an empty set.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A tool result is exempt when its <see cref="ToolResultContent.ToolName"/> equals one of these names exactly,
+    /// compared ordinally. Use it for tools whose results the agent relies on later, such as a notes or todo-list tool.
+    /// The value returned is a set, so a name given more than once is held once.
+    /// </para>
+    /// <para>
+    /// An exempt result stays in the prepared view at full size wherever it falls in the history. When exempt results
+    /// are large, masking reclaims less space, later stages have more to remove, and a prepare can end as
+    /// <see cref="PrepareOutcome.CompactionInsufficient"/> where it would otherwise end as
+    /// <see cref="PrepareOutcome.Compacted"/>.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">The assigned collection is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException">The assigned collection contains a name that is <see langword="null"/>, empty, or whitespace.</exception>
+    public IReadOnlyCollection<string> ExemptToolNames
+    {
+        get => this.ExemptToolNameSet;
+        init => this._exemptToolNames = ValidateExemptToolNames(value, nameof(this.ExemptToolNames));
+    }
+
+    private FrozenSet<string> ExemptToolNameSet => this._exemptToolNames ?? FrozenSet<string>.Empty;
+
+    /// <summary>
+    /// Determines whether masking leaves the results of the named tool in place.
+    /// </summary>
+    /// <param name="toolName">The tool name recorded on a tool result.</param>
+    /// <returns>
+    /// <see langword="true"/> if <paramref name="toolName"/> is one of <see cref="ExemptToolNames"/>; otherwise,
+    /// <see langword="false"/>.
+    /// </returns>
+    internal bool IsExempt(string toolName) => this.ExemptToolNameSet.Contains(toolName);
+
+    /// <summary>
     /// Gets a value indicating whether this value was created by a constructor.
     /// </summary>
     /// <value>
@@ -99,6 +140,37 @@ public readonly record struct SlidingWindowOptions
     /// <c>default(SlidingWindowOptions)</c>, whose <see cref="PlaceholderFormat"/> is <see langword="null"/>.
     /// </value>
     internal bool IsInitialized => this.PlaceholderFormat is not null;
+
+    /// <summary>
+    /// Determines whether this value and <paramref name="other"/> configure the same masking policy.
+    /// </summary>
+    /// <remarks>
+    /// The exempt tool names are compared as sets, so their order and repetition when they were set do not matter, and
+    /// an empty set equals one that was never set.
+    /// </remarks>
+    /// <param name="other">The value to compare with this value.</param>
+    /// <returns><see langword="true"/> if both values hold the same settings; otherwise, <see langword="false"/>.</returns>
+    public bool Equals(SlidingWindowOptions other) =>
+        this.WindowSize == other.WindowSize
+        && this.ProtectedWindowFraction.Equals(other.ProtectedWindowFraction)
+        && string.Equals(this.PlaceholderFormat, other.PlaceholderFormat, StringComparison.Ordinal)
+        && this.ExemptToolNameSet.SetEquals(other.ExemptToolNameSet);
+
+    /// <inheritdoc />
+    public override int GetHashCode() =>
+        HashCode.Combine(this.WindowSize, this.ProtectedWindowFraction, this.PlaceholderFormat, this.ExemptToolNames.Count);
+
+    private static FrozenSet<string> ValidateExemptToolNames(IReadOnlyCollection<string> value, string paramName)
+    {
+        ArgumentNullException.ThrowIfNull(value, paramName);
+
+        if (value.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException("ExemptToolNames cannot contain a null, empty, or whitespace name.", paramName);
+        }
+
+        return value.ToFrozenSet(StringComparer.Ordinal);
+    }
 
     private static int ValidateWindowSize(int value, string paramName)
     {

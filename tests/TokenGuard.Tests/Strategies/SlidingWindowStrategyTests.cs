@@ -849,6 +849,150 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_WhenToolIsExempt_ReturnsItsResultUnchangedAndMasksOtherToolsBeforeBoundary()
+    {
+        // Arrange
+        var notes = CreateToolResultMessage("call_0", "notes", new string('n', 400));
+        var read = CreateToolResultMessage("call_1", "read_file", new string('x', 400));
+        var messages = new List<ContextMessage> { notes, read, ContextMessage.FromText(MessageRole.User, "recent") };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20) { ExemptToolNames = ["notes"] };
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Same(notes, compacted.Messages[0]);
+        Assert.Equal(CompactionState.Original, compacted.Messages[0].State);
+        Assert.Equal(CompactionState.Masked, compacted.Messages[1].State);
+        Assert.Equal(1, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenMessageHoldsExemptAndOtherToolResults_ReplacesOnlyTheOtherOnes()
+    {
+        // Arrange
+        var notes = new ToolResultContent("call_0", "notes", new string('n', 400));
+        var read = new ToolResultContent("call_1", "read_file", new string('x', 400));
+        var mixed = new ContextMessage { Role = MessageRole.Tool, Segments = [notes, read] };
+        var messages = new List<ContextMessage> { mixed, ContextMessage.FromText(MessageRole.User, "recent") };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20) { ExemptToolNames = ["notes"] };
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        var segments = compacted.Messages[0].Segments;
+        Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
+        Assert.Same(notes, segments[0]);
+        Assert.Equal(
+            "[Tool result removed to save context — read_file, call_1. Call the tool again if you need this content.]",
+            segments[1].Content);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenEveryToolResultInMessageIsExempt_ReturnsSameMessageWithItsTokenCount()
+    {
+        // Arrange
+        var allExempt = new ContextMessage
+        {
+            Role = MessageRole.Tool,
+            Segments =
+            [
+                new ToolResultContent("call_0", "notes", new string('n', 400)),
+                new ToolResultContent("call_1", "todo_write", new string('t', 400)),
+            ],
+            TokenCount = 800,
+        };
+        var messages = new List<ContextMessage> { allExempt, ContextMessage.FromText(MessageRole.User, "recent") };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20) { ExemptToolNames = ["notes", "todo_write"] };
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Same(allExempt, compacted.Messages[0]);
+        Assert.Equal(CompactionState.Original, compacted.Messages[0].State);
+        Assert.Equal(800, compacted.Messages[0].TokenCount);
+        Assert.Equal(0, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenExemptNameDiffersInCase_MasksTheResult()
+    {
+        // Arrange
+        var notes = CreateToolResultMessage("call_0", "Notes", new string('n', 400));
+        var messages = new List<ContextMessage> { notes, ContextMessage.FromText(MessageRole.User, "recent") };
+
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20) { ExemptToolNames = ["notes"] };
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 10);
+
+        // Assert
+        Assert.Equal(CompactionState.Masked, compacted.Messages[0].State);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenNoExemptToolIsInHistory_ReturnsTheViewProducedWithoutExemptions()
+    {
+        // Arrange
+        var history = Enumerable.Range(0, 10)
+            .Select(i => CreateToolResultMessage($"call_{i}", i % 2 == 0 ? "read_file" : "search", new string('x', 200)))
+            .ToList();
+
+        var plain = new SlidingWindowStrategy(new TextLengthTokenCounter(), new SlidingWindowOptions(windowSize: 1));
+        var expected = await plain.CompactAsync(history, 1_000);
+        var options = new SlidingWindowOptions(windowSize: 1) { ExemptToolNames = ["notes", "todo_write"] };
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(history, 1_000);
+
+        // Assert
+        Assert.NotEqual(0, expected.MessagesAffected);
+        Assert.Equal(Render(expected.Messages), Render(compacted.Messages));
+        Assert.Equal(expected.TokensAfter, compacted.TokensAfter);
+        Assert.Equal(expected.MessagesAffected, compacted.MessagesAffected);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenExemptToolResultsStayBeforeBoundary_KeepsBoundaryOnItsStepLine()
+    {
+        // Arrange
+        // The counter returns the content length, so the history costs 200, 2, 200, 2 and then six times 200 tokens.
+        // With 1,000 available tokens the high mark is 800, the step is 200 and the low mark is 600. The walk with the
+        // low mark stops at index 7, and the step lines fall at 1, 3, 5, 6 and 7, so the boundary is index 7. The
+        // results at 4 and 5 belong to an exempt tool and cost as much as the masked neighbours around them.
+        var messages = new[] { 200, 2, 200, 2, 200, 200, 200, 200, 200, 200 }
+            .Select((length, i) => CreateToolResultMessage($"call_{i}", i is 4 or 5 ? "notes" : "read_file", new string('x', length)))
+            .ToList();
+
+        var options = new SlidingWindowOptions(windowSize: 1) { ExemptToolNames = ["notes"] };
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 1_000);
+
+        // Assert
+        var states = compacted.Messages.Select(message => message.State).ToArray();
+        Assert.Equal(
+            [
+                CompactionState.Masked, CompactionState.Original, CompactionState.Masked, CompactionState.Original, CompactionState.Original,
+                CompactionState.Original, CompactionState.Masked, CompactionState.Original, CompactionState.Original, CompactionState.Original,
+            ],
+            states);
+        Assert.Same(messages[4], compacted.Messages[4]);
+        Assert.Same(messages[5], compacted.Messages[5]);
+    }
+
+    [Fact]
     public void SlidingWindowOptions_Default_ReturnsExpectedValues()
     {
         // Arrange

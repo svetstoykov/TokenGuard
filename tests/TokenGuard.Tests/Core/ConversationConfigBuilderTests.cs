@@ -121,6 +121,31 @@ public sealed class ConversationConfigBuilderTests
     }
 
     [Fact]
+    public async Task Build_WithSlidingWindowOptionsNamingExemptTools_LeavesTheirResultsUnmasked()
+    {
+        // Arrange
+        var notes = CreateToolResultMessage("call_1", "notes", "full-notes-output");
+        var search = CreateToolResultMessage("call_2", "search", "full-tool-output-2");
+        var keep1 = ContextMessage.FromText(MessageRole.User, "keep-1");
+        var keep2 = ContextMessage.FromText(MessageRole.Model, "keep-2");
+        var messages = new[] { notes, search, keep1, keep2 };
+        var counter = new TrackingTokenCounter();
+        counter.Set(notes, 50);
+        counter.Set(search, 50);
+        counter.Set(keep1, 5);
+        counter.Set(keep2, 5);
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20) { ExemptToolNames = ["notes"] };
+        var configuration = new ConversationConfigBuilder().WithMaxTokens(8_192).WithSlidingWindowOptions(options).Build();
+
+        // Act
+        var compacted = await configuration.StrategyFactory(counter).CompactAsync(messages, 11);
+
+        // Assert
+        compacted.Messages[0].Should().BeSameAs(notes);
+        compacted.Messages[1].State.Should().Be(CompactionState.Masked);
+    }
+
+    [Fact]
     public void Build_WithoutMaxTokens_ThrowsInvalidOperationException()
     {
         // Arrange
