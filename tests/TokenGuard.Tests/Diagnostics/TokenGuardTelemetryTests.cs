@@ -64,6 +64,36 @@ public sealed class TokenGuardTelemetryTests
     }
 
     [Fact]
+    public async Task PrepareAsync_ReportsStructuredResultFiguresAsActivityTags()
+    {
+        // Arrange
+        using var capture = new TelemetryCapture();
+        using var context = CreateContext(NewContextName(), summarizer: null);
+        context.AddUserMessage(Text('a', 20));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new ToolUseContent("call", "search", Text('q', 10))], providerInputTokens: 25);
+        context.RecordToolResult("call", "search", Text('r', 40));
+        context.RecordModelResponse([new TextContent(Text('b', 10))]);
+
+        // Act
+        var result = await context.PrepareAsync();
+
+        // Assert
+        var activity = capture.ActivitiesNamed(Prepare).Last();
+        activity.GetTagItem("tokenguard.tool_results.masked").Should().Be(result.ToolResultsMasked).And.Be(1);
+        activity.GetTagItem("tokenguard.messages.summarized").Should().Be(result.MessagesSummarized);
+        activity.GetTagItem("tokenguard.messages.dropped").Should().Be(result.MessagesDropped);
+        activity.GetTagItem("tokenguard.summarization.status").Should().Be(result.SummarizationStatus.ToString());
+        activity.GetTagItem("tokenguard.prefix.messages").Should().Be(result.UnchangedPrefixMessages).And.Be(1);
+        activity.GetTagItem("tokenguard.prefix.tokens").Should().Be(result.UnchangedPrefixTokens).And.Be(25);
+        activity.GetTagItem("tokenguard.tokens.pinned").Should().Be(result.TokenBreakdown.Pinned);
+        activity.GetTagItem("tokenguard.tokens.summary").Should().Be(result.TokenBreakdown.Summary);
+        activity.GetTagItem("tokenguard.tokens.masked").Should().Be(result.TokenBreakdown.Masked);
+        activity.GetTagItem("tokenguard.tokens.tool_results").Should().Be(result.TokenBreakdown.ToolResults);
+        activity.GetTagItem("tokenguard.tokens.other").Should().Be(result.TokenBreakdown.Other);
+    }
+
+    [Fact]
     public async Task ScriptedConversation_SetsPrepareStatusFromTheOutcome()
     {
         // Arrange

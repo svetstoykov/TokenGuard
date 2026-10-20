@@ -140,4 +140,25 @@ public sealed record PrepareResult
     /// still throws <see cref="OperationCanceledException"/> from <see cref="Abstractions.IConversationContext.PrepareAsync"/>.
     /// </remarks>
     public Exception? SummarizationError { get; }
+
+    /// <summary>Gets the number of tool-result segments replaced by the selected masking stage; the default is zero.</summary>
+    /// <remarks>The count describes strategy output before emergency truncation and excludes discarded trial masking.</remarks>
+    public int ToolResultsMasked { get; init; }
+
+    /// <summary>Gets the number of input messages replaced by the selected summary; the default is zero.</summary>
+    /// <remarks>Checkpoint reuse counts the messages it replaces, excluding a loop-opening user message kept verbatim.</remarks>
+    public int MessagesSummarized { get; init; }
+
+    /// <summary>Gets the summarization decision for this call; the default is <see cref="Enums.SummarizationStatus.NotNeeded"/>.</summary>
+    public SummarizationStatus SummarizationStatus { get; init; }
+
+    /// <summary>Gets the number of leading messages identical to the previous successfully returned view; the first prepare reports zero.</summary>
+    /// <remarks>Equality compares roles and ordered segment values, including tool identity, and ignores observational metadata.</remarks>
+    public int UnchangedPrefixMessages { get; init; }
+
+    /// <summary>Gets the provider-corrected tokens of the unchanged prefix under the current correction; the default is zero.</summary>
+    public int UnchangedPrefixTokens { get; init; }
+
+    /// <summary>Gets the token distribution of the prepared view; the default contains zero for every category.</summary>
+    public PreparedTokenBreakdown TokenBreakdown { get; init; } = new();
 }

@@ -221,9 +221,17 @@ internal sealed class SlidingWindowStrategy : ISteppedCompactionStrategy
                 messagesAffected++;
             }
 
-            if (logMasking && !ReferenceEquals(result[i], messages[i]))
+            if (!ReferenceEquals(result[i], messages[i]))
             {
-                toolResultsMasked += this.LogMaskedToolResults(i, messages[i], result[i]);
+                for (var segmentIndex = 0; segmentIndex < messages[i].Segments.Count; segmentIndex++)
+                {
+                    if (messages[i].Segments[segmentIndex] is ToolResultContent
+                        && messages[i].Segments[segmentIndex] != result[i].Segments[segmentIndex])
+                        toolResultsMasked++;
+                }
+
+                if (logMasking)
+                    this.LogMaskedToolResults(i, messages[i], result[i]);
             }
         }
 
@@ -242,7 +250,7 @@ internal sealed class SlidingWindowStrategy : ISteppedCompactionStrategy
             tokensBefore,
             tokensAfter,
             messagesAffected,
-            nameof(SlidingWindowStrategy)));
+            nameof(SlidingWindowStrategy)) { ToolResultsMasked = toolResultsMasked });
     }
 
     /// <summary>

@@ -1,3 +1,5 @@
+using TokenGuard.Core.Enums;
+
 namespace TokenGuard.Core.Models;
 
 /// <summary>
@@ -89,4 +91,15 @@ public sealed record CompactionResult
     /// still safe to send; this value exists so callers can log why semantic summarization did not run.
     /// </remarks>
     public Exception? SummarizationError { get; }
+
+    /// <summary>Gets the number of tool-result segments replaced by the selected masking stage; the default is zero.</summary>
+    /// <remarks>The count describes strategy output before emergency truncation and excludes discarded trial masking.</remarks>
+    public int ToolResultsMasked { get; init; }
+
+    /// <summary>Gets the number of input messages replaced by the selected summary; the default is zero.</summary>
+    /// <remarks>Checkpoint reuse counts the messages it replaces, excluding a loop-opening user message kept verbatim.</remarks>
+    public int MessagesSummarized { get; init; }
+
+    /// <summary>Gets the summarization decision for this call; the default is <see cref="Enums.SummarizationStatus.NotNeeded"/>.</summary>
+    public SummarizationStatus SummarizationStatus { get; init; }
 }

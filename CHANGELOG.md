@@ -22,6 +22,12 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
 - `ConversationConfigBuilder.WithCompactionStrategy(Func<CompactionStrategyContext, ICompactionStrategy>)` constructs one
   custom strategy per conversation with its timed counter, resolved logger factory and context name. It replaces the
   built-in pipeline; `Build()` rejects combining it with sliding-window options or a summarizer.
+- Structured prepare reporting: `ToolResultsMasked`, `MessagesSummarized`, `SummarizationStatus`, unchanged-prefix message
+  and corrected-token counts, and `PreparedTokenBreakdown` for pinned, summary, masked, tool-result, and other messages.
+  Stage counts describe selected strategy output before emergency truncation; the breakdown describes the final view.
+  Existing result constructors keep their signatures, and custom strategies can opt into the additive stage members.
+  The same figures are tags on `tokenguard.prepare` activities.
+
 - `SlidingWindowOptions.ExemptToolNames`, an init property that names tools whose results masking never replaces, set
   as `new SlidingWindowOptions(...) { ExemptToolNames = ["todo_write"] }`. Names match `ToolResultContent.ToolName`
   exactly and ordinally. The default is empty, which masks as before. An exempt result stays at its recorded size wherever it
