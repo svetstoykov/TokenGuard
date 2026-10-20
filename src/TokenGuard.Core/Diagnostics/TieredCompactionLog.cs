@@ -37,6 +37,11 @@ internal static partial class TieredCompactionLog
     internal const string SummarizationSucceeded = "SummarizationSucceeded";
 
     /// <summary>
+    ///     The reason logged when the saved summary and the raw tail after it fit the budget.
+    /// </summary>
+    internal const string SummaryCheckpointFits = "SummaryCheckpointFits";
+
+    /// <summary>
     ///     The reason logged when the summarization result still exceeds the budget.
     /// </summary>
     internal const string SummarizationOvershot = "SummarizationOvershot";

@@ -23,6 +23,12 @@ namespace TokenGuard.Core.Strategies;
 /// better summary quality while still using the sliding-window stage as the gate that decides whether the heavier LLM
 /// call is necessary.
 /// </para>
+/// <para>
+/// Once a summary exists, the strategy keeps the saved summary and the raw tail after it for as long as that view fits
+/// the budget, even when the masked view would also fit. The view then grows by appending, so its prefix repeats the
+/// previous request. When the summary view no longer fits, the masked view is used if it fits, and otherwise the
+/// summarization stage replaces the summary.
+/// </para>
 /// </remarks>
 internal sealed class TieredCompactionStrategy : ISteppedCompactionStrategy
 {
@@ -122,6 +128,17 @@ internal sealed class TieredCompactionStrategy : ISteppedCompactionStrategy
         cancellationToken.ThrowIfCancellationRequested();
 
         var slidingWindowResult = await this._slidingWindowStrategy.CompactAsync(messages, availableTokens, stepBudgetTokens, cancellationToken);
+
+        // Keeping a fitting summary view, rather than the masked view, leaves the view an extension of the previous one.
+        var reusedCheckpoint = this._llmSummarizationStrategy?.TryReuseCheckpoint(messages, availableTokens);
+        if (reusedCheckpoint is not null)
+        {
+            this.LogSelection(
+                TieredCompactionLog.SummarizationResult, TieredCompactionLog.SummaryCheckpointFits, slidingWindowResult, reusedCheckpoint,
+                availableTokens);
+
+            return BuildCompactionResult(reusedCheckpoint);
+        }
 
         if (slidingWindowResult.TokensAfter <= availableTokens || this._llmSummarizationStrategy is null)
         {

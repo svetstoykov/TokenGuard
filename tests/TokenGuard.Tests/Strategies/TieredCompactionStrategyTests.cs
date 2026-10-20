@@ -461,6 +461,121 @@ public sealed class TieredCompactionStrategyTests
         Assert.DoesNotContain(compacted.Messages, m => m.State == CompactionState.Summarized);
     }
 
+    [Fact]
+    public async Task CompactAsync_WithAFittingCheckpoint_PrefersTheSummaryViewOverAFittingMaskedView()
+    {
+        // Arrange
+        var (strategy, summarizer, tokenCounter, messages) = CreateCheckpointedStrategy();
+        var next = AddText(messages, tokenCounter, MessageRole.User, "next-1", 3);
+        AddText(messages, tokenCounter, MessageRole.Model, "next-2", 3);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 20);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.Equal(CompactionState.Summarized, compacted.Messages[0].State);
+        Assert.Same(next, compacted.Messages[3]);
+        Assert.True(compacted.TokensAfter <= 20);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenTheCheckpointViewNoLongerFits_SummarizesAgainWithinBudget()
+    {
+        // Arrange
+        var (strategy, summarizer, tokenCounter, messages) = CreateCheckpointedStrategy();
+        AddText(messages, tokenCounter, MessageRole.User, "next-1", 3);
+        AddText(messages, tokenCounter, MessageRole.Model, "next-2", 3);
+        AddText(messages, tokenCounter, MessageRole.User, "next-3", 10);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 20);
+
+        // Assert
+        Assert.Equal(2, summarizer.CallCount);
+        Assert.True(compacted.TokensAfter <= 20);
+        Assert.Equal(CompactionState.Summarized, compacted.Messages[0].State);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WithoutACheckpoint_UsesTheFittingMaskedView()
+    {
+        // Arrange
+        var (_, _, tokenCounter, messages) = CreateCheckpointedStrategy();
+        AddText(messages, tokenCounter, MessageRole.User, "next-1", 3);
+        AddText(messages, tokenCounter, MessageRole.Model, "next-2", 3);
+        var summarizer = new TrackingSummarizer("fresh");
+        var fresh = new TieredCompactionStrategy(
+            tokenCounter,
+            new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
+            new LlmSummarizationStrategy(
+                summarizer,
+                tokenCounter,
+                new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100)));
+
+        // Act
+        var compacted = await fresh.CompactAsync(messages, 20);
+
+        // Assert
+        Assert.Equal(0, summarizer.CallCount);
+        Assert.DoesNotContain(compacted.Messages, m => m.State == CompactionState.Summarized);
+    }
+
+    [Fact]
+    public async Task CompactAsync_WhenTheSummarizedPrefixChanged_UsesTheFittingMaskedView()
+    {
+        // Arrange
+        var (strategy, summarizer, tokenCounter, messages) = CreateCheckpointedStrategy();
+        messages[0] = CreateToolResultMessage("call_1", "search", "edited-tool-output-1");
+        tokenCounter.Set(messages[0], 50);
+        AddText(messages, tokenCounter, MessageRole.User, "next-1", 3);
+        AddText(messages, tokenCounter, MessageRole.Model, "next-2", 3);
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 20);
+
+        // Assert
+        Assert.Equal(1, summarizer.CallCount);
+        Assert.DoesNotContain(compacted.Messages, m => m.State == CompactionState.Summarized);
+        Assert.True(compacted.TokensAfter <= 20);
+    }
+
+    private static (TieredCompactionStrategy Strategy, TrackingSummarizer Summarizer, TrackingTokenCounter Counter, List<ContextMessage> Messages)
+        CreateCheckpointedStrategy()
+    {
+        var oldest1 = CreateToolResultMessage("call_1", "search", "full-tool-output-1");
+        var oldest2 = CreateToolResultMessage("call_2", "search", "full-tool-output-2");
+        var keep1 = ContextMessage.FromText(MessageRole.User, "keep-1");
+        var keep2 = ContextMessage.FromText(MessageRole.Model, "keep-2");
+        var messages = new List<ContextMessage> { oldest1, oldest2, keep1, keep2 };
+
+        var summarizer = new TrackingSummarizer("summary-text");
+        var tokenCounter = new TrackingTokenCounter();
+        tokenCounter.Set(oldest1, 50);
+        tokenCounter.Set(oldest2, 50);
+        tokenCounter.Set(keep1, 5);
+        tokenCounter.Set(keep2, 5);
+
+        var strategy = new TieredCompactionStrategy(
+            tokenCounter,
+            new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),
+            new LlmSummarizationStrategy(
+                summarizer,
+                tokenCounter,
+                new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100)));
+
+        strategy.CompactAsync(messages, 11).GetAwaiter().GetResult();
+        return (strategy, summarizer, tokenCounter, messages);
+    }
+
+    private static ContextMessage AddText(List<ContextMessage> messages, TrackingTokenCounter tokenCounter, MessageRole role, string text, int tokens)
+    {
+        var message = ContextMessage.FromText(role, text);
+        tokenCounter.Set(message, tokens);
+        messages.Add(message);
+        return message;
+    }
+
     private static ContextMessage CreateToolResultMessage(string callId, string toolName, string payload)
     {
         return new ContextMessage
