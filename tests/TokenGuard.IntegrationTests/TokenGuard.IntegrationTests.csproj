@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\TokenGuard.Core\TokenGuard.Core.csproj" />
     <ProjectReference Include="..\..\src\TokenGuard.Extensions.OpenAI\TokenGuard.Extensions.OpenAI.csproj" />
+    <ProjectReference Include="..\..\src\TokenGuard.Extensions.AI\TokenGuard.Extensions.AI.csproj" />
   </ItemGroup>
 
 </Project>

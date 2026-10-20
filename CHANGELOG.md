@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Changes for 1.3.0. Public additions are listed under Added; no existing public signature changed.
 
 ### Added
+- `TokenGuard.Extensions.AI`, a .NET 10 package using `Microsoft.Extensions.AI.Abstractions` 10.11.0 or later.
+  `ForChatClient()`, response segment helpers and `InputTokens()` support caller-driven tool loops and provider
+  correction. `UseLlmSummarization(IChatClient)` summarizes through Core's public model-call contract. Responses
+  containing automatic function results, failed or informational function calls, or unsupported media fail explicitly. The caller keeps one context per conversation.
 
 - `ConversationConfigBuilder.WithTokenCounter(ITokenCounter)` shares a custom counter across contexts, including recording,
   tool-result limits and summarizer request budgets. Provider correction and token-count timing apply to custom counters.
@@ -48,7 +52,7 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
   result larger than the window used to leave the prepare call `CompactionInsufficient` or `CannotCompact`, because a
   result of the open tool loop can be neither masked nor dropped. The published benchmark figures describe 1.2.0.
 - Both provider extensions use the public summarizer contract and declare a minimum Core dependency instead of an
-  exact version. The 1.3.0 release will publish all three packages from one tag, Core first.
+  exact version. The 1.3.0 release will publish all four packages from one tag, Core first.
 - Summarizer diagnostic event IDs, fields, and metric names remain stable. `Provider` now carries the summarizer type
   name, `Model` is null, and finish reasons are normalized to `completed`, `output_limit`, `refused`, or `other`.
 
