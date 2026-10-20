@@ -17,9 +17,9 @@ internal static class ReportValidator
     public static IReadOnlyList<string> Validate(RunReport report)
     {
         var errors = new List<string>();
-        if (report.SchemaVersion is not (4 or 5 or 6))
+        if (report.SchemaVersion is not (4 or 5 or 6 or 7))
         {
-            errors.Add("Unsupported report schema version; expected 4, 5 or 6.");
+            errors.Add("Unsupported report schema version; expected 4, 5, 6 or 7.");
             return errors;
         }
 
@@ -52,6 +52,9 @@ internal static class ReportValidator
             errors.Add($"Report totals count not-applicable probes, which a schema version {report.SchemaVersion} report cannot record.");
         }
 
+        if ((report.SchemaVersion >= 7) != (report.Totals.MaskedResultProbes is not null))
+            errors.Add("Report masked-result totals do not match the schema version.");
+
         var aggregator = new ReportAggregator();
         foreach (var task in report.Tasks)
         {
@@ -69,6 +72,9 @@ internal static class ReportValidator
                 errors.Add($"Task '{task.TaskId}' carries cached input tokens, which a schema version 4 report cannot record.");
             }
 
+            if (report.SchemaVersion < 7 && (task.Probe?.Kind is not null || task.Probe?.Refetched is not null
+                || task.PrepareRecords.Any(HasProbeEvidence)))
+                errors.Add($"Task '{task.TaskId}' carries masked-result fields before schema version 7.");
             ValidateTask(task, errors, recordsProbeApplicability);
             if (errors.Count > 0)
             {
@@ -97,6 +103,8 @@ internal static class ReportValidator
             var expected = aggregator.CreateReport(report.Run, report.Tasks, report.UnrunTaskIds, report.Partial);
             var expectedTotals = recordsCachedInputTokens ? expected.Totals
                 : expected.Totals with { Metrics = expected.Totals.Metrics with { ProviderCachedInputTokens = null } };
+            if (report.SchemaVersion < 7)
+                expectedTotals = expectedTotals with { MaskedResultProbes = null };
             if (!recordsProbeApplicability)
             {
                 expectedTotals = expectedTotals with { NotApplicableProbeCount = null };
@@ -218,6 +226,22 @@ internal static class ReportValidator
     private static void ValidateTask(TaskReport task, List<string> errors, bool recordsProbeApplicability)
     {
         ValidateScoring(task, errors, recordsProbeApplicability);
+        var probeRecords = task.PrepareRecords.Where(record => record is not null).OrderBy(record => record.Index).ToArray();
+        var questionSeen = false;
+        var refetchedSeen = false;
+        foreach (var prepare in probeRecords)
+        {
+            var expectedEvidence = task.Probe?.Kind == "maskedResult" && prepare.Status == "completed";
+            if (expectedEvidence ? prepare.ProbeValueState is not ("unseen" or "visible" or "masked" or "removed")
+                || prepare.ProbeFactVisibleElsewhere is null || prepare.ProbeQuestionAsked is null || prepare.ProbeRefetched is null
+                : HasProbeEvidence(prepare))
+                errors.Add($"Task '{task.TaskId}' has invalid probe prepare evidence.");
+            if ((questionSeen && prepare.ProbeQuestionAsked == false) || (refetchedSeen && prepare.ProbeRefetched == false)
+                || (prepare.ProbeRefetched == true && prepare.ProbeQuestionAsked != true))
+                errors.Add($"Task '{task.TaskId}' has inconsistent probe question or refetch evidence.");
+            questionSeen |= prepare.ProbeQuestionAsked == true;
+            refetchedSeen |= prepare.ProbeRefetched == true;
+        }
 
         if (HasNonfiniteMetric(task.Metrics))
         {
@@ -294,6 +318,13 @@ internal static class ReportValidator
         }
         if (task.Probe is not { } probe)
             return;
+        if (probe.Kind == "maskedResult")
+        {
+            ValidateMaskedResult(task, probe, errors);
+            return;
+        }
+        if (probe.Kind is not null || probe.Refetched is not null)
+            errors.Add($"Task '{task.TaskId}' has invalid probe kind or refetch evidence.");
         if (probe.Requires is not (null or "masked" or "summarized" or "dropped"))
             errors.Add($"Task '{task.TaskId}' has invalid probe requires.");
         var measurements = ReportAggregator.ToMeasurements(task);
@@ -319,6 +350,36 @@ internal static class ReportValidator
         if (!valid || (!task.ProtocolCompletion && (probe.Status != "invalid" || probe.Reason != "noAnswer" || probe.CanaryPresent)))
             errors.Add($"Task '{task.TaskId}' has an inconsistent probe verdict.");
     }
+
+    /// <summary>Rechecks masked-result eligibility at the question boundary without transcript capture.</summary>
+    /// <param name="task">The task and its recorded prepare evidence.</param>
+    /// <param name="probe">The masked-result verdict.</param>
+    /// <param name="errors">The destination for inconsistencies.</param>
+    private static void ValidateMaskedResult(TaskReport task, ProbeResult probe, List<string> errors)
+    {
+        if (task.PrepareRecords.Any(record => record is null))
+        {
+            errors.Add($"Task '{task.TaskId}' has invalid probe prepare evidence.");
+            return;
+        }
+        var measurements = ReportAggregator.ToMeasurements(task);
+        var noAnswer = !task.ProtocolCompletion || probe is { Status: "invalid", Reason: "noAnswer", CanaryPresent: false };
+        var reason = noAnswer ? "noAnswer" : measurements.MessagesMasked == 0 ? "noMasking"
+            : ProbeValidity.GetMaskedResultInvalidReason(measurements);
+        var status = reason == "noMasking" ? "notApplicable" : reason is not null ? "invalid" : probe.CanaryPresent ? "passed" : "failed";
+        var expectedReason = reason ?? (probe.CanaryPresent ? null : "factMissing");
+        if (probe.Requires is not null || probe.Refetched is null
+            || probe.Refetched != task.PrepareRecords.Any(record => record.ProbeRefetched == true)
+            || probe.Status != status || probe.Reason != expectedReason || (!task.ProtocolCompletion && probe.CanaryPresent))
+            errors.Add($"Task '{task.TaskId}' has an inconsistent probe verdict.");
+    }
+
+    /// <summary>Detects any masked-result evidence, including partially populated records.</summary>
+    /// <param name="record">The prepare to inspect, or null for a malformed entry.</param>
+    /// <returns>Whether the record carries at least one masked-result field.</returns>
+    private static bool HasProbeEvidence(Codexplorer.Measurements.PrepareMeasurement? record) => record is not null
+        && (record.ProbeValueState is not null || record.ProbeFactVisibleElsewhere is not null
+            || record.ProbeQuestionAsked is not null || record.ProbeRefetched is not null);
 
     /// <summary>
     ///     Recognizes a rooted path in either Unix or Windows form, so a report validates the same on every machine.

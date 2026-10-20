@@ -303,7 +303,7 @@ public sealed class ReportAggregatorTests
 
         var report = new ReportAggregator().CreateReport(passed.Run, tasks, [], false);
 
-        report.SchemaVersion.Should().Be(6);
+        report.SchemaVersion.Should().Be(7);
         report.Totals.ProbeCount.Should().Be(3);
         report.Totals.InvalidProbeCount.Should().Be(1);
         report.Totals.NotApplicableProbeCount.Should().Be(1);

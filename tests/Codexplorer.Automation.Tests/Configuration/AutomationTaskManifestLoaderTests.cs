@@ -353,6 +353,53 @@ public sealed class AutomationTaskManifestLoaderTests
         snapshot.Tasks.Single().RepositoryCommit.Should().Be(repositoryCommit);
     }
 
+    /// <summary>Verifies masked-result manifests reject answer leakage and conflicting probe fields.</summary>
+    /// <param name="scenario">The manifest declaration variant.</param>
+    [Theory]
+    [InlineData("valid")]
+    [InlineData("unknownKind")]
+    [InlineData("canary")]
+    [InlineData("requires")]
+    [InlineData("questionMissing")]
+    [InlineData("answersMissing")]
+    [InlineData("answersEmpty")]
+    [InlineData("blank")]
+    [InlineData("markup")]
+    [InlineData("initialLeak")]
+    [InlineData("questionLeak")]
+    [InlineData("legacyExtra")]
+    public void LoadSnapshot_MaskedResult_ValidatesContract(string scenario)
+    {
+        var probe = new AutomationProbeDefinition { Kind = "maskedResult", Question = "What was the code?", AnyOf = ["TG-UNIQUE"] };
+        probe = scenario switch
+        {
+            "unknownKind" => probe with { Kind = "other" },
+            "canary" => probe with { Canary = "ABC123" },
+            "requires" => probe with { Requires = "masked" },
+            "questionMissing" => probe with { Question = " " },
+            "answersMissing" => probe with { AnyOf = null },
+            "answersEmpty" => probe with { AnyOf = [] },
+            "blank" => probe with { AnyOf = [" "] },
+            "markup" => probe with { AnyOf = ["**TG-UNIQUE**"] },
+            "questionLeak" => probe with { Question = "Was it **TG-UNIQUE**?" },
+            "legacyExtra" => probe with { Kind = null, Canary = "ABC123" },
+            _ => probe
+        };
+        var task = ValidTask("task") with
+        {
+            Probe = probe, InitialPrompt = scenario == "initialLeak" ? "Read **TG-UNIQUE**." : "Read the source."
+        };
+        var loader = new AutomationTaskManifestLoader(Options.Create(new CodexplorerAutomationOptions { ManifestPath = null, Tasks = [task] }),
+            NullLogger<AutomationTaskManifestLoader>.Instance, new AnswerScorer());
+
+        var load = () => loader.LoadSnapshot();
+
+        if (scenario == "valid")
+            load.Should().NotThrow();
+        else
+            load.Should().Throw<OptionsValidationException>();
+    }
+
     private static AutomationTaskDefinition ValidTask(string taskId) => new()
     {
         TaskId = taskId,
