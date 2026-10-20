@@ -619,6 +619,43 @@ public sealed class SlidingWindowStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_WithAStepBudget_SnapsTheLowMarkWalkOfTheAvailableBudgetToTheStepLinesOfTheStepBudget()
+    {
+        // Arrange
+        var messages = new[] { 10, 10, 15, 25, 15, 10, 25, 15, 20, 10 }
+            .Select((tokens, i) => CreateToolResultMessage($"call_{i}", "read_file", $"payload-{i}") with { TokenCount = tokens })
+            .ToList();
+
+        var strategy = new SlidingWindowStrategy(new TrackingTokenCounter(), new SlidingWindowOptions(windowSize: 1));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, availableTokens: 120, stepBudgetTokens: 100);
+
+        // Assert
+        // The marks of 120 are 96 and 72, so the high walk stops at index 4 and the low walk at index 6. The step of 100 is
+        // 20 tokens, which puts step lines at indices 2, 4 and 6; a step of 24 from 120 would put them at 3, 4 and 5.
+        Assert.Equal(6, CountMasked(compacted.Messages));
+        Assert.All(compacted.Messages.Skip(6).Zip(messages.Skip(6)), pair => Assert.Same(pair.Second, pair.First));
+    }
+
+    [Fact]
+    public async Task CompactAsync_WithoutAStepBudget_DerivesTheStepLinesFromTheAvailableBudget()
+    {
+        // Arrange
+        var messages = new[] { 10, 10, 15, 25, 15, 10, 25, 15, 20, 10 }
+            .Select((tokens, i) => CreateToolResultMessage($"call_{i}", "read_file", $"payload-{i}") with { TokenCount = tokens })
+            .ToList();
+
+        var strategy = new SlidingWindowStrategy(new TrackingTokenCounter(), new SlidingWindowOptions(windowSize: 1));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, 120);
+
+        // Assert
+        Assert.Equal(5, CountMasked(compacted.Messages));
+    }
+
+    [Fact]
     public async Task CompactAsync_WhenNewestWindowAloneExceedsLowMark_MasksUpToHighMarkBoundary()
     {
         // Arrange

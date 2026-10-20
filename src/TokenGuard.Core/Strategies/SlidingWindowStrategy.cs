@@ -36,11 +36,16 @@ namespace TokenGuard.Core.Strategies;
 ///     <para>
 ///         The boundary moves in steps and holds between them, so the result of one call is the start of the result
 ///         of the next call until the history has grown by about a step. The boundary is derived from the history
-///         and the budget alone: the strategy keeps no state between calls, and the same messages always give the
-///         same result.
+///         and the budgets alone: the strategy keeps no state between calls, and the same messages with the same
+///         budgets always give the same result.
+///     </para>
+///     <para>
+///         The high and low marks come from the available budget. The step lines come from the step budget, which the
+///         conversation context passes without the provider correction, so a change in the correction moves where the
+///         low-mark walk ends but not the lines it snaps to. Without a step budget, both come from the available budget.
 ///     </para>
 /// </remarks>
-internal sealed class SlidingWindowStrategy : ICompactionStrategy
+internal sealed class SlidingWindowStrategy : ISteppedCompactionStrategy
 {
     private readonly ITokenCounter _tokenCounter;
     private readonly SlidingWindowOptions _options;
@@ -143,7 +148,26 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     public Task<CompactionResult> CompactAsync(
         IReadOnlyList<ContextMessage> messages,
         int availableTokens,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        this.CompactAsync(messages, availableTokens, availableTokens, cancellationToken);
+
+    /// <summary>
+    ///     Compacts a message history by masking older tool results outside the protected window, with step lines derived
+    ///     from a budget of their own.
+    /// </summary>
+    /// <remarks>
+    ///     The high and low marks are derived from <paramref name="availableTokens"/> and the step lines from
+    ///     <paramref name="stepBudgetTokens"/>. Everything else is as described for
+    ///     <see cref="CompactAsync(IReadOnlyList{ContextMessage}, int, CancellationToken)"/>.
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history to process, with pinned messages excluded.</param>
+    /// <param name="availableTokens">The budget the high and low marks are derived from.</param>
+    /// <param name="stepBudgetTokens">The budget the step lines are derived from.</param>
+    /// <param name="cancellationToken">A token that can cancel the compaction operation before it completes.</param>
+    /// <returns>A task that resolves to the compacted messages and the metrics of the compaction.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is <see langword="null"/>.</exception>
+    public Task<CompactionResult> CompactAsync(
+        IReadOnlyList<ContextMessage> messages, int availableTokens, int stepBudgetTokens, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
         cancellationToken.ThrowIfCancellationRequested();
@@ -172,7 +196,9 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
                 nameof(SlidingWindowStrategy)));
         }
 
-        var boundary = FindSteppedBoundary(tokenCounts, this._options.WindowSize, highMark, highBoundary);
+        var stepHighMark = Math.Floor(stepBudgetTokens * this._options.ProtectedWindowFraction);
+        var stepTokens = (int)Math.Floor(stepHighMark * SlidingWindowDefaults.MaskingStepFraction);
+        var boundary = FindSteppedBoundary(tokenCounts, this._options.WindowSize, highMark, highBoundary, stepTokens);
         var protectedCount = messages.Count - boundary;
         var result = new ContextMessage[messages.Count];
         var messagesAffected = 0;
@@ -359,15 +385,14 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// </summary>
     /// <remarks>
     ///     <para>
-    ///         The step is <see cref="SlidingWindowDefaults.MaskingStepFraction"/> of <paramref name="highMark"/>, and
-    ///         the low mark is the high mark minus one step. Step lines are fixed positions in the history: index 0, and
-    ///         the first message boundary at or after each multiple of the step, counted in tokens from the oldest
-    ///         message. The boundary is the last step line at or before the index the walk reaches with the low mark as
-    ///         its allowance.
+    ///         The low mark is <paramref name="highMark"/> minus <see cref="SlidingWindowDefaults.MaskingStepFraction"/>
+    ///         of it. Step lines are fixed positions in the history: index 0, and the first message boundary at or after
+    ///         each multiple of <paramref name="stepTokens"/>, counted in tokens from the oldest message. The boundary is
+    ///         the last step line at or before the index the walk reaches with the low mark as its allowance.
     ///     </para>
     ///     <para>
-    ///         The boundary depends only on the token counts and the marks, so the same history always gives the same
-    ///         boundary and it stays in place while the history grows by less than a step. It is never before
+    ///         The boundary depends only on the token counts, the marks and the step, so the same history always gives
+    ///         the same boundary and it stays in place while the history grows by less than a step. It is never before
     ///         <paramref name="highBoundary"/>, which keeps a result from growing past the high mark. A step of zero
     ///         tokens gives <paramref name="highBoundary"/>.
     ///     </para>
@@ -376,17 +401,17 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     /// <param name="windowSize">The number of newest messages that are always protected.</param>
     /// <param name="highMark">The most tokens the protected messages may hold once the floor is met.</param>
     /// <param name="highBoundary">The index the walk reaches with <paramref name="highMark"/> as its allowance.</param>
+    /// <param name="stepTokens">The distance between two step lines, in tokens.</param>
     /// <returns>The index of the first message that is returned unchanged.</returns>
-    private static int FindSteppedBoundary(int[] tokenCounts, int windowSize, int highMark, int highBoundary)
+    private static int FindSteppedBoundary(int[] tokenCounts, int windowSize, int highMark, int highBoundary, int stepTokens)
     {
-        var stepTokens = (int)Math.Floor(highMark * SlidingWindowDefaults.MaskingStepFraction);
-
         if (stepTokens <= 0)
         {
             return highBoundary;
         }
 
-        var lowBoundary = FindProtectedStart(tokenCounts, windowSize, highMark - stepTokens);
+        var lowMark = highMark - (int)Math.Floor(highMark * SlidingWindowDefaults.MaskingStepFraction);
+        var lowBoundary = FindProtectedStart(tokenCounts, windowSize, lowMark);
         var lastStepLine = 0;
         var tokensBeforeIndex = 0;
 

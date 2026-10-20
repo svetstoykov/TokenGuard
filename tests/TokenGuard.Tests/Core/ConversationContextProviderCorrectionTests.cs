@@ -5,6 +5,8 @@ using TokenGuard.Core.Configuration;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
+using TokenGuard.Core.Options;
+using TokenGuard.Core.Strategies;
 using TokenGuard.Tests.Diagnostics;
 
 namespace TokenGuard.Tests.Core;
@@ -266,6 +268,77 @@ public sealed class ConversationContextProviderCorrectionTests
         result.TokensBeforeCompaction.Should().Be(710);
     }
 
+    [Theory]
+    [InlineData(700, 1_122)]
+    [InlineData(1_100, 746)]
+    public async Task PrepareAsync_AfterAProviderReport_PassesTheMaximumScaledByEstimateOverCorrectedHistoryMinusThePinnedEstimate(
+        int providerInputTokens, int expectedAvailableTokens)
+    {
+        // Arrange
+        var budgets = new List<int>();
+        using var context = CreateContext(new StubCompactionStrategy((messages, availableTokens) =>
+        {
+            budgets.Add(availableTokens);
+            return new CompactionResult(messages, 0, 0, 0, StubCompactionStrategy.Name);
+        }));
+        context.AddPinnedMessage(MessageRole.User, Text(100));
+        context.AddUserMessage(Text(800));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(200))], providerInputTokens);
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        // The history estimate is 1,100 and the correction is the report minus 900, so the budget is
+        // floor(1,000 × 1,100 / corrected history) − 100 for the pinned message.
+        budgets.Should().Equal(900, expectedAvailableTokens);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_AfterAProviderReport_PassesTheUncorrectedBudgetForTheMaskingStepLines()
+    {
+        // Arrange
+        var strategy = new SteppedBudgetRecorder();
+        using var context = CreateContext(strategy);
+        context.AddPinnedMessage(MessageRole.User, Text(100));
+        context.AddUserMessage(Text(800));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(200))], providerInputTokens: 700);
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        strategy.Budgets.Should().Equal((900, 900), (1_122, 900));
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenTheEstimateFitsButTheCorrectedHistoryDoesNot_SummarizesInsteadOfTruncating()
+    {
+        // Arrange
+        var summarizer = ScriptedSummarizer.Returning(Text(50));
+        var counter = new TextLengthTokenCounter();
+        var summarization = new LlmSummarizationStrategy(
+            summarizer, counter, new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 5, maxSummaryTokens: 100));
+        using var context = CreateContext(new TieredCompactionStrategy(counter, new SlidingWindowOptions(windowSize: 2), summarization));
+        context.AddUserMessage(Text(300));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(100))], providerInputTokens: 600);
+        context.AddUserMessage(Text(300));
+        context.RecordModelResponse([new TextContent(Text(100))]);
+        context.AddUserMessage(Text(100));
+
+        // Act
+        var result = await context.PrepareAsync();
+
+        // Assert
+        // The history estimate of 900 fits the maximum of 1,000, but with the correction of 300 it is 1,200.
+        summarizer.Calls.Should().Be(1);
+        result.MessagesDropped.Should().Be(0);
+        result.Messages.Should().Contain(message => message.State == CompactionState.Summarized);
+    }
+
     // The messages sum to 650, and the correction is 900 - 600 = 300, learned on a payload of 600.
     private static async Task<ConversationContext> CreateCorrectedConversationAsync(ICompactionStrategy strategy)
     {
@@ -287,4 +360,28 @@ public sealed class ConversationContextProviderCorrectionTests
     }
 
     private static string Text(int length) => new('a', length);
+
+    /// <summary>
+    ///     Represents a stepped strategy that records both budgets of each call and returns its input unchanged.
+    /// </summary>
+    private sealed class SteppedBudgetRecorder : ISteppedCompactionStrategy
+    {
+        /// <summary>
+        ///     Gets the available budget and the step budget of each call, oldest first.
+        /// </summary>
+        public List<(int Available, int Step)> Budgets { get; } = [];
+
+        /// <inheritdoc />
+        public Task<CompactionResult> CompactAsync(
+            IReadOnlyList<ContextMessage> messages, int availableTokens, int stepBudgetTokens, CancellationToken cancellationToken = default)
+        {
+            this.Budgets.Add((availableTokens, stepBudgetTokens));
+            return Task.FromResult(new CompactionResult(messages, 0, 0, 0, StubCompactionStrategy.Name));
+        }
+
+        /// <inheritdoc />
+        public Task<CompactionResult> CompactAsync(
+            IReadOnlyList<ContextMessage> messages, int availableTokens, CancellationToken cancellationToken = default) =>
+            this.CompactAsync(messages, availableTokens, availableTokens, cancellationToken);
+    }
 }

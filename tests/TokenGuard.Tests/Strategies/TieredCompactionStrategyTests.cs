@@ -42,6 +42,24 @@ public sealed class TieredCompactionStrategyTests
     }
 
     [Fact]
+    public async Task CompactAsync_WithAStepBudget_MasksOnTheStepLinesOfTheStepBudget()
+    {
+        // Arrange
+        var messages = new[] { 10, 10, 15, 25, 15, 10, 25, 15, 20, 10 }
+            .Select((tokens, i) => CreateToolResultMessage($"call_{i}", "read_file", $"payload-{i}") with { TokenCount = tokens })
+            .ToList();
+
+        var strategy = new TieredCompactionStrategy(new TrackingTokenCounter(), new SlidingWindowOptions(windowSize: 1));
+
+        // Act
+        var compacted = await strategy.CompactAsync(messages, availableTokens: 120, stepBudgetTokens: 100);
+
+        // Assert
+        // A step budget of 120 would mask 5 messages; see the sliding-window tests for the step lines.
+        Assert.Equal(6, compacted.Messages.Count(message => message.State == CompactionState.Masked));
+    }
+
+    [Fact]
     public async Task CompactAsync_WhenSlidingWindowExceedsBudget_CallsSummarizerWithOriginalMessages()
     {
         // Arrange — two old tool-result messages so that masking (both → 1 token each) still leaves

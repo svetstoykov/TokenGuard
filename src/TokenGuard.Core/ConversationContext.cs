@@ -7,6 +7,7 @@ using TokenGuard.Core.Enums;
 using TokenGuard.Core.Exceptions;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
+using TokenGuard.Core.Strategies;
 
 namespace TokenGuard.Core;
 
@@ -446,6 +447,12 @@ public sealed class ConversationContext : IConversationContext
     /// before the model message that carries the tool calls, in every prepared payload.
     /// </para>
     /// <para>
+    /// The trigger compares the history with the provider correction applied, while a strategy counts estimated tokens. The
+    /// budget passed to the strategy is therefore <see cref="ContextBudget.MaxTokens"/> multiplied by the history's estimate
+    /// divided by its corrected total, minus the estimated cost of the pinned messages. Until a provider report sets a
+    /// correction the ratio is 1, and the budget is the maximum minus the pinned cost.
+    /// </para>
+    /// <para>
     /// Calling this method does not modify <see cref="History"/>. It only determines what subset or
     /// representation of that history should be sent next.
     /// </para>
@@ -520,9 +527,10 @@ public sealed class ConversationContext : IConversationContext
             var (pinnedSlots, compactableMessages) = SplitPinned(messages);
             IReadOnlyList<ContextMessage> compactable = compactableMessages;
 
-            var availableTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
+            var availableTokens = this.ConvertMaxTokensToEstimate(historyMessageTokens, totalBeforeCompaction) - this._pinnedTokenTotal;
+            var stepBudgetTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
 
-            var compacted = await this.RunStrategyAsync(activity, compactable, availableTokens, cancellationToken);
+            var compacted = await this.RunStrategyAsync(activity, compactable, availableTokens, stepBudgetTokens, cancellationToken);
 
             var prepared = pinnedSlots.Count == 0
                 ? compacted.Messages
@@ -611,11 +619,16 @@ public sealed class ConversationContext : IConversationContext
     /// </remarks>
     /// <param name="prepareActivity">The prepare activity, or <see langword="null"/> when no listener is subscribed.</param>
     /// <param name="compactable">The unpinned messages handed to the strategy.</param>
-    /// <param name="availableTokens">The token budget left after pinned messages.</param>
+    /// <param name="availableTokens">The token budget left after pinned messages, converted by the provider correction.</param>
+    /// <param name="stepBudgetTokens">
+    /// The token budget left after pinned messages without the conversion, which a built-in strategy derives its masking step
+    /// lines from.
+    /// </param>
     /// <param name="cancellationToken">A token that can cancel the strategy.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the strategy result.</returns>
     private async Task<CompactionResult> RunStrategyAsync(
-        Activity? prepareActivity, IReadOnlyList<ContextMessage> compactable, int availableTokens, CancellationToken cancellationToken)
+        Activity? prepareActivity, IReadOnlyList<ContextMessage> compactable, int availableTokens, int stepBudgetTokens,
+        CancellationToken cancellationToken)
     {
         using var scope = ConversationContextLog.BeginCompactionScope(
             this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, this._currentTurn);
@@ -627,7 +640,9 @@ public sealed class ConversationContext : IConversationContext
         CompactionResult compacted;
         try
         {
-            compacted = await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
+            compacted = this._strategy is ISteppedCompactionStrategy stepped
+                ? await stepped.CompactAsync(compactable, availableTokens, stepBudgetTokens, cancellationToken)
+                : await this._strategy.CompactAsync(compactable, availableTokens, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -1368,6 +1383,27 @@ public sealed class ConversationContext : IConversationContext
     /// <param name="messageTokens">The sum of <see cref="ContextMessage.TokenCount"/> over a message list.</param>
     /// <returns><paramref name="messageTokens"/> plus the provider correction scaled to it.</returns>
     private int ApplyProviderCorrection(int messageTokens) => messageTokens + this.ScaleProviderCorrection(messageTokens);
+
+    /// <summary>
+    /// Converts <see cref="ContextBudget.MaxTokens"/> from the corrected scale to the estimate scale the strategies count on.
+    /// </summary>
+    /// <remarks>
+    /// The maximum is multiplied by the ratio of the history's estimate to its corrected total, the two figures the trigger
+    /// compares. With no provider correction the ratio is 1 and the maximum is returned as it is. The ratio is computed on
+    /// each call and not rounded; a result above <see cref="int.MaxValue"/> is capped there.
+    /// </remarks>
+    /// <param name="historyMessageTokens">The sum of <see cref="ContextMessage.TokenCount"/> over the history.</param>
+    /// <param name="correctedHistoryTokens">The same sum with the provider correction applied.</param>
+    /// <returns>
+    /// The maximum on the estimate scale, rounded down, or the maximum itself when either figure is zero or less.
+    /// </returns>
+    private int ConvertMaxTokensToEstimate(int historyMessageTokens, int correctedHistoryTokens)
+    {
+        if (historyMessageTokens <= 0 || correctedHistoryTokens <= 0)
+            return this._budget.MaxTokens;
+
+        return (int)Math.Min(int.MaxValue, (long)this._budget.MaxTokens * historyMessageTokens / correctedHistoryTokens);
+    }
 
     private int ScaleProviderCorrection(int messageTokens) =>
         messageTokens >= this._anchorBaseTokens
