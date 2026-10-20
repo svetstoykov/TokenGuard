@@ -148,6 +148,8 @@ internal static class ComparisonCommand
         output.WriteLine("Estimator error unit: " + baseline.EstimatorErrorUnit);
         PrintCachedInputAvailability(output, baseline, candidate);
         PrintProbeApplicabilityAvailability(output, baseline, candidate);
+        if (baseline.SchemaVersion < 7 || candidate.SchemaVersion < 7)
+            output.WriteLine("Masked-result probe comparison unavailable: reports before schema version 7 record no masked-result population.");
         PrintMeasuredReduction(output, baseline, candidate, mismatches.Count == 0);
         if (limits.Count > 0 && (baseline.Partial || candidate.Partial || baseline.UnrunTaskIds.Count > 0 || candidate.UnrunTaskIds.Count > 0
             || baseline.Tasks.Any(task => !task.MeasurementsComplete) || candidate.Tasks.Any(task => !task.MeasurementsComplete)
@@ -168,6 +170,8 @@ internal static class ComparisonCommand
             if (metric is "estimatorSignedMean" or "estimatorSignedP95" or "checksTotal" or "checksPassed" or "evaluatedTaskCount"
                 or "deliverableCompletedTaskCount" or "probeCount" or "passedProbeCount" or "canaryPresentCount"
                 or "providerCachedInputTokens" or "notApplicableProbeCount"
+                or "maskedResultProbes.probeCount" or "maskedResultProbes.passedProbeCount" or "maskedResultProbes.notApplicableProbeCount"
+                or "maskedResultProbes.canaryPresentCount" or "maskedResultProbes.refetchedCount"
                 || !baselineMetrics.TryGetValue(metric, out var previous)
                 || !candidateMetrics.TryGetValue(metric, out var current))
             {
@@ -184,7 +188,7 @@ internal static class ComparisonCommand
             }
 
             var regression = metric is "protocolCompletionRate" or "estimatedPromptTokenReduction"
-                or "checkPassRate" or "deliverableCompletionRate" or "probePassRate"
+                or "checkPassRate" or "deliverableCompletionRate" or "probePassRate" or "maskedResultProbes.probePassRate"
                 ? previous.Value - current.Value : current.Value - previous.Value;
             if (regression > limit)
             {
@@ -202,7 +206,7 @@ internal static class ComparisonCommand
         using var document = await JsonDocument.ParseAsync(stream).ConfigureAwait(false);
         var root = document.RootElement;
         var shapeVersion = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("schemaVersion", out var version)
-            && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var number) && number is 4 or 5 ? number : 6;
+            && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var number) && number is 4 or 5 or 6 ? number : 7;
         ValidateShape(root, typeof(RunReport), shapeVersion);
         return root.Deserialize<RunReport>(ReportJson.Options) ?? throw new JsonException();
     }
@@ -291,7 +295,7 @@ internal static class ComparisonCommand
     /// <param name="type">The contract type declaring the property.</param>
     /// <param name="propertyName">The property name.</param>
     /// <returns>
-    ///     5 for the cached input token fields, 6 for the not-applicable probe count, and 4 for every other field.
+    ///     5 for cached input tokens, 6 for not-applicable counts, 7 for masked-result evidence, and 4 for other fields.
     /// </returns>
     private static int GetFirstSchemaVersion(Type type, string propertyName)
     {
@@ -301,6 +305,10 @@ internal static class ComparisonCommand
             return 5;
         }
 
+        if ((type == typeof(RunTotals) && propertyName == nameof(RunTotals.MaskedResultProbes))
+            || (type == typeof(ProbeResult) && propertyName is nameof(ProbeResult.Kind) or nameof(ProbeResult.Refetched))
+            || (type == typeof(PrepareMeasurement) && propertyName.StartsWith("Probe", StringComparison.Ordinal)))
+            return 7;
         return type == typeof(RunTotals) && propertyName == nameof(RunTotals.NotApplicableProbeCount) ? 6 : 4;
     }
 
@@ -395,7 +403,8 @@ internal static class ComparisonCommand
             if (!previous.Checks.Select(check => check.Id).ToHashSet(StringComparer.OrdinalIgnoreCase)
                 .SetEquals(task.Checks.Select(check => check.Id)))
                 mismatches.Add("taskChecks." + task.TaskId);
-            if ((previous.Probe is null) != (task.Probe is null) || previous.Probe?.Requires != task.Probe?.Requires)
+            if ((previous.Probe is null) != (task.Probe is null) || previous.Probe?.Requires != task.Probe?.Requires
+                || previous.Probe?.Kind != task.Probe?.Kind)
                 mismatches.Add("taskProbe." + task.TaskId);
             if (task.ModelCallBudget != previous.ModelCallBudget)
             {
@@ -445,6 +454,14 @@ internal static class ComparisonCommand
         metrics.Add("evaluatedTaskCount", report.Totals.EvaluatedTaskCount);
         metrics.Add("deliverableCompletedTaskCount", report.Totals.DeliverableCompletedTaskCount);
         metrics.Add("deliverableCompletionRate", report.Totals.DeliverableCompletionRate);
+        var masked = report.Totals.MaskedResultProbes;
+        metrics.Add("maskedResultProbes.probeCount", masked?.ProbeCount);
+        metrics.Add("maskedResultProbes.invalidProbeCount", masked?.InvalidProbeCount);
+        metrics.Add("maskedResultProbes.notApplicableProbeCount", masked?.NotApplicableProbeCount);
+        metrics.Add("maskedResultProbes.passedProbeCount", masked?.PassedProbeCount);
+        metrics.Add("maskedResultProbes.probePassRate", masked?.ProbePassRate);
+        metrics.Add("maskedResultProbes.canaryPresentCount", masked?.CanaryPresentCount);
+        metrics.Add("maskedResultProbes.refetchedCount", masked?.RefetchedCount);
         metrics.Add("probeCount", report.Totals.ProbeCount);
         metrics.Add("invalidProbeCount", report.Totals.InvalidProbeCount);
         metrics.Add("notApplicableProbeCount", report.Totals.NotApplicableProbeCount);
@@ -465,7 +482,8 @@ internal static class ComparisonCommand
     private static void PrintScoring(TextWriter output, string id, TaskReport baseline, TaskReport candidate)
     {
         static string ProbeText(ProbeResult? probe) => probe is null ? "none"
-            : $"{probe.Status}({probe.Reason ?? "none"}) CanaryPresent={probe.CanaryPresent}";
+            : $"{probe.Status}({probe.Reason ?? "none"}) CanaryPresent={probe.CanaryPresent}"
+                + (probe.Kind == "maskedResult" ? $" Kind=maskedResult Refetched={probe.Refetched}" : "");
         static string CheckText(CheckResult? check) => check is null ? "missing" : check.Passed ? "pass" : $"fail({check.Reason})";
         static string Counts(TaskReport task) =>
             $"masked={task.Metrics.MessagesMasked} summarized={task.Metrics.MessagesSummarized} dropped={task.Metrics.MessagesDropped}";
@@ -623,10 +641,14 @@ internal static class ComparisonCommand
             + "probeCount, passedProbeCount, notApplicableProbeCount, canaryPresentCount, providerCachedInputTokens; "
             + "signed estimator statistics.");
         output.WriteLine("Unavailable limited rates fail. Compare probePassRate only between the same arm's valid-probe populations.");
-        output.WriteLine("Schema version 4, 5 and 6 reports compare with each other. A version 4 report records no cached input tokens, "
+        output.WriteLine("Schema version 4, 5, 6 and 7 reports compare with each other. A version 4 report records no cached input tokens, "
             + "so that comparison is skipped and reported.");
         output.WriteLine("A probe of a task where nothing was summarized or dropped is notApplicable and outside probePassRate. "
             + "A version 4 or 5 report counts such a probe as invalid, which is reported when it declares probes.");
+        output.WriteLine("Masked-result probes use separate maskedResultProbes.* counts and pass rates. "
+            + "Reports before version 7 have no population.");
+        output.WriteLine("Masked-result rate decreases and invalid-count increases accept regression limits; "
+            + "other masked-result counts are informational.");
         output.WriteLine("For each task that lost a check, one line names the lost checks and the compaction that ran in the task that "
             + "lost them: masking, summarization, emergency truncation, or none. Between a control and a treatment report that task "
             + "is the treatment task; between two reports of one arm it is the candidate task.");
@@ -636,6 +658,6 @@ internal static class ComparisonCommand
                 || property.PropertyType == typeof(double?) && property.Name is not ("EstimatorSignedMean" or "EstimatorSignedP95"))
             .Select(property => JsonNamingPolicy.CamelCase.ConvertName(property.Name)))
             + ", taskCount, protocolCompletedTaskCount, protocolCompletionRate, deliverableCompletionRate, probePassRate, invalidProbeCount, "
-            + "prepareOutcomeCounts.<name>, healthSignalCounts.<name>.");
+            + "maskedResultProbes.probePassRate, maskedResultProbes.invalidProbeCount, prepareOutcomeCounts.<name>, healthSignalCounts.<name>.");
     }
 }

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using Codexplorer.Measurements;
 using Serilog.Events;
+using TokenGuard.Core.Models;
 
 namespace Codexplorer.Diagnostics;
 
@@ -16,6 +17,7 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
     private readonly Dictionary<ActivitySpanId, long> _strategies = [];
     private readonly Dictionary<string, long> _health = new(StringComparer.Ordinal);
     private Dictionary<string, long>? _summary;
+    private MaskedResultProbeTracker? _probe;
     private bool _active;
     private bool _complete;
     private int? _budget;
@@ -42,7 +44,7 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
     }
 
     /// <inheritdoc />
-    public void Begin(int? modelCallBudget)
+    public void Begin(int? modelCallBudget, IReadOnlyList<string>? probeValues = null)
     {
         lock (this._gate)
         {
@@ -52,6 +54,7 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
             this._active = true;
             this._complete = false;
             this._budget = modelCallBudget;
+            this._probe = probeValues is null ? null : new MaskedResultProbeTracker(probeValues);
             this._prepares.Clear();
             this._providers.Clear();
             this._summarizerResponses.Clear();
@@ -202,6 +205,47 @@ internal sealed class SessionMeasurementCollector : ISessionMeasurementCollector
             var index = this._prepares.FindLastIndex(record => record.Status == "completed");
             if (index >= 0)
                 this._prepares[index] = this._prepares[index] with { OpeningMessagePresent = openingMessagePresent };
+        }
+    }
+
+    /// <inheritdoc />
+    public void BeginProbeQuestion()
+    {
+        lock (this._gate)
+        {
+            if (this._active)
+                this._probe?.BeginQuestion();
+        }
+    }
+
+    /// <inheritdoc />
+    public void ObserveProbePrepare(IReadOnlyList<ContextMessage> messages, string artifactsPath)
+    {
+        lock (this._gate)
+        {
+            if (!this._active || this._probe is null || this._prepares.LastOrDefault() is not { Status: "completed" } prepare)
+                return;
+            this._prepares[^1] = this._probe.ObservePrepare(prepare, messages, artifactsPath);
+        }
+    }
+
+    /// <inheritdoc />
+    public void ObserveProbeAssistant(string text)
+    {
+        lock (this._gate)
+        {
+            if (this._active)
+                this._probe?.ObserveAssistant(text);
+        }
+    }
+
+    /// <inheritdoc />
+    public void ObserveProbeToolResult(string text)
+    {
+        lock (this._gate)
+        {
+            if (this._active && this._probe?.ObserveToolResult(text) == true && this._prepares.LastOrDefault() is { Status: "completed" })
+                this._prepares[^1] = this._prepares[^1] with { ProbeRefetched = true };
         }
     }
 

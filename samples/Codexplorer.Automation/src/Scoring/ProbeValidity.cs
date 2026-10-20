@@ -8,6 +8,23 @@ internal static class ProbeValidity
     /// <summary>Defines the reason recorded for a probe in a task where nothing was summarized or dropped.</summary>
     public const string NotApplicableReason = "noSummarizationOrDrop";
 
+    /// <summary>Gets eligibility at the first completed prepare after the masked-result question was submitted.</summary>
+    /// <param name="measurements">The cumulative session measurements.</param>
+    /// <returns>The invalid reason, or null for an eligible masked carrier.</returns>
+    public static string? GetMaskedResultInvalidReason(SessionMeasurements measurements)
+    {
+        var first = measurements.PrepareRecords.Where(record => record.Status == "completed" && record.ProbeQuestionAsked == true)
+            .MinBy(record => record.Index);
+        return first?.ProbeValueState switch
+        {
+            null or "unseen" => "factNotRead",
+            "removed" => "resultRemoved",
+            "visible" => "resultNotMasked",
+            "masked" => first.ProbeFactVisibleElsewhere == false ? null : "factVisibleElsewhere",
+            _ => "factNotRead"
+        };
+    }
+
     /// <summary>Checks whether the task removed any message, which is the only way the opening message can leave the view.</summary>
     /// <param name="measurements">The non-null session measurements.</param>
     /// <returns><see langword="true" /> if at least one message was summarized or dropped; otherwise, <see langword="false" />.</returns>

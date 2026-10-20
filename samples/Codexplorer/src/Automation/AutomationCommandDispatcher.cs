@@ -138,12 +138,16 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
             return AutomationResponseEnvelope.ErrorResponse(
                 request.RequestId, "invalid_request", "Payload property 'sessionDirectory' must be an absolute path.");
 
+        if (openSessionPayload.ProbeValues is { } values
+            && (values.Count == 0 || values.Any(string.IsNullOrWhiteSpace)))
+            return AutomationResponseEnvelope.ErrorResponse(request.RequestId, "invalid_request", "Probe values must be nonempty literals.");
+
         if (this._collector.IsActive)
             return AutomationResponseEnvelope.ErrorResponse(request.RequestId, "session_already_open", "Only one automation session may be open.");
 
         try
         {
-            this._collector.Begin(openSessionPayload.ModelCallBudget);
+            this._collector.Begin(openSessionPayload.ModelCallBudget, openSessionPayload.ProbeValues);
         }
         catch (InvalidOperationException)
         {
@@ -275,6 +279,13 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 message: $"Session '{sessionId}' is not open.");
         }
 
+        if (request.Payload is { } submitPayload && submitPayload.TryGetProperty("probeQuestion", out var question))
+        {
+            if (question.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                return AutomationResponseEnvelope.ErrorResponse(request.RequestId, "invalid_request", "probeQuestion must be Boolean.");
+            if (question.GetBoolean())
+                this._collector.BeginProbeQuestion();
+        }
         var exchangeResult = await registration!.Session.SubmitAsync(message!, ct).ConfigureAwait(false);
 
         if (IsTerminalOutcome(exchangeResult))
@@ -518,7 +529,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 
     private sealed record OpenSessionPayload(
         string? WorkspacePath, string? RepositoryUrl, int? ModelCallBudget, int? WrapUpWindow, string? SessionDirectory, bool Capture = false,
-        string? RepositoryCommit = null);
+        string? RepositoryCommit = null, IReadOnlyList<string>? ProbeValues = null);
 
     private sealed record AutomationWorkspaceResult(
         string Name,

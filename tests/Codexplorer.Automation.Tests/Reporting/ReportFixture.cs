@@ -84,23 +84,43 @@ internal static class ReportFixture
         return aggregator.CreateReport(report.Run, [task], [], false);
     }
 
-    /// <summary>Relabels a current report as schema version 4 or 5 and clears the totals field that version does not have.</summary>
+    /// <summary>Relabels a current report as schema version 4, 5 or 6 and clears the totals field that version does not have.</summary>
     /// <param name="report">The current report, with no cached input tokens when <paramref name="schemaVersion" /> is 4.</param>
-    /// <param name="schemaVersion">The older schema version, 4 or 5.</param>
+    /// <param name="schemaVersion">The older schema version, 4, 5 or 6.</param>
     /// <returns>The report as a harness of that schema version would have built it.</returns>
     public static RunReport AsOlderSchemaVersion(RunReport report, int schemaVersion)
     {
-        return report with { SchemaVersion = schemaVersion, Totals = report.Totals with { NotApplicableProbeCount = null } };
+        return report with
+        {
+            SchemaVersion = schemaVersion,
+            Totals = report.Totals with
+            {
+                NotApplicableProbeCount = schemaVersion < 6 ? null : report.Totals.NotApplicableProbeCount, MaskedResultProbes = null
+            }
+        };
     }
 
-    /// <summary>Serializes a report in the JSON shape of schema version 4 or 5, which omits the fields later versions added.</summary>
+    /// <summary>Serializes a report in the JSON shape of schema version 4, 5 or 6, which omits the fields later versions added.</summary>
     /// <param name="report">The current report, with no cached input tokens when <paramref name="schemaVersion" /> is 4.</param>
-    /// <param name="schemaVersion">The older schema version, 4 or 5.</param>
+    /// <param name="schemaVersion">The older schema version, 4, 5 or 6.</param>
     /// <returns>The report JSON as a harness of that schema version would have written it.</returns>
     public static string SerializeAsOlderSchemaVersion(RunReport report, int schemaVersion)
     {
         var root = JsonSerializer.SerializeToNode(AsOlderSchemaVersion(report, schemaVersion), ReportJson.Options)!;
-        root["totals"]!.AsObject().Remove("notApplicableProbeCount");
+        if (schemaVersion < 6)
+            root["totals"]!.AsObject().Remove("notApplicableProbeCount");
+        root["totals"]!.AsObject().Remove("maskedResultProbes");
+        foreach (var task in root["tasks"]!.AsArray())
+        {
+            if (task!["probe"] is { } probe)
+            {
+                probe.AsObject().Remove("kind");
+                probe.AsObject().Remove("refetched");
+            }
+            foreach (var prepare in task["prepareRecords"]!.AsArray())
+                foreach (var field in new[] { "probeValueState", "probeFactVisibleElsewhere", "probeQuestionAsked", "probeRefetched" })
+                    prepare!.AsObject().Remove(field);
+        }
         if (schemaVersion == 4)
         {
             root["totals"]!["metrics"]!.AsObject().Remove("providerCachedInputTokens");

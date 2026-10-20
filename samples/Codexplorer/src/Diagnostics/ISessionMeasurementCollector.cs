@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Codexplorer.Measurements;
 using Serilog.Events;
+using TokenGuard.Core.Models;
 
 namespace Codexplorer.Diagnostics;
 
@@ -12,8 +13,9 @@ internal interface ISessionMeasurementCollector
 
     /// <summary>Begins collection before the conversation is created.</summary>
     /// <param name="modelCallBudget">The optional total provider-call allowance.</param>
+    /// <param name="probeValues">The accepted literal probe values, or null for no masked-result measurement.</param>
     /// <exception cref="InvalidOperationException">Another session is active.</exception>
-    void Begin(int? modelCallBudget);
+    void Begin(int? modelCallBudget, IReadOnlyList<string>? probeValues = null);
 
     /// <summary>Ends collection after the conversation is disposed.</summary>
     void End();
@@ -40,6 +42,22 @@ internal interface ISessionMeasurementCollector
     /// <param name="hasSummarizationError">Whether the prepare reported a summarization error.</param>
     /// <param name="openingMessagePresent">Whether the unchanged opening user message remains in the prepared context.</param>
     void ObservePrepareResult(bool hasSummarizationError, bool openingMessagePresent);
+
+    /// <summary>Marks submission of the masked-result question.</summary>
+    void BeginProbeQuestion();
+
+    /// <summary>Records passive fact visibility for the last completed prepare.</summary>
+    /// <param name="messages">The prepared model input.</param>
+    /// <param name="artifactsPath">The task artifact directory.</param>
+    void ObserveProbePrepare(IReadOnlyList<ContextMessage> messages, string artifactsPath);
+
+    /// <summary>Records assistant text for pre-question contamination.</summary>
+    /// <param name="text">The received assistant text.</param>
+    void ObserveProbeAssistant(string text);
+
+    /// <summary>Records post-question fact refetches.</summary>
+    /// <param name="text">The raw tool output.</param>
+    void ObserveProbeToolResult(string text);
 
     /// <summary>Records the beginning of a provider attempt.</summary>
     /// <param name="transcriptIndex">The transcript index of the attempt.</param>

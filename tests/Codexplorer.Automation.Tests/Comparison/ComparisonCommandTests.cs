@@ -425,7 +425,7 @@ public sealed class ComparisonCommandTests
         var result = await CompareAsync(ReportFixture.Create() with { SchemaVersion = 1 }, ReportFixture.Create());
 
         result.ExitCode.Should().Be(1);
-        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 4, 5 or 6.");
+        result.Text.Should().Contain("Baseline: Unsupported report schema version; expected 4, 5, 6 or 7.");
     }
 
     /// <summary>
@@ -453,7 +453,7 @@ public sealed class ComparisonCommandTests
         var result = await CompareJsonAsync(recordedJson, JsonSerializer.Serialize(candidate, ReportJson.Options));
 
         result.ExitCode.Should().Be(0);
-        result.Text.Should().Contain("Report schema version: baseline=4 candidate=6").And.NotContain("Incompatible:")
+        result.Text.Should().Contain("Report schema version: baseline=4 candidate=7").And.NotContain("Incompatible:")
             .And.Contain("totals providerInputTokens: baseline=10262329 candidate=10262329 delta=0")
             .And.Contain("totals providerCachedInputTokens: baseline=unavailable candidate=1510 delta=unavailable")
             .And.Contain("Cached input token comparison skipped: baseline is a schema version 4 report, which records no cached input tokens.")
@@ -483,7 +483,7 @@ public sealed class ComparisonCommandTests
             JsonSerializer.Serialize(candidate, ReportJson.Options));
 
         result.ExitCode.Should().Be(0);
-        result.Text.Should().Contain($"Report schema version: baseline={schemaVersion} candidate=6").And.NotContain("Incompatible:")
+        result.Text.Should().Contain($"Report schema version: baseline={schemaVersion} candidate=7").And.NotContain("Incompatible:")
             .And.Contain("totals invalidProbeCount: baseline=1 candidate=0 delta=-1")
             .And.Contain("totals notApplicableProbeCount: baseline=unavailable candidate=1 delta=unavailable")
             .And.Contain("task task probe: baseline=invalid(instructionNotCompacted) CanaryPresent=True "
@@ -553,7 +553,7 @@ public sealed class ComparisonCommandTests
 
         result.ExitCode.Should().Be(0);
         result.Text.Should().Contain("totals providerCachedInputTokens: baseline=40 candidate=10 delta=-30")
-            .And.Contain("Report schema version: baseline=6 candidate=6").And.NotContain("Cached input token comparison skipped");
+            .And.Contain("Report schema version: baseline=7 candidate=7").And.NotContain("Cached input token comparison skipped");
     }
 
     /// <summary>
@@ -987,6 +987,64 @@ public sealed class ComparisonCommandTests
     {
         return CompareJsonAsync(JsonSerializer.Serialize(baseline, ReportJson.Options), JsonSerializer.Serialize(candidate, ReportJson.Options),
             extra);
+    }
+
+    /// <summary>Verifies each supported historical shape loads, validates, and compares against schema 7.</summary>
+    /// <param name="schemaVersion">The historical report version.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public async Task RunAsync_HistoricalShape_ComparesWithSeven(int schemaVersion)
+    {
+        var report = ReportFixture.Create();
+        var result = await CompareJsonAsync(ReportFixture.SerializeAsOlderSchemaVersion(report, schemaVersion),
+            JsonSerializer.Serialize(report, ReportJson.Options));
+
+        result.ExitCode.Should().Be(0);
+        result.Text.Should().Contain($"baseline={schemaVersion} candidate=7").And.Contain("Masked-result probe comparison unavailable");
+    }
+
+    /// <summary>Verifies schema 7 requires every new evidence field while older schemas forbid them.</summary>
+    /// <param name="field">The field to remove.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Theory]
+    [InlineData("probeValueState")]
+    [InlineData("probeFactVisibleElsewhere")]
+    [InlineData("probeQuestionAsked")]
+    [InlineData("probeRefetched")]
+    [InlineData("kind")]
+    [InlineData("refetched")]
+    [InlineData("maskedResultProbes")]
+    public async Task RunAsync_MissingSchemaSevenField_RejectsReport(string field)
+    {
+        var report = Scoring.MaskedResultProbeTests.CreateReport("masked", false, 1, "TG-UNIQUE");
+        var json = JsonSerializer.SerializeToNode(report, ReportJson.Options)!;
+        if (field == "maskedResultProbes")
+            json["totals"]!.AsObject().Remove(field);
+        else if (field is "kind" or "refetched")
+            json["tasks"]![0]!["probe"]!.AsObject().Remove(field);
+        else
+            json["tasks"]![0]!["prepareRecords"]![0]!.AsObject().Remove(field);
+
+        var result = await CompareJsonAsync(JsonSerializer.Serialize(report, ReportJson.Options), json.ToJsonString());
+
+        result.ExitCode.Should().Be(1);
+    }
+
+    /// <summary>Verifies masked-result rate limits use eligible probes and decrease is a regression.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task RunAsync_MaskedResultPassRateDecrease_ExceedsLimit()
+    {
+        var baseline = Scoring.MaskedResultProbeTests.CreateReport("masked", false, 1, "TG-UNIQUE");
+        var candidate = Scoring.MaskedResultProbeTests.CreateReport("masked", false, 1, "unknown");
+
+        var result = await CompareAsync(baseline, candidate, ["--limit", "maskedResultProbes.probePassRate=0"]);
+
+        result.ExitCode.Should().Be(1);
+        result.Text.Should().Contain("Regression limit exceeded: maskedResultProbes.probePassRate");
     }
 
     /// <summary>
