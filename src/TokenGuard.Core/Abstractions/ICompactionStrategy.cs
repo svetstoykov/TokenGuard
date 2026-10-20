@@ -30,8 +30,13 @@ public interface ICompactionStrategy
     ///     implementation.
     /// </param>
     /// <param name="availableTokens">
-    ///     The number of tokens available to the compacted result. Callers subtract pinned-message cost from the
-    ///     total context budget before passing this value so implementations never need to reason about reservations.
+    ///     The number of tokens available to the compacted result, in the units of the context's
+    ///     <see cref="ITokenCounter"/>. Callers subtract pinned-message cost from the total context budget before passing
+    ///     this value so implementations never need to reason about reservations. Once the provider has reported an input
+    ///     token count, the conversation context converts the maximum to the counter's scale first: it multiplies the
+    ///     maximum by the history's estimate divided by its provider-corrected total. A provider that counts fewer tokens
+    ///     than the estimate therefore raises this value above the maximum minus the pinned cost, and one that counts more
+    ///     lowers it.
     /// </param>
     /// <param name="cancellationToken">
     ///     A token that cancels the compaction operation before it completes.

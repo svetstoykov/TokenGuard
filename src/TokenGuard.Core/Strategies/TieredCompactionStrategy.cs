@@ -23,7 +23,7 @@ namespace TokenGuard.Core.Strategies;
 /// call is necessary.
 /// </para>
 /// </remarks>
-internal sealed class TieredCompactionStrategy : ICompactionStrategy
+internal sealed class TieredCompactionStrategy : ISteppedCompactionStrategy
 {
     private readonly SlidingWindowStrategy _slidingWindowStrategy;
     private readonly LlmSummarizationStrategy? _llmSummarizationStrategy;
@@ -93,18 +93,34 @@ internal sealed class TieredCompactionStrategy : ICompactionStrategy
     /// sliding-window result and reports the captured exception through <see cref="CompactionResult.SummarizationError"/>.
     /// </returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is <see langword="null"/>.</exception>
-    public async Task<CompactionResult> CompactAsync(
+    public Task<CompactionResult> CompactAsync(
         IReadOnlyList<ContextMessage> messages,
         int availableTokens,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        this.CompactAsync(messages, availableTokens, availableTokens, cancellationToken);
+
+    /// <summary>
+    /// Compacts history by attempting masking before escalating to summary replacement, with the masking step lines
+    /// derived from a budget of their own.
+    /// </summary>
+    /// <remarks>
+    /// Only the masking stage receives <paramref name="stepBudgetTokens"/>. Every comparison with the budget, and the
+    /// summarization stage, use <paramref name="availableTokens"/>. Everything else is as described for
+    /// <see cref="CompactAsync(IReadOnlyList{ContextMessage}, int, CancellationToken)"/>.
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history to process.</param>
+    /// <param name="availableTokens">The token budget available to the compacted result after pinned-message costs are removed.</param>
+    /// <param name="stepBudgetTokens">The budget the masking step lines are derived from.</param>
+    /// <param name="cancellationToken">A token that can cancel the compaction operation.</param>
+    /// <returns>A task that resolves to the compacted messages and the metrics of the compaction.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="messages"/> is <see langword="null"/>.</exception>
+    public async Task<CompactionResult> CompactAsync(
+        IReadOnlyList<ContextMessage> messages, int availableTokens, int stepBudgetTokens, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var slidingWindowResult = await this._slidingWindowStrategy.CompactAsync(
-            messages,
-            availableTokens,
-            cancellationToken);
+        var slidingWindowResult = await this._slidingWindowStrategy.CompactAsync(messages, availableTokens, stepBudgetTokens, cancellationToken);
 
         if (slidingWindowResult.TokensAfter <= availableTokens || this._llmSummarizationStrategy is null)
         {

@@ -61,8 +61,16 @@ public sealed class ConversationConfigBuilder
     ///     Sets the maximum number of tokens allowed in the conversation.
     /// </summary>
     /// <remarks>
-    ///     This value is required. <see cref="Build"/> throws <see cref="InvalidOperationException"/> if it has
-    ///     not been configured.
+    ///     <para>
+    ///         This value is required. <see cref="Build"/> throws <see cref="InvalidOperationException"/> if it has
+    ///         not been configured.
+    ///     </para>
+    ///     <para>
+    ///         The value is the input budget of one request, with no room reserved for the reply. Set it so that the
+    ///         model's context window minus the largest reply requested is at least <c>maxTokens × (1 + overrun tolerance)</c>.
+    ///         A caller that never passes a provider-reported input count also leaves room for tool definitions, about
+    ///         140 tokens per tool in measured runs; see <see cref="ContextBudget.MaxTokens"/>.
+    ///     </para>
     /// </remarks>
     /// <param name="maxTokens">The maximum number of tokens the caller permits in the conversation.</param>
     /// <returns>The current builder instance.</returns>

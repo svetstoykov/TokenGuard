@@ -59,7 +59,7 @@ object. `PrepareAsync()` returns a `PrepareResult` describing what should go to 
 
 | Term | Meaning | Set with |
 |---|---|---|
-| Budget | The token limit for one prepared request. The benchmark section calls it the window | `WithMaxTokens(...)`; 40,000 when `AddConversationContext()` is called without a builder |
+| Budget | The input token limit for one prepared request, with no room reserved for the reply. The benchmark section calls it the window | `WithMaxTokens(...)`; 40,000 when `AddConversationContext()` is called without a builder |
 | Compaction threshold | The fraction of the budget at which compaction starts | `WithCompactionThreshold(...)`, default 0.80 |
 | Emergency threshold | The fraction of the budget at which emergency truncation starts to drop the oldest turn groups | `WithEmergencyThreshold(...)`, default 1.0; `WithoutEmergencyThreshold()` turns it off |
 | Masking window | The newest messages that masking leaves unchanged, as a minimum count of messages | `SlidingWindowOptions.WindowSize`, default 10, passed to `WithSlidingWindowOptions(...)` |
@@ -107,6 +107,9 @@ and history size.
 
 - One model, one provider, and one control run per corpus. Each long-session figure is a single run.
 - The money figure applies to this model on this provider. Another provider's cache pricing gives a different bill.
+- Each figure describes the version named with it. The current code converts the budget it passes to masking and
+  summarization by the provider correction and charges for whitespace in JSON, so for the same history its prepared
+  requests differ from the measured ones until the benchmarks are run again.
 - Expect no saving in a session whose history stays near the compaction trigger: nothing is masked below it.
 - Choosing a window is reasoning, not a measurement: the window must hold the largest single turn of tool results plus
   the pinned content, with room left for history. Two points are measured on the verifiable corpus: 20,000 tokens
@@ -280,11 +283,13 @@ services.AddConversationContext(builder => builder
 
 ### Choose a budget
 
-The budget limits the input of one request, so set it below the model's context window and leave room for two things
-TokenGuard does not count. The first is the model's reply: the provider takes the output limit you request from the
-same context window. The second is request overhead such as tool schemas, which the estimate leaves out until you pass
-the first provider-reported input count to `RecordModelResponse`. From below, the budget must hold the largest single
-turn of tool results plus the pinned content, with room left for history. Two points are measured, on the short
+The budget, `MaxTokens`, is the input budget of one request: TokenGuard reserves nothing for the reply. Set it so that
+the model's context window minus the largest reply you request is at least `MaxTokens × (1 + overrun tolerance)`; the
+provider takes the output limit from the same context window, and a prepared request may run over `MaxTokens` by the
+tolerance. Request overhead such as tool schemas is part of the input but not of the estimate. Once you pass a
+provider-reported input count to `RecordModelResponse`, the correction includes it. If you never pass one, leave room
+for the tool definitions as well, about 140 tokens per tool in the measured runs. From below, the budget must hold the
+largest single turn of tool results plus the pinned content, with room left for history. Two points are measured, on the short
 verifiable tasks of the [benchmark](#benchmark): a budget of 20,000 tokens lost 10 of 31 checks, and 50,000 tokens
 held.
 
@@ -594,7 +599,13 @@ verified.
 TokenGuard's built-in DI and factory paths always construct the heuristic `EstimatedTokenCounter`. There is no public
 builder or factory hook to swap token counters at runtime yet.
 
-Provider-reported input tokens still help when they are available:
+The estimator counts text that parses as JSON from its structure, plus a charge for the whitespace between its tokens
+that was fitted to the `o200k_base` tokenizer.
+
+Provider-reported input tokens still help when they are available. The difference between the reported count and the
+estimate becomes the provider correction: the compaction trigger and the reported totals include it, and the budget
+passed to masking and summarization is converted by the ratio of the history's estimate to its corrected total. The
+adapters read the reported count from a response:
 
 - OpenAI: `response.InputTokens()` returns `null` when usage is absent
 - Anthropic: `response.InputTokens()` returns the total input of the request, the sum of `input_tokens`,
@@ -747,8 +758,7 @@ Known limits:
   cannot be registered through the builder
 - one `ConversationContext` is for one caller at a time; overlapping calls are detected on a best-effort basis and throw
 - token estimates leave out request overhead such as tool schemas until the first provider report
-- the estimator undercounts pretty-printed JSON by 17% to 30% against the `o200k_base` tokenizer until the first
-  provider report corrects it, and runs 15% to 49% high on source code and non-Latin text
+- the estimator runs 15% to 49% high on source code and non-Latin text
 - one tool result larger than the budget cannot be fitted. The prepare returns `CompactionInsufficient` when it
   masked, summarized, or dropped other messages, and `CannotCompact` when it changed none; in both the request is over
   the budget and the caller decides whether to send it

@@ -14,7 +14,8 @@
   "toleranceRules": [
     "under and over are fractions of referenceTokens. An estimate may be at most 'under' below the reference and at most 'over' above it.",
     "Each bound is the largest error measured for the kind when the counts were recorded, rounded up to the next 0.05. errorWhenRecorded keeps that measured range, lowest sample to highest sample.",
-    "over is null where the estimate ran more than 15% above the reference. For those kinds only the lower bound is checked, and the upper bound to accept is an open decision."
+    "over is null where the estimate ran more than 15% above the reference. For those kinds only the lower bound is checked, and the upper bound to accept is an open decision.",
+    "JSON with whitespace is checked on the lower bound only, because an estimate above the reference is the safe direction and tab indentation runs up to about 21% high."
   ],
   "tolerances": {
     "prose": {
@@ -34,6 +35,12 @@
       "under": 0.05,
       "over": 0.1,
       "errorWhenRecorded": "-4.8% to +6.8%"
+    },
+    "json-whitespace": {
+      "covers": "JSON with whitespace between its tokens: indented with spaces or tabs, spaced on one line, sent as a tool result, or inside prose.",
+      "under": 0.05,
+      "over": null,
+      "errorWhenRecorded": "+0.0% to +16.3%"
     },
     "tool-output": {
       "covers": "Tool results: logs, listings, search hits, tables, terminal escapes, file text and compact JSON.",
@@ -188,6 +195,30 @@
       "referenceTokens": 337
     },
     {
+      "id": "json-api-response-pretty",
+      "kind": "json-whitespace",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "{\n  \"id\": \"ord_9f31c2\",\n  \"status\": \"paid\",\n  \"created_at\": \"2026-05-12T09:30:11Z\",\n  \"customer\": {\n    \"id\": 48213,\n    \"name\": \"Zoë Müller\",\n    \"email\": \"zoe.mueller@example.com\",\n    \"vip\": true,\n    \"notes\": null\n  },\n  \"lines\": [\n    { \"sku\": \"KB-104\", \"title\": \"Mechanical keyboard, 104 keys\", \"quantity\": 1, \"unit_price\": 129.9 },\n    { \"sku\": \"MS-02\", \"title\": \"Wireless mouse\", \"quantity\": 2, \"unit_price\": 24.5 },\n    { \"sku\": \"CBL\", \"title\": \"USB-C cable \\\"braided\\\"\\n2 m\", \"quantity\": 3, \"unit_price\": 7.25 }\n  ],\n  \"tags\": [\"new\", \"eu\", \"b2c\", \"gift\"],\n  \"totals\": { \"subtotal\": 200.65, \"tax\": 16.05, \"shipping\": 0, \"grand_total\": 216.7 },\n  \"flags\": [true, false, null, 1, 22, 333, 4444],\n  \"history\": [[\"created\", 1715506211], [\"paid\", 1715506240]],\n  \"metadata\": {},\n  \"attachments\": []\n}"
+        }
+      ],
+      "referenceTokens": 319
+    },
+    {
+      "id": "json-api-response-tabs",
+      "kind": "json-whitespace",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "{\n\t\"id\": \"ord_9f31c2\",\n\t\"status\": \"paid\",\n\t\"created_at\": \"2026-05-12T09:30:11Z\",\n\t\"customer\": {\n\t\t\"id\": 48213,\n\t\t\"name\": \"Zoë Müller\",\n\t\t\"email\": \"zoe.mueller@example.com\",\n\t\t\"vip\": true,\n\t\t\"notes\": null\n\t},\n\t\"lines\": [\n\t\t{ \"sku\": \"KB-104\", \"title\": \"Mechanical keyboard, 104 keys\", \"quantity\": 1, \"unit_price\": 129.9 },\n\t\t{ \"sku\": \"MS-02\", \"title\": \"Wireless mouse\", \"quantity\": 2, \"unit_price\": 24.5 },\n\t\t{ \"sku\": \"CBL\", \"title\": \"USB-C cable \\\"braided\\\"\\n2 m\", \"quantity\": 3, \"unit_price\": 7.25 }\n\t],\n\t\"tags\": [\"new\", \"eu\", \"b2c\", \"gift\"],\n\t\"totals\": { \"subtotal\": 200.65, \"tax\": 16.05, \"shipping\": 0, \"grand_total\": 216.7 },\n\t\"flags\": [true, false, null, 1, 22, 333, 4444],\n\t\"history\": [[\"created\", 1715506211], [\"paid\", 1715506240]],\n\t\"metadata\": {},\n\t\"attachments\": []\n}"
+        }
+      ],
+      "referenceTokens": 324
+    },
+    {
       "id": "json-compact-records",
       "kind": "json",
       "role": "user",
@@ -198,6 +229,54 @@
         }
       ],
       "referenceTokens": 177
+    },
+    {
+      "id": "json-config",
+      "kind": "json-whitespace",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "{\n  \"Logging\": {\n    \"LogLevel\": { \"Default\": \"Information\", \"Microsoft.AspNetCore\": \"Warning\", \"TokenGuard\": \"Debug\" }\n  },\n  \"TokenGuard\": {\n    \"MaxTokens\": 40000,\n    \"CompactionThreshold\": 0.8,\n    \"EmergencyThreshold\": 1.0,\n    \"OverrunTolerance\": 0.05,\n    \"SlidingWindow\": { \"WindowSize\": 10, \"ProtectedWindowFraction\": 0.8 },\n    \"Summarization\": { \"Enabled\": true, \"WindowSize\": 5, \"MinSummaryTokens\": 2048, \"MaxSummaryTokens\": 4096 },\n    \"Profiles\": [\"default\", \"analysis\", \"long-running\"]\n  },\n  \"ConnectionStrings\": {\n    \"Default\": \"Host=db.internal;Port=5432;Database=orders;Username=app;Password=change-me\"\n  },\n  \"AllowedHosts\": [\"*\"],\n  \"FeatureFlags\": { \"é\": \"ok\", \"tab\": \"\\t\", \"ui\": \"v2\" }\n}"
+        }
+      ],
+      "referenceTokens": 234
+    },
+    {
+      "id": "json-config-spaced-one-line",
+      "kind": "json-whitespace",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "{\"Logging\": {\"LogLevel\": {\"Default\": \"Information\", \"Microsoft.AspNetCore\": \"Warning\", \"TokenGuard\": \"Debug\"}}, \"TokenGuard\": {\"MaxTokens\": 40000, \"CompactionThreshold\": 0.8, \"EmergencyThreshold\": 1.0, \"OverrunTolerance\": 0.05, \"SlidingWindow\": {\"WindowSize\": 10, \"ProtectedWindowFraction\": 0.8}, \"Summarization\": {\"Enabled\": true, \"WindowSize\": 5, \"MinSummaryTokens\": 2048, \"MaxSummaryTokens\": 4096}, \"Profiles\": [\"default\", \"analysis\", \"long-running\"]}, \"ConnectionStrings\": {\"Default\": \"Host=db.internal;Port=5432;Database=orders;Username=app;Password=change-me\"}, \"AllowedHosts\": [\"*\"], \"FeatureFlags\": {\"é\": \"ok\", \"tab\": \"\\t\", \"ui\": \"v2\"}}"
+        }
+      ],
+      "referenceTokens": 205
+    },
+    {
+      "id": "json-numbers-indented",
+      "kind": "json-whitespace",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "[\n  0,\n  37,\n  74,\n  111,\n  148,\n  185,\n  222,\n  259,\n  296,\n  333,\n  370,\n  407,\n  444,\n  481,\n  518,\n  555,\n  592,\n  629,\n  666,\n  703,\n  740,\n  777,\n  814,\n  851,\n  888,\n  925,\n  962,\n  999,\n  1036,\n  1073,\n  1110,\n  1147,\n  1184,\n  1221,\n  1258,\n  1295,\n  1332,\n  1369,\n  1406,\n  1443,\n  1480,\n  1517,\n  1554,\n  1591,\n  1628,\n  1665,\n  1702,\n  1739,\n  1776,\n  1813,\n  1850,\n  1887,\n  1924,\n  1961,\n  1998\n]"
+        }
+      ],
+      "referenceTokens": 253
+    },
+    {
+      "id": "json-indented-in-prose",
+      "kind": "json-whitespace",
+      "role": "user",
+      "segments": [
+        {
+          "type": "text",
+          "content": "The endpoint returned this body for the failing request:\n\n{\n  \"error\": {\n    \"code\": \"rate_limited\",\n    \"message\": \"Too many requests, retry after 30 seconds.\",\n    \"retry_after\": 30\n  },\n  \"request_id\": \"req_7Hc2Lm\"\n}\n\nI'll add a back-off before the retry and log the request ID so we can match it with the gateway logs."
+        }
+      ],
+      "referenceTokens": 92
     },
     {
       "id": "json-compact-config",
@@ -222,6 +301,20 @@
         }
       ],
       "referenceTokens": 186
+    },
+    {
+      "id": "tool-result-json-pretty",
+      "kind": "json-whitespace",
+      "role": "tool",
+      "segments": [
+        {
+          "type": "toolResult",
+          "toolCallId": "call_pkg001",
+          "toolName": "read_file",
+          "content": "{\n  \"name\": \"orders-web\",\n  \"version\": \"2.4.1\",\n  \"private\": true,\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"tsc -b && vite build\",\n    \"test\": \"vitest run --coverage\",\n    \"lint\": \"eslint . --max-warnings 0\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\",\n    \"react-router-dom\": \"^6.26.2\",\n    \"zod\": \"^3.23.8\"\n  },\n  \"devDependencies\": {\n    \"@types/react\": \"^18.3.5\",\n    \"@vitejs/plugin-react\": \"^4.3.1\",\n    \"eslint\": \"^9.9.1\",\n    \"typescript\": \"^5.5.4\",\n    \"vite\": \"^5.4.2\",\n    \"vitest\": \"^2.0.5\"\n  }\n}"
+        }
+      ],
+      "referenceTokens": 220
     },
     {
       "id": "tool-result-test-log",

@@ -54,8 +54,16 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
   least one of its results was replaced, and `PrepareResult.MessagesCompacted` and the `ToolResultMasked` log records
   count only replaced results. A prepared view can differ from the one 1.2.0 produces for the same history when that
   history holds tool results shorter than the placeholder.
+- The compaction strategy receives its budget on the provider-corrected scale the trigger uses: `MaxTokens` times the
+  history's estimate over its provider-corrected count, minus the pinned messages. Without a provider report the
+  budget is as before. The masking step lines stay on the unconverted budget. A custom `ICompactionStrategy` receives
+  the converted budget. A prepared view can differ from the one 1.2.0 produces once a provider report exists.
 
 ### Fixed
+
+- The token estimate of JSON text charges the whitespace between its tokens: one token per run of spaces or tabs
+  outside strings, one more per line break and one more per tab-indented line. Pretty-printed JSON, such as an
+  indented tool result, used to be estimated up to 44% below the reference count. Minified JSON is estimated as before.
 
 - `TokenGuard.Extensions.Anthropic`: a summarizer answer without usage yields its summary. Reading the missing usage
   used to fail the call, so the summary was discarded and recorded as a summarization failure.

@@ -93,7 +93,10 @@ The built-in `EstimatedTokenCounter` is more than a character-count heuristic:
 
 - every `ContextMessage` includes fixed framing overhead
 - tool segments include envelope and field overhead
-- JSON-like payloads are counted structurally
+- JSON-like payloads are counted structurally, plus the whitespace between their tokens: outside string literals, each
+  run of spaces, tabs and line breaks costs 1 token, 1 more when it holds a line break, and 1 more again when a run with
+  a line break holds a tab. The rule was fitted to the `o200k_base` encoding (tiktoken 0.14.0); minified JSON pays
+  nothing for it
 - Unicode, punctuation, code-like text, paths, and emoji are handled with specialized heuristics
 - the built-in factory uses `new EstimatedTokenCounter()` with `TokenCountSafetyMode.Balanced`
 - public DI and factory configuration do not expose a token-counter replacement hook today
@@ -138,8 +141,8 @@ compaction trigger, the emergency trigger, and the outcome are all compared on t
 messages reports the same figure twice. With no provider report recorded, the correction is zero and every figure is the
 plain sum.
 
-The strategy itself works on per-message estimates. `availableTokens` and the `tokenguard.compact` activity tags do not
-include the correction.
+The strategy itself works on per-message estimates, so the budget it receives is converted to that scale (section 5).
+The `tokenguard.compact` activity tags report the converted `availableTokens` and the strategy's own estimates.
 
 ---
 
@@ -164,13 +167,26 @@ If that total is below `ContextBudget.CompactionTriggerTokens`, the context retu
 If it is above the trigger:
 
 1. pinned messages are extracted
-2. their token cost is subtracted from `MaxTokens`
-3. only the unpinned slice is passed to the strategy as `availableTokens`
+2. `MaxTokens` is converted to the estimate scale, and the pinned messages' estimated cost is subtracted from it
+3. only the unpinned slice is passed to the strategy, with that budget as `availableTokens`
 4. pinned messages are put back between the surviving messages they were recorded between
 5. emergency truncation may remove old unpinned turn groups from the prepared list
 6. `PrepareResult` is built from the final prepared list
 
-That means the strategy budget in the current implementation is computed as `MaxTokens - pinnedTokenTotal`.
+The trigger compares the corrected history, while the strategy counts estimates. The budget is converted with the two
+figures the trigger already has:
+
+```text
+s               = sum(history) / corrected(history)    (1 when either is zero or less)
+availableTokens = floor(MaxTokens * s) - pinnedTokenTotal
+```
+
+With no provider report the correction is zero, `s` is 1, and `availableTokens` is `MaxTokens - pinnedTokenTotal`. When
+the provider counts fewer tokens than the estimate, `s` is above 1 and the strategy may keep more estimated tokens;
+when it counts more, `s` is below 1, so a history whose estimate fits the maximum but whose corrected total does not
+reaches summarization instead of emergency truncation. `s` is recomputed on every call and not rounded.
+
+A custom `ICompactionStrategy` receives the converted budget in the same parameter; its signature is unchanged.
 
 ---
 
@@ -186,8 +202,9 @@ It walks backward from the newest compactable message and builds a protected tai
 Nothing is masked while the whole compactable history fits in the high mark, `availableTokens * ProtectedWindowFraction`
 (80% by default). Once the history exceeds it, the boundary between masked and whole messages moves in steps:
 
-- the step is one quarter of the high mark, 20% of `availableTokens` by default, and is not configurable
-- the low mark is the high mark minus one step, 60% by default
+- the low mark is the high mark minus one quarter of it, 60% of `availableTokens` by default
+- the step is one quarter of the high mark of the unconverted budget, `MaxTokens - pinnedTokenTotal`: 20% of that budget
+  by default, and not configurable
 - step lines are fixed positions in the history: index 0, and the first message boundary at or after each multiple of
   the step, counted in tokens from the oldest compactable message
 - the boundary is the last step line at or before the point the walk reaches with the low mark as its allowance
@@ -199,9 +216,11 @@ end. A provider prompt cache or a local model server can then reuse the whole pr
 about once per step of growth. When the newest `WindowSize` messages alone exceed the low mark, the boundary follows
 the high-mark walk and can move on every call.
 
-The boundary is derived from the history and the budget on every call. Nothing is remembered between calls, so the
-same messages always give the same view, whether they were recorded one by one or restored at once. Step lines depend
-on `availableTokens`, so pinning a new message or changing the system prompt can move them once.
+The boundary is derived from the history and `s` on every call. Nothing is remembered between calls, so the same
+messages with the same provider correction always give the same view, whether they were recorded one by one or
+restored at once. The marks follow `s`, so a change in the correction moves where the low-mark walk ends, but the step
+lines it snaps to stay where they were. Step lines depend on `MaxTokens - pinnedTokenTotal`, so pinning a new message
+or changing the system prompt can move them once.
 
 Messages before the boundary stay in place, but older `ToolResultContent` segments are replaced with placeholders.
 
@@ -298,8 +317,8 @@ than the target is accepted as long as the compacted history fits the available 
 ### Size of the summarizer request
 
 The summarizer request is built to a token budget: the tokens available to the compacted conversation, which is
-`MaxTokens` minus the pinned messages. The budget covers the summarizer instructions and the transcript, counted with
-the library's estimator. A request that fits is sent whole. When it does not fit:
+`availableTokens` from section 5, `MaxTokens` converted by the provider correction minus the pinned messages. The
+budget covers the summarizer instructions and the transcript, counted with the library's estimator. A request that fits is sent whole. When it does not fit:
 
 1. Long text segments are shortened from the oldest message on, the way tool results are: an excerpt of the first,
    last, and salient lines above 300 tokens, and metadata only above 1,200 tokens. Shortening stops as soon as the request fits.
@@ -608,6 +627,10 @@ provider request, and send `prepared.Messages`.
 Two benchmarks were measured with the Codexplorer sample agent and `qwen/qwen3.7-flash`, each against a control run
 without compaction. They differ in task, session length, and window, so each result is stated on its own and the two are
 not combined.
+
+Each result describes the version named with it. The current code converts the strategy budget by the provider
+correction (section 5) and charges for whitespace in JSON (section 4), so for the same history its prepared requests
+differ from the measured ones until the benchmarks are run again.
 
 ### Short verifiable tasks
 
