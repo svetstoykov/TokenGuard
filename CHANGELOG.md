@@ -13,7 +13,7 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
 - `TokenGuard.Extensions.AI`, a .NET 10 package using `Microsoft.Extensions.AI.Abstractions` 10.11.0 or later.
   `ForChatClient()`, response segment helpers and `InputTokens()` support caller-driven tool loops and provider
   correction. `UseLlmSummarization(IChatClient)` summarizes through Core's public model-call contract. Responses
-  containing automatic function results or unsupported media fail explicitly. The caller keeps one context per conversation.
+  containing automatic function results, failed or informational function calls, or unsupported media fail explicitly. The caller keeps one context per conversation.
 
 - `ConversationConfigBuilder.WithTokenCounter(ITokenCounter)` shares a custom counter across contexts, including recording,
   tool-result limits and summarizer request budgets. Provider correction and token-count timing apply to custom counters.

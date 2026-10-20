@@ -223,6 +223,56 @@ public sealed class ChatClientExtensionsTests
     }
 
     [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    public void SegmentHelpers_FunctionCallMappingFailed_ThrowWithOriginalException(int helper, bool laterMessage)
+    {
+        var mappingException = new JsonException("Invalid provider arguments.");
+        var failedCall = new FunctionCallContent("failed", "search") { Exception = mappingException };
+        List<ChatMessage> messages = laterMessage ? [new(ChatRole.Assistant, [new FunctionCallContent("valid", "read")])] : [];
+        messages.Add(new ChatMessage(ChatRole.Assistant, [failedCall]));
+        var response = new ChatResponse(messages);
+
+        Action act = helper switch
+        {
+            0 => () => response.ResponseSegments(),
+            1 => () => response.TextSegments(),
+            _ => () => response.ToolUseSegments(),
+        };
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'failed'*mapping failed*")
+            .Which.InnerException.Should().BeSameAs(mappingException);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    public void SegmentHelpers_InformationalFunctionCall_ThrowInsteadOfExposingAnExecutableRequest(int helper, bool laterMessage)
+    {
+        var informationalCall = new FunctionCallContent("processed", "search") { InformationalOnly = true };
+        List<ChatMessage> messages = laterMessage ? [new(ChatRole.Assistant, [new FunctionCallContent("valid", "read")])] : [];
+        messages.Add(new ChatMessage(ChatRole.Assistant, [informationalCall]));
+        var response = new ChatResponse(messages);
+
+        Action act = helper switch
+        {
+            0 => () => response.ResponseSegments(),
+            1 => () => response.TextSegments(),
+            _ => () => response.ToolUseSegments(),
+        };
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'processed'*informational*executable tool request*");
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(2)]

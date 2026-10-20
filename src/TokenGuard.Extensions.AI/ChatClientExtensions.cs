@@ -99,7 +99,9 @@ public static class ChatClientExtensions
     /// <param name="response">The response to record. Cannot be <see langword="null" />.</param>
     /// <returns>The surfaced segments; reasoning and usage content are omitted.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="response" /> is <see langword="null" />.</exception>
-    /// <exception cref="InvalidOperationException">The response contains an automatically invoked function result.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     The response contains an automatically invoked function result, a failed function-call mapping, or an informational function call.
+    /// </exception>
     /// <exception cref="NotSupportedException">The response contains unsupported content or unserializable function arguments.</exception>
     /// <exception cref="JsonException">Function arguments cannot be serialized as JSON.</exception>
     /// <exception cref="ArgumentException">A function call has a blank identifier or name.</exception>
@@ -126,6 +128,16 @@ public static class ChatClientExtensions
                     }
                     break;
                 case FunctionCallContent call:
+                    if (call.Exception is not null)
+                    {
+                        throw new InvalidOperationException($"Function call '{call.CallId}' mapping failed; its arguments cannot be executed.",
+                            call.Exception);
+                    }
+                    if (call.InformationalOnly)
+                    {
+                        throw new InvalidOperationException(
+                            $"Function call '{call.CallId}' is informational and cannot be represented as an executable tool request.");
+                    }
                     var arguments = call.Arguments is null ? "{}" : JsonSerializer.Serialize(call.Arguments);
                     segments.Add(new ToolUseContent(call.CallId, call.Name, arguments));
                     break;
@@ -143,7 +155,9 @@ public static class ChatClientExtensions
     /// <param name="response">The response to inspect. Cannot be <see langword="null" />.</param>
     /// <returns>The non-whitespace text segments in response order.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="response" /> is <see langword="null" />.</exception>
-    /// <exception cref="InvalidOperationException">The response contains an automatically invoked function result.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     The response contains an automatically invoked function result, a failed function-call mapping, or an informational function call.
+    /// </exception>
     /// <exception cref="NotSupportedException">The response contains unsupported content or unserializable function arguments.</exception>
     /// <exception cref="JsonException">Function arguments cannot be serialized as JSON.</exception>
     /// <exception cref="ArgumentException">A function call has a blank identifier or name.</exception>
@@ -153,7 +167,9 @@ public static class ChatClientExtensions
     /// <param name="response">The response to inspect. Cannot be <see langword="null" />.</param>
     /// <returns>The tool-use segments in response order.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="response" /> is <see langword="null" />.</exception>
-    /// <exception cref="InvalidOperationException">The response contains an automatically invoked function result.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     The response contains an automatically invoked function result, a failed function-call mapping, or an informational function call.
+    /// </exception>
     /// <exception cref="NotSupportedException">The response contains unsupported content or unserializable function arguments.</exception>
     /// <exception cref="JsonException">Function arguments cannot be serialized as JSON.</exception>
     /// <exception cref="ArgumentException">A function call has a blank identifier or name.</exception>

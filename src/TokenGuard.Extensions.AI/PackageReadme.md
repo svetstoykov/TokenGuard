@@ -75,7 +75,8 @@ See [Microsoft's implementation](https://github.com/dotnet/extensions/blob/v10.1
 Leave `ChatOptions.ConversationId` unset and configure the provider client to send the complete prepared history;
 server-managed history can retain content that TokenGuard compacted. For streaming, collect the updates with
 `ToChatResponseAsync()` before using these response helpers. Text and function calls are supported; reasoning content
-and usage content are omitted, and unsupported content such as media throws `NotSupportedException`.
+and usage content are omitted, and unsupported content such as media throws `NotSupportedException`. Function calls with
+argument-mapping failures or marked informational throw `InvalidOperationException` rather than becoming executable tool requests.
 
 TokenGuard keeps the history, correction and summary checkpoint in the caller's context. Its token budget uses provider
 usage correction, masks old tool results in steps, and preserves pinned messages through every compaction stage.
