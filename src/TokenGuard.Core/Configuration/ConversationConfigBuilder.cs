@@ -22,7 +22,7 @@ namespace TokenGuard.Core.Configuration;
 ///     <para>
 ///         The builder requires <see cref="WithMaxTokens(int)"/> to be called before <see cref="Build"/>.
 ///         All other configuration methods are optional. Any budget values not explicitly configured are taken
-///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count, while compaction always
+///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count, while the default compaction pipeline
 ///         uses <see cref="TieredCompactionStrategy"/> with sliding-window masking and an optional provider-backed
 ///         summarization stage.
 ///     </para>
@@ -41,6 +41,8 @@ public sealed class ConversationConfigBuilder
     private ILlmSummarizer? _llmSummarizer;
     private LlmSummarizationOptions? _llmSummarizationOptions;
     private ILoggerFactory? _loggerFactory;
+    private ITokenCounter? _tokenCounter;
+    private Func<CompactionStrategyContext, ICompactionStrategy>? _customStrategyFactory;
 
     /// <summary>
     ///     Creates a <see cref="ConversationContextConfiguration"/> using the default builder configuration.
@@ -214,6 +216,42 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
+    ///     Sets the token counter used by every conversation created from this configuration.
+    /// </summary>
+    /// <remarks>
+    ///     One instance is shared across contexts and must be safe for concurrent use. TokenGuard measures its execution time
+    ///     and applies provider-reported correction on top of its estimates. Without this setting, the default is
+    ///     <see cref="TokenCounting.EstimatedTokenCounter"/>.
+    /// </remarks>
+    /// <param name="tokenCounter">The counter to share. Cannot be <see langword="null"/>.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="tokenCounter"/> is <see langword="null"/>.</exception>
+    public ConversationConfigBuilder WithTokenCounter(ITokenCounter tokenCounter)
+    {
+        ArgumentNullException.ThrowIfNull(tokenCounter);
+        this._tokenCounter = tokenCounter;
+        return this;
+    }
+
+    /// <summary>
+    ///     Sets the factory that creates the complete compaction strategy for each conversation.
+    /// </summary>
+    /// <remarks>
+    ///     The factory runs once per created context and receives its timed counter, resolved logger factory and name.
+    ///     Each call replaces the previous factory. A custom strategy replaces the built-in masking and summarization pipeline;
+    ///     combining it with sliding-window options or a summarizer throws when <see cref="Build"/> is called.
+    /// </remarks>
+    /// <param name="strategyFactory">The factory for a fresh strategy per context. Cannot be <see langword="null"/>.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="strategyFactory"/> is <see langword="null"/>.</exception>
+    public ConversationConfigBuilder WithCompactionStrategy(Func<CompactionStrategyContext, ICompactionStrategy> strategyFactory)
+    {
+        ArgumentNullException.ThrowIfNull(strategyFactory);
+        this._customStrategyFactory = strategyFactory;
+        return this;
+    }
+
+    /// <summary>
     ///     Sets the configuration used by the always-on sliding-window masking stage.
     /// </summary>
     /// <remarks>
@@ -300,8 +338,8 @@ public sealed class ConversationConfigBuilder
     ///         default for the configured maximum token count.
     ///     </para>
     ///     <para>
-    ///         Token counting always uses TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation.
-    ///         Compaction always uses a freshly created <see cref="TieredCompactionStrategy"/> with configured
+    ///         Token counting uses the configured counter or TokenGuard's built-in heuristic.
+    ///         Without a custom strategy, compaction uses a freshly created <see cref="TieredCompactionStrategy"/> with configured
     ///         <see cref="SlidingWindowOptions"/> and an optional provider-backed <see cref="LlmSummarizationStrategy"/>.
     ///     </para>
     /// </remarks>
@@ -310,7 +348,9 @@ public sealed class ConversationConfigBuilder
     ///     configuration with all defaults applied.
     /// </returns>
     /// <exception cref="InvalidOperationException">
-    ///     Thrown when <see cref="WithMaxTokens(int)"/> has not been called.
+    ///     <see cref="WithMaxTokens(int)"/> has not been called.
+    ///     -or-
+    ///     A custom strategy is combined with sliding-window options or a summarizer.
     /// </exception>
     /// <exception cref="ArgumentException">
     ///     The configured <see cref="SlidingWindowOptions"/> or <see cref="LlmSummarizationOptions"/> is the
@@ -328,6 +368,12 @@ public sealed class ConversationConfigBuilder
         if (!this._maxTokens.HasValue)
         {
             throw new InvalidOperationException("ConversationContextConfigurationBuilder requires WithMaxTokens(...) to be called before Build().");
+        }
+
+        if (this._customStrategyFactory is not null && (this._slidingWindowOptions is not null || this._llmSummarizer is not null))
+        {
+            throw new InvalidOperationException(
+                "WithCompactionStrategy cannot be combined with WithSlidingWindowOptions or UseLlmSummarization.");
         }
 
         if (this._slidingWindowOptions is { IsInitialized: false })
@@ -352,11 +398,17 @@ public sealed class ConversationConfigBuilder
             this._llmSummarizer,
             this._llmSummarizationOptions);
 
-        return new ConversationContextConfiguration(budget, tokenCounter => strategyFactory(tokenCounter, CreateSilentDiagnostics()))
+        var customStrategyFactory = this._customStrategyFactory;
+        return new ConversationContextConfiguration(budget, tokenCounter => customStrategyFactory is null
+            ? strategyFactory(tokenCounter, CreateSilentDiagnostics())
+            : customStrategyFactory(new CompactionStrategyContext(
+                tokenCounter, NullLoggerFactory.Instance, ConversationDiagnostics.DefaultContextName)))
         {
             MaxToolResultTokens = this._toolResultLimitConfigured ? this._maxToolResultTokens : ToolResultLimitDefaults.Resolve(budget.MaxTokens),
             LoggerFactory = this._loggerFactory,
-            DiagnosticStrategyFactory = strategyFactory,
+            DiagnosticStrategyFactory = customStrategyFactory is null ? strategyFactory : null,
+            CustomStrategyFactory = customStrategyFactory,
+            TokenCounter = this._tokenCounter,
         };
     }
 
@@ -374,7 +426,7 @@ public sealed class ConversationConfigBuilder
                 ? null
                 : new LlmSummarizationStrategy(
                     new SummarizerInvoker(
-                        llmSummarizer, summarizationOptions.SummaryInstructions, loggerFactory.CreateLogger(llmSummarizer.GetType())),
+                        llmSummarizer, summarizationOptions.SummaryInstructions, loggerFactory.CreateLogger(llmSummarizer.GetType()), tokenCounter),
                     tokenCounter, summarizationOptions, loggerFactory.CreateLogger<LlmSummarizationStrategy>(), diagnostics);
 
             return new TieredCompactionStrategy(

@@ -30,12 +30,10 @@ namespace TokenGuard.Core.TokenCounting;
 /// <para>
 /// Each counted <see cref="ContextMessage"/> includes a fixed framing overhead, and tool-call segments add structural
 /// wrapper cost so TokenGuard budgets remain closer to real chat payload costs than segment-only counting would
-/// provide. Applications that require different creation flows can bypass dependency injection and construct
-/// <see cref="ConversationContextFactory"/> directly, but the built-in factory path always uses this heuristic counter.
+/// provide. Instances are safe for concurrent use. Estimates may change between versions; exact counts are not a compatibility promise.
 /// </para>
 /// </remarks>
-internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = TokenCountSafetyMode.Balanced) 
-    : ITokenCounter
+public sealed class EstimatedTokenCounter : ITokenCounter
 {
     private const int MessageOverhead = 4;
     private const int ToolEnvelopeOverhead = 6;
@@ -43,6 +41,15 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
     private const int JsonObjectOverhead = 1;
     private const int JsonArrayOverhead = 1;
     private const int JsonStringOverhead = 1;
+
+    private readonly TokenCountSafetyMode _safetyMode;
+
+    /// <summary>Initializes a new instance of the <see cref="EstimatedTokenCounter"/> class.</summary>
+    /// <param name="safetyMode">The safety margin applied to estimates. The default is <see cref="TokenCountSafetyMode.Balanced"/>.</param>
+    public EstimatedTokenCounter(TokenCountSafetyMode safetyMode = TokenCountSafetyMode.Balanced)
+    {
+        this._safetyMode = safetyMode;
+    }
 
     /// <inheritdoc />
     public int Count(ContextMessage contextMessage)
@@ -61,7 +68,7 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
             total += CountSegment(segment);
         }
 
-        return ApplySafetyMargin(total, safetyMode);
+        return ApplySafetyMargin(total, this._safetyMode);
     }
 
     /// <inheritdoc />

@@ -42,16 +42,16 @@ internal sealed class SummarizerInvoker : IHistorySummarizer
     /// The summary instructions, or <see langword="null"/> for <see cref="ConversationSummaryPrompt.DefaultInstructions"/>.
     /// </param>
     /// <param name="logger">The logger that receives the summarizer call records. Cannot be <see langword="null"/>.</param>
+    /// <param name="tokenCounter">The context counter for request budgeting, or <see langword="null"/> for the default estimator.</param>
     /// <exception cref="ArgumentNullException"><paramref name="summarizer"/> or <paramref name="logger"/> is <see langword="null"/>.</exception>
-    public SummarizerInvoker(ILlmSummarizer summarizer, string? summaryInstructions, ILogger logger)
+    public SummarizerInvoker(ILlmSummarizer summarizer, string? summaryInstructions, ILogger logger, ITokenCounter? tokenCounter = null)
     {
         ArgumentNullException.ThrowIfNull(summarizer);
         ArgumentNullException.ThrowIfNull(logger);
 
         this._summarizer = summarizer;
 
-        // The transcript is measured with the formatter's own estimator, not with the token counter of the context.
-        this._formatter = ConversationSummaryFormatter.Default;
+        this._formatter = tokenCounter is null ? ConversationSummaryFormatter.Default : new ConversationSummaryFormatter(tokenCounter);
         this._systemPrompt = ConversationSummaryPrompt.BuildSystemPrompt(summaryInstructions);
         this._summarizerName = summarizer.GetType().Name;
         this._logger = logger;

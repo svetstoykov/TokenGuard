@@ -19,8 +19,8 @@ namespace TokenGuard.Core;
 /// </para>
 /// <para>
 /// The factory remains mutable only for named profiles through <see cref="AddNamed(string, ConversationContextConfiguration)"/>.
-/// The default profile is supplied through the constructor, and each create call still constructs a fresh token counter
-/// and strategy instance so no per-conversation state is shared across calls.
+/// The default profile is supplied through the constructor. Each create call constructs a fresh strategy instance so no
+/// per-conversation state is shared across calls. Custom counters are shared across contexts.
 /// </para>
 /// <para>
 /// Dependency injection remains the strongly encouraged path. When a container is available, prefer
@@ -113,9 +113,8 @@ public sealed class ConversationContextFactory : IConversationContextFactory
     /// </returns>
     /// <remarks>
     /// Each call returns a distinct instance that shares no history or state with any other context
-    /// produced by this factory. A fresh built-in token counter is constructed for every call, and the
-    /// configured strategy delegate is invoked for every call, so no produced dependency instance is
-    /// reused across contexts.
+    /// produced by this factory. Each call constructs a default counter or wraps the shared custom counter in timing
+    /// instrumentation, and invokes the configured strategy delegate.
     /// </remarks>
     public IConversationContext Create() => this.CreateContext(this._default, ConversationDiagnostics.DefaultContextName);
 
@@ -132,9 +131,8 @@ public sealed class ConversationContextFactory : IConversationContextFactory
     /// </returns>
     /// <remarks>
     /// Each call returns a distinct instance that shares no history or state with any other context
-    /// produced by this factory, even when the same name is supplied repeatedly. A fresh built-in
-    /// token counter is constructed for every call, and the configured strategy delegate is invoked for
-    /// every call, so no produced dependency instance is reused across contexts.
+    /// produced by this factory, even when the same name is supplied repeatedly. Each call constructs a default counter
+    /// or wraps the shared custom counter in timing instrumentation, and invokes the configured strategy delegate.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
     /// Thrown when no configuration has been registered under <paramref name="name"/>. The exception
@@ -152,8 +150,10 @@ public sealed class ConversationContextFactory : IConversationContextFactory
     {
         var loggerFactory = config.LoggerFactory ?? this._fallbackLoggerFactory ?? NullLoggerFactory.Instance;
         var diagnostics = new ConversationDiagnostics(loggerFactory, contextName);
-        var counter = new TimedTokenCounter(new EstimatedTokenCounter());
-        var strategy = config.DiagnosticStrategyFactory is { } createWithDiagnostics
+        var counter = new TimedTokenCounter(config.TokenCounter ?? new EstimatedTokenCounter());
+        var strategy = config.CustomStrategyFactory is { } createCustom
+            ? createCustom(new CompactionStrategyContext(counter, diagnostics.LoggerFactory, diagnostics.ContextName))
+            : config.DiagnosticStrategyFactory is { } createWithDiagnostics
             ? createWithDiagnostics(counter, diagnostics)
             : config.StrategyFactory(counter);
 

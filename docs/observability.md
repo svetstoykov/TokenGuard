@@ -41,6 +41,17 @@ var configuration = new ConversationConfigBuilder()
 var factory = new ConversationContextFactory(configuration);
 ```
 
+A custom strategy registered with `WithCompactionStrategy` receives the same resolved logger factory through
+`CompactionStrategyContext.LoggerFactory`. Create its logger in the factory callback and pass it to the strategy:
+
+```csharp
+builder.WithCompactionStrategy(context => new MyCompactionStrategy(
+    context.TokenCounter, context.LoggerFactory.CreateLogger<MyCompactionStrategy>()));
+```
+
+The callback runs once per conversation. `ContextName` is the named profile or `default`. Configure your strategy's logger
+category when it falls outside the `TokenGuard` namespace. Context scopes apply while the strategy runs.
+
 A logger factory set with `WithLoggerFactory` takes precedence over the container's. With no logger factory at all,
 TokenGuard writes no log records.
 

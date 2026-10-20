@@ -644,10 +644,48 @@ not verified.
 
 ---
 
+## Custom token counter and strategy
+
+Share a counter with the context so your tools and the context measure on the same scale:
+
+```csharp
+var counter = new EstimatedTokenCounter(TokenCountSafetyMode.Safe);
+var config = new ConversationConfigBuilder()
+    .WithMaxTokens(40_000)
+    .WithTokenCounter(counter)
+    .Build();
+```
+
+`EstimatedTokenCounter` is in `TokenGuard.Core.TokenCounting`, and `TokenCountSafetyMode` is in `TokenGuard.Core.Enums`.
+You can also implement `ITokenCounter` from `TokenGuard.Core.Abstractions`. One instance serves all contexts created from
+that configuration and must be safe for concurrent use. It measures recorded messages, tool-result limits, compaction
+and summarizer requests. Provider correction applies on top of its counts.
+
+Supply a factory for a fresh `ICompactionStrategy` per conversation:
+
+```csharp
+var config = new ConversationConfigBuilder()
+    .WithMaxTokens(40_000)
+    .WithCompactionStrategy(context => new MyCompactionStrategy(
+        context.TokenCounter,
+        context.LoggerFactory.CreateLogger<MyCompactionStrategy>()))
+    .Build();
+```
+
+`MyCompactionStrategy` is your implementation of `ICompactionStrategy`. Its factory receives a `CompactionStrategyContext`
+from `TokenGuard.Core.Models`, with the timed counter, resolved logger factory and configuration name. The logger factory
+uses `WithLoggerFactory`, then the DI container's factory, then a factory that writes no records. Include
+`Microsoft.Extensions.Logging` for `CreateLogger<T>()`.
+
+A custom strategy replaces the built-in masking and summarization pipeline. Combining it with `WithSlidingWindowOptions`
+or `UseLlmSummarization` throws at `Build()`. Register a custom summarizer instead when you want to keep the built-in pipeline.
+
+---
+
 ## Token counting
 
-TokenGuard's built-in DI and factory paths always construct the heuristic `EstimatedTokenCounter`. There is no public
-builder or factory hook to swap token counters at runtime yet.
+TokenGuard uses the public, thread-safe `EstimatedTokenCounter` by default, with `TokenCountSafetyMode.Balanced`.
+Set a shared custom counter with `WithTokenCounter(ITokenCounter)`. Estimates can change between versions.
 
 The estimator counts text that parses as JSON from its structure, plus a charge for the whitespace between its tokens
 that was fitted to the `o200k_base` tokenizer.
@@ -793,8 +831,8 @@ What is current:
 - emergency truncation is implemented and defaults to **1.0** as a last-resort safety net
 - LLM summarization is implemented for OpenAI and Anthropic via `UseLlmSummarization(...)`
 - summary checkpoint reuse and promotion are implemented inside the summarization strategy
-- built-in DI and factory paths always use `EstimatedTokenCounter`; provider input-token anchoring is optional when usage
-  data is available
+- the default counter is `EstimatedTokenCounter`; custom counters and strategies have public builder routes, and provider
+  input-token anchoring applies to every counter
 - pinned messages survive all compaction stages
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available
@@ -805,7 +843,6 @@ What is current:
 
 Known limits:
 
-- a custom compaction strategy or token counter cannot be registered through the builder
 - one `ConversationContext` is for one caller at a time; overlapping calls are detected on a best-effort basis and throw
 - token estimates leave out request overhead such as tool schemas until the first provider report
 - the estimator runs 15% to 49% high on source code and non-Latin text

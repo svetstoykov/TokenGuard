@@ -7,7 +7,7 @@ using TokenGuard.Core.Diagnostics;
 namespace TokenGuard.Core.Models;
 
 /// <summary>
-/// An immutable construction recipe for the built-in token counter, the compaction services, and the budget that define the behaviour of a
+/// An immutable construction recipe for the token counter, the compaction services, and the budget that define the behaviour of a
 /// <see cref="ConversationContext"/>.
 /// </summary>
 /// <remarks>
@@ -17,11 +17,8 @@ namespace TokenGuard.Core.Models;
 /// fresh context instances on demand without re-running the builder defaults logic each time.
 /// </para>
 /// <para>
-/// TokenGuard's built-in <see cref="ITokenCounter"/> implementation is constructed exactly once per
-/// <see cref="Abstractions.IConversationContextFactory.Create()"/> or
-/// <see cref="Abstractions.IConversationContextFactory.Create(string)"/> call.
-/// <paramref name="StrategyFactory"/> is invoked exactly once per factory call. No object produced for one context
-/// lifetime is shared with another context created through the built-in factory.
+/// Each context uses a fresh default counter or the shared custom counter supplied through the builder, wrapped in timing
+/// instrumentation. Its strategy factory is invoked once per created context so strategy state stays local to that conversation.
 /// </para>
 /// <para>
 /// The record is intentionally minimal — it contains only what is needed to construct a
@@ -53,6 +50,10 @@ public sealed record ConversationContextConfiguration(
     /// <summary>
     ///     Gets the delegate that creates the <see cref="ICompactionStrategy" /> used by one conversation-context instance.
     /// </summary>
+    /// <remarks>
+    ///     Direct invocation of a builder-generated delegate uses a logger factory that writes no records. Create contexts to
+    ///     resolve configured or container logging through the built-in factory. Setting this property replaces the builder's recipe.
+    /// </remarks>
     public Func<ITokenCounter, ICompactionStrategy> StrategyFactory
     {
         get => this._strategyFactory;
@@ -60,6 +61,7 @@ public sealed record ConversationContextConfiguration(
         {
             this._strategyFactory = value;
             this.DiagnosticStrategyFactory = null;
+            this.CustomStrategyFactory = null;
         }
     }
 
@@ -100,6 +102,12 @@ public sealed record ConversationContextConfiguration(
     ///     conversation attached, or <see langword="null" /> when <see cref="StrategyFactory" /> is a caller-supplied delegate.
     /// </summary>
     internal Func<ITokenCounter, ConversationDiagnostics, ICompactionStrategy>? DiagnosticStrategyFactory { get; init; }
+
+    /// <summary>Gets the shared custom counter, or <see langword="null"/> for a fresh default counter.</summary>
+    internal ITokenCounter? TokenCounter { get; init; }
+
+    /// <summary>Gets the per-context custom strategy factory, or <see langword="null"/> for the standard recipe.</summary>
+    internal Func<CompactionStrategyContext, ICompactionStrategy>? CustomStrategyFactory { get; init; }
 
     /// <summary>
     ///     Gets the logger factory set through <see cref="ConversationConfigBuilder.WithLoggerFactory" />, or

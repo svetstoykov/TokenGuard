@@ -35,7 +35,6 @@ Full details: https://github.com/svetstoykov/TokenGuard/blob/main/CHANGELOG.md</
     <ItemGroup>
         <InternalsVisibleTo Include="TokenGuard.Tests" />
         <InternalsVisibleTo Include="TokenGuard.IntegrationTests" />
-        <InternalsVisibleTo Include="Codexplorer" />
     </ItemGroup>
 
 </Project>

@@ -12,7 +12,10 @@ using Codexplorer.Tools;
 using System.Net;
 using TokenGuard.Core.Abstractions;
 using Codexplorer.Workspace;
-using TokenGuard.Core.Extensions;
+using TokenGuard.Core;
+using TokenGuard.Core.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.TokenCounting;
 using TokenGuard.Extensions.OpenAI;
@@ -74,7 +77,7 @@ public static class ServiceCollectionExtensions
 
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<CodexplorerOptions>, CodexplorerOptionsValidator>());
-        services.TryAddSingleton<ITokenCounter, EstimatedTokenCounter>();
+        services.TryAddSingleton<ITokenCounter>(_ => new EstimatedTokenCounter());
         services.TryAdd(ServiceDescriptor.Singleton(braveSearchSettings));
 
         services.AddOptions<CodexplorerOptions>()
@@ -103,26 +106,30 @@ public static class ServiceCollectionExtensions
             TokenGuardLogLevel = configuration["Logging:LogLevel:TokenGuard"] ?? "Information",
         });
 
-        services.AddConversationContext(builder =>
+        services.AddSingleton<ConversationContextFactory>(provider =>
         {
+            var builder = new ConversationConfigBuilder();
             builder
+                .WithTokenCounter(provider.GetRequiredService<ITokenCounter>())
+                .WithLoggerFactory(provider.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance)
                 .WithMaxTokens(budgetOptions.ContextWindowTokens)
                 .WithCompactionThreshold(budgetOptions.SoftThresholdRatio)
                 .WithEmergencyThreshold(budgetOptions.HardThresholdRatio)
                 .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: budgetOptions.WindowSize));
 
-            if (!llmSummarizationSettings.Enabled)
+            if (llmSummarizationSettings.Enabled)
             {
-                return;
+                builder.UseLlmSummarization(
+                    new MeasuredSummarizerChatClient(OpenRouterChatClientFactory.Create(codexplorerOptions), measurementCollector),
+                    new LlmSummarizationOptions(
+                        windowSize: llmSummarizationSettings.WindowSize,
+                        minSummaryTokens: llmSummarizationSettings.MinSummaryTokens,
+                        maxSummaryTokens: llmSummarizationSettings.MaxSummaryTokens));
             }
 
-            builder.UseLlmSummarization(
-                new MeasuredSummarizerChatClient(OpenRouterChatClientFactory.Create(codexplorerOptions), measurementCollector),
-                new LlmSummarizationOptions(
-                    windowSize: llmSummarizationSettings.WindowSize,
-                    minSummaryTokens: llmSummarizationSettings.MinSummaryTokens,
-                    maxSummaryTokens: llmSummarizationSettings.MaxSummaryTokens));
+            return new ConversationContextFactory(builder.Build());
         });
+        services.TryAddSingleton<IConversationContextFactory>(provider => provider.GetRequiredService<ConversationContextFactory>());
 
         services.AddHttpClient(WebFetchTool.HttpClientName, client =>
             {
