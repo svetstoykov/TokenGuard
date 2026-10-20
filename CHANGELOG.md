@@ -58,7 +58,8 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
   result larger than the window used to leave the prepare call `CompactionInsufficient` or `CannotCompact`, because a
   result of the open tool loop can be neither masked nor dropped. The published benchmark figures describe 1.2.0.
 - Both provider extensions use the public summarizer contract and declare a minimum Core dependency instead of an
-  exact version. The 1.3.0 release will publish all four packages from one tag, Core first.
+  exact version. All four packages are at 1.3.0, so each extension requires `TokenGuard.Core` 1.3.0 or later. The
+  1.3.0 release will publish all four packages from one tag, Core first.
 - Summarizer diagnostic event IDs, fields, and metric names remain stable. `Provider` now carries the summarizer type
   name, `Model` is null, and finish reasons are normalized to `completed`, `output_limit`, `refused`, or `other`.
 
@@ -98,8 +99,9 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
   history holds tool results shorter than the placeholder.
 - The compaction strategy receives its budget on the estimate scale: the largest estimate whose provider-corrected
   size, under the same correction the final size check applies, fits `MaxTokens`, minus the pinned messages. Without
-  a provider report the budget is as before. The masking step lines stay on the unconverted budget. A custom `ICompactionStrategy` receives
-  the converted budget. A prepared view can differ from the one 1.2.0 produces once a provider report exists.
+  a provider report the budget is as before. The masking step lines stay on the unconverted budget. A custom
+  `ICompactionStrategy` receives the converted budget. A prepared view can differ from the one 1.2.0 produces once a
+  provider report exists.
 
 ### Fixed
 
