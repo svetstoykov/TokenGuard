@@ -138,7 +138,7 @@ public sealed class ConversationContextTurnGroupTests
     public async Task PrepareAsync_WhenSummarizing_KeepsTheSameTailWithAndWithoutEarlierPrepareCalls(bool prepareBeforeEachReply)
     {
         // Arrange
-        var builder = new ConversationConfigBuilder().WithMaxTokens(25_000);
+        var builder = new ConversationConfigBuilder().WithMaxTokens(25_000).WithoutToolResultLimit();
         builder.UseLlmSummarization(ScriptedSummarizer.Returning("summary"));
         using var context = new ConversationContextFactory(builder.Build()).Create();
         IReadOnlyList<ContentSegment>[] replies =

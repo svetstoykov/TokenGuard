@@ -280,6 +280,39 @@ public sealed class ConversationContextFactoryTests
         act.Should().Throw<ArgumentNullException>().WithParameterName("config");
     }
 
+    [Fact]
+    public void Create_WhenTheConfigurationNamesAToolResultLimit_ShortensAResultAboveItToAnEstimateAtOrUnderTheLimit()
+    {
+        // Arrange
+        var configuration = new ConversationConfigBuilder().WithMaxTokens(100_000).WithMaxToolResultTokens(500).Build();
+        using var context = new ConversationContextFactory(configuration).Create();
+
+        // Act
+        context.RecordToolResult("call_1", "search", LongToolOutput());
+
+        // Assert
+        context.History[^1].TokenCount.Should().BeLessThanOrEqualTo(500);
+        context.History[^1].Segments[0].Content.Should().Contain("[Tool result shortened to fit the context: ");
+    }
+
+    [Fact]
+    public void Create_WhenTheConfigurationTurnsTheToolResultLimitOff_StoresAResultFarAboveTheWindowWhole()
+    {
+        // Arrange
+        var content = LongToolOutput();
+        var configuration = new ConversationConfigBuilder().WithMaxTokens(SmallMaxTokens).WithoutToolResultLimit().Build();
+        using var context = new ConversationContextFactory(configuration).Create();
+
+        // Act
+        context.RecordToolResult("call_1", "search", content);
+
+        // Assert
+        context.History[^1].Segments[0].Content.Should().Be(content);
+    }
+
+    private static string LongToolOutput() =>
+        string.Concat(Enumerable.Range(1, 2_000).Select(line => $"src/File{line}.cs:{line}: var value = Compute({line});\n"));
+
     /// <summary>
     ///     Records a user message, a model reply, and a second user message that together exceed the compaction trigger of a
     ///     <see cref="SmallMaxTokens" /> window while the last message alone fits in it.

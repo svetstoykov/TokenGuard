@@ -104,6 +104,7 @@ strategy, 5000 to 5999 provider summarizers, 6000 to 6999 health signals.
 | 1017 | PinnedMessagePlaced | Debug | One pinned message was placed in a prepared payload that was reassembled around pinned messages. Carries the message's index in the recorded history and its index in the prepared payload. |
 | 1018 | ProviderCorrectionApplied | Debug | A prepare call included a provider correction in its token totals. Carries the correction, the summed message estimates of the payload the provider measured (`CorrectionBaseTokens`), and the part of the correction included in the total before compaction and in the total of the prepared payload. Written on every prepare call while the correction is not zero. |
 | 1019 | StrategyFailed | Error | The compaction strategy threw and `PrepareAsync()` rethrew the exception to the caller. The exception is attached. A cancelled call (`OperationCanceledException`) writes no record. |
+| 1020 | ToolResultShortened | Debug | A recorded tool result was above the tool result limit and was stored shortened. Carries the tool call ID, tool name, the estimated tokens of the result as given and as stored, and the limit. Written once per shortened result. |
 | 2000 | SlidingWindowApplied | Debug | One sliding-window pass. Carries message count, available tokens, tokens before and after, window size, protected messages, and tool results masked. |
 | 2001 | ToolResultMasked | Trace | One tool result was replaced with a placeholder. Carries message index, tool call ID, tool name, and the message's tokens before and after. |
 | 3000 | SummarizationPathSelected | Debug | Summarization started with or without a reusable checkpoint. Carries the protected tail's first index and size, the number and token total of older messages, and the target summary size. |
@@ -193,6 +194,7 @@ per-conversation value. Durations are measured only while the instrument has a l
 | `tokenguard.emergency_truncation.count` | Counter | `{truncation}` | none | Every prepare call in which emergency truncation removed messages |
 | `tokenguard.estimate.error_ratio` | Histogram | `1` | none | Every `RecordModelResponse` call that supplies `providerInputTokens`: the provider value minus the total reported for the last prepared payload, divided by the provider value |
 | `tokenguard.health.signals` | Counter | `{signal}` | `tokenguard.signal` | Each time a health signal starts |
+| `tokenguard.tool_result.truncated` | Counter | `{result}` | `tokenguard.tool.name` | Every tool result stored shortened because its estimate was above the tool result limit |
 
 A prepare call that throws records no prepare measurement. A summarizer call that is cancelled by the caller records
 neither a duration nor a failure.
@@ -233,7 +235,8 @@ the totals for the conversation.
 TokenGuard never writes message text, system prompts, tool arguments, tool results, or summaries to logs, activities, or
 metrics. Records carry counts, token totals, identifiers, and names.
 
-- Tool names and tool call IDs are treated as metadata. They are written at `Debug` and `Trace`.
+- Tool names and tool call IDs are treated as metadata. They are written at `Debug` and `Trace`, and the tool name is the
+  `tokenguard.tool.name` tag of `tokenguard.tool_result.truncated`.
 - Exceptions from provider SDKs are attached to log records and activity events as received. Their messages are outside
   TokenGuard's control and may contain provider-supplied text.
 

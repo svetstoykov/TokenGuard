@@ -53,6 +53,33 @@ flowchart TD
 Because `PrepareAsync()` always reevaluates full history, compaction can run on every later turn once the session is
 large enough. That is expected. The prepared view is not persisted back into history.
 
+### Tool results above the limit
+
+One change happens on the way into history. `RecordToolResult` estimates the result with the context's token counter,
+and when the estimate is above `ConversationContextConfiguration.MaxToolResultTokens` it stores a shortened copy:
+
+- whole lines from the start and from the end, filled greedily up to about half of the limit each
+- in place of the omitted middle, the notice
+  `[Tool result shortened to fit the context: {N} of {M} lines omitted here. Call the tool again with a narrower request if you need them.]`,
+  whose tokens count toward the limit
+- for text with one line, or whose first or last line alone is longer than its half, a cut by characters at rune
+  boundaries, never inside a surrogate pair; the notice then counts characters
+
+The stored message is counted on the shortened text and its estimate is at or under the limit. A limit smaller than
+the notice itself stores the notice alone. A result at or under the limit is stored as given, at the cost of the one
+estimate every recorded message already pays.
+
+The limit defaults to the smaller of 25,000 and `MaxTokens / 4`, and at least 1, worked out when the configuration is
+created; a copy made with `with { Budget = ... }` keeps the earlier limit. `WithMaxToolResultTokens(...)` sets it, and
+may set it above the budget. `WithoutToolResultLimit()`, or `MaxToolResultTokens = null`, stores every result whole.
+
+The cut happens on recording because a result of the tool loop in progress can be neither masked (it is inside the
+protected window) nor dropped (emergency truncation keeps the open tool loop). Without the limit, one result larger than
+the window makes every prepare call `CompactionInsufficient` or `CannotCompact`. The first request already carries the
+shortened text, and history is never edited after recording, so the prefix the provider caches stays stable.
+
+Each cut writes Debug event 1020 (`ToolResultShortened`) and adds one to `tokenguard.tool_result.truncated`.
+
 ---
 
 ## 3. What `PrepareAsync()` actually returns
@@ -250,7 +277,8 @@ var options = new SlidingWindowOptions(windowSize: 10) { ExemptToolNames = ["tod
 Names match exactly and ordinally, so `Todo_Write` does not exempt `todo_write`. Like the size check, the exemption is
 applied per tool result after the boundary is found, so an exempt result never moves the boundary or a step line. In a
 message with several results, an exempt one stays whole while the others are judged as usual, and a message whose
-results are all exempt is returned as it is. An exempt result keeps its full size wherever it falls in the history.
+results are all exempt is returned as it is. An exempt result keeps its recorded size wherever it falls in the history.
+The recording limit applies to exempt tools too, before masking sees their results.
 Large exempt results leave more for summarization and emergency truncation, and a prepare can end as
 `CompactionInsufficient` where it would otherwise end as `Compacted`.
 

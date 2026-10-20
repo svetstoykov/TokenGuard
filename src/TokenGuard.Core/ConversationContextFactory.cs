@@ -157,7 +157,7 @@ public sealed class ConversationContextFactory : IConversationContextFactory
             ? createWithDiagnostics(counter, diagnostics)
             : config.StrategyFactory(counter);
 
-        return new ConversationContext(config.Budget, counter, strategy, diagnostics);
+        return new ConversationContext(config.Budget, counter, strategy, diagnostics, config.MaxToolResultTokens);
     }
 
     private static void ThrowIfBudgetIsUninitialized(ConversationContextConfiguration config, string paramName)

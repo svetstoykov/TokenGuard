@@ -106,7 +106,8 @@ public readonly record struct SlidingWindowOptions
     /// The value returned is a set, so a name given more than once is held once.
     /// </para>
     /// <para>
-    /// An exempt result stays in the prepared view at full size wherever it falls in the history. When exempt results
+    /// An exempt result stays in the prepared view at its recorded size wherever it falls in the history. The tool result
+    /// limit applies when recording exempt tools too. When exempt results
     /// are large, masking reclaims less space, later stages have more to remove, and a prepare can end as
     /// <see cref="PrepareOutcome.CompactionInsufficient"/> where it would otherwise end as
     /// <see cref="PrepareOutcome.Compacted"/>.

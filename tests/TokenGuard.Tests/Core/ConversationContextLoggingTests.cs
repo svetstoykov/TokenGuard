@@ -25,6 +25,7 @@ public sealed class ConversationContextLoggingTests
     private const int PinnedMessagePlaced = 1017;
     private const int ProviderCorrectionApplied = 1018;
     private const int StrategyFailed = 1019;
+    private const int ToolResultShortened = 1020;
 
     public static TheoryData<string, MessageRole, bool, int> RecordingMethods => new()
     {
@@ -601,14 +602,49 @@ public sealed class ConversationContextLoggingTests
         records.Select(record => (record.Property("HistoryIndex"), record.Property("PreparedIndex"))).Should().Equal((0, 0), (2, 1));
     }
 
+    [Fact]
+    public void RecordToolResult_WhenTheResultIsShortened_LogsOneDebugRecordWithTheToolNameAndBothTokenCounts()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.Unchanged(), maxToolResultTokens: 300);
+
+        // Act
+        context.RecordToolResult("call_1", "search", string.Concat(Enumerable.Repeat("result line\n", 100)));
+
+        // Assert
+        var record = logs.WithEventId(ToolResultShortened).Should().ContainSingle().Subject;
+        record.Level.Should().Be(LogLevel.Debug);
+        record.Property("ToolCallId").Should().Be("call_1");
+        record.Property("ToolName").Should().Be("search");
+        record.Property("OriginalTokens").Should().Be(1_200);
+        record.Property("StoredTokens").Should().Be(context.History[^1].TokenCount);
+    }
+
+    [Fact]
+    public void RecordToolResult_WhenTheResultIsAtTheLimit_WritesNoShortenedRecord()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        using var context = CreateContext(logs, StubCompactionStrategy.Unchanged(), maxToolResultTokens: 300);
+
+        // Act
+        context.RecordToolResult("call_1", "search", Text(300));
+
+        // Assert
+        logs.WithEventId(ToolResultShortened).Should().BeEmpty();
+    }
+
     private static ConversationContext CreateContext(
         ILoggerFactory logs,
         ICompactionStrategy strategy,
         double? emergencyThreshold = 1.0,
-        string contextName = ConversationDiagnostics.DefaultContextName)
+        string contextName = ConversationDiagnostics.DefaultContextName,
+        int? maxToolResultTokens = null)
     {
         var budget = new ContextBudget(100, compactionThreshold: 0.5, emergencyThreshold: emergencyThreshold, overrunTolerance: 0.05);
-        return new ConversationContext(budget, new TextLengthTokenCounter(), strategy, new ConversationDiagnostics(logs, contextName));
+        var diagnostics = new ConversationDiagnostics(logs, contextName);
+        return new ConversationContext(budget, new TextLengthTokenCounter(), strategy, diagnostics, maxToolResultTokens);
     }
 
     private static void Record(ConversationContext context, string method)

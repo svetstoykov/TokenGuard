@@ -43,6 +43,7 @@ object. `PrepareAsync()` returns a `PrepareResult` describing what should go to 
 ## What it does
 
 - **Tracks token growth** across the full turn sequence — user, assistant, tool, system, and pinned messages
+- **Shortens an oversized tool result** when it is recorded, so one large output cannot fill the window
 - **Masks stale tool results** using a sliding-window strategy when the conversation crosses the compaction threshold
 - **Summarizes old history with your LLM** when masking alone is not enough — collapses older turns into a compact
   summary message while keeping a recent tail verbatim
@@ -62,6 +63,7 @@ object. `PrepareAsync()` returns a `PrepareResult` describing what should go to 
 | Budget | The input token limit for one prepared request, with no room reserved for the reply. The benchmark section calls it the window | `WithMaxTokens(...)`; 40,000 when `AddConversationContext()` is called without a builder |
 | Compaction threshold | The fraction of the budget at which compaction starts | `WithCompactionThreshold(...)`, default 0.80 |
 | Emergency threshold | The fraction of the budget at which emergency truncation starts to drop the oldest turn groups | `WithEmergencyThreshold(...)`, default 1.0; `WithoutEmergencyThreshold()` turns it off |
+| Tool result limit | The largest estimated token count one tool result is stored at; a larger result is stored shortened | `WithMaxToolResultTokens(...)`, default the smaller of 25,000 and a quarter of the budget; `WithoutToolResultLimit()` turns it off |
 | Masking window | The newest messages that masking leaves unchanged, as a minimum count of messages | `SlidingWindowOptions.WindowSize`, default 10, passed to `WithSlidingWindowOptions(...)` |
 | Summary tail | The newest messages that stay verbatim after a summary, as a count of messages | `LlmSummarizationOptions.WindowSize`, default 5, passed to `UseLlmSummarization(...)` |
 
@@ -353,6 +355,17 @@ pinned message cannot be removed once recorded, so size pinned content to leave 
 
 Want architecture detail and trade-offs? Read [How TokenGuard Thinks About Context](docs/deep-dive/context-management.md).
 
+Before any tier runs, `RecordToolResult` applies the tool result limit. A result whose estimated tokens are above it is
+stored shortened: whole lines from its start and its end, about half of the limit each, with a notice in place of the
+omitted middle:
+`[Tool result shortened to fit the context: 1840 of 2100 lines omitted here. Call the tool again with a narrower request if you need them.]`
+Text with one line is cut by characters. The limit defaults to the smaller of 25,000 and a quarter of the budget (10,000
+at 40,000), because a result of the tool loop in progress can be neither masked nor dropped, and one larger than the
+window would otherwise leave every prepare call over budget. A tool that bounds its own output below the limit is never
+cut. Set the limit with `WithMaxToolResultTokens(...)`, or call `WithoutToolResultLimit()` to store every result whole.
+If the cap cannot fit the omission notice itself, the full notice is stored alone and may exceed the cap.
+The context does not keep the full text of a shortened result; keep it yourself if you need it.
+
 Three ordered tiers:
 
 **1. Observation masking.** The sliding-window strategy walks backward through compactable history and masks older
@@ -360,7 +373,8 @@ Three ordered tiers:
 result that costs no more tokens than its placeholder, such as `ok` or an exit code, keeps its content. Results of the
 tools named in `SlidingWindowOptions.ExemptToolNames`, such as a notes or todo-list tool the agent relies on later, are
 never masked: `new SlidingWindowOptions(windowSize: 12) { ExemptToolNames = ["todo_write"] }`. Names match exactly,
-case included. An exempt result keeps its full size, so large ones leave masking less to reclaim.
+case included. An exempt result keeps its recorded size, so large ones leave masking less to reclaim.
+The tool result limit applies when recording exempt tools too.
 
 A masked tool result is gone from the request, and the model can get it back only by calling the tool again. Say so in
 your system prompt, and do not tell the model to avoid re-reading: the default placeholder reads

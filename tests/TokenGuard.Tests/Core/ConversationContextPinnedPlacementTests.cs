@@ -22,7 +22,7 @@ public sealed class ConversationContextPinnedPlacementTests
     public async Task PrepareAsync_WhenSummaryReplacesMessagesBeforeMidConversationPin_PlacesPinAfterSummaryAndOutsideToolExchange()
     {
         // Arrange
-        var builder = new ConversationConfigBuilder().WithMaxTokens(25_000);
+        var builder = new ConversationConfigBuilder().WithMaxTokens(25_000).WithoutToolResultLimit();
         builder.UseLlmSummarization(ScriptedSummarizer.Returning(Summary));
         using var context = new ConversationContextFactory(builder.Build()).Create();
 
