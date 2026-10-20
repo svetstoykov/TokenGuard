@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Changes for 1.3.0. No public signature changed.
+Changes for 1.3.0. Public additions are listed under Added; no existing public signature changed.
+
+### Added
+
+- `SlidingWindowOptions.ExemptToolNames`, an init property that names tools whose results masking never replaces, set
+  as `new SlidingWindowOptions(...) { ExemptToolNames = ["todo_write"] }`. Names match `ToolResultContent.ToolName`
+  exactly and ordinally. The default is empty, which masks as before. An exempt result stays at full size wherever it
+  falls, so large exempt results leave more for summarization and emergency truncation, and a prepare can end as
+  `CompactionInsufficient` where it would otherwise end as `Compacted`. Two options values with the same names in any
+  order are equal.
 
 ### Changed
 
