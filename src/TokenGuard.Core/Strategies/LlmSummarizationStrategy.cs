@@ -215,6 +215,33 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     }
 
     /// <summary>
+    /// Returns the checkpoint summary plus the raw tail when a valid checkpoint exists and that view fits the budget.
+    /// </summary>
+    /// <remarks>
+    /// The summarizer is never called. A checkpoint that no longer matches the history is left in place for
+    /// <see cref="CompactAsync"/> to clear, so a history that fits without summarization keeps no other side effect.
+    /// </remarks>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="availableTokens">The maximum token budget for the compacted result.</param>
+    /// <returns>The reused-checkpoint result, or <see langword="null"/> when no valid checkpoint exists or its view does not fit.</returns>
+    internal CompactionResult? TryReuseCheckpoint(IReadOnlyList<ContextMessage> messages, int availableTokens)
+    {
+        var checkpoint = this._checkpoint;
+        if (checkpoint is null
+            || messages.Count < checkpoint.SummarizedMessageCount
+            || ComputeFingerprint(messages, checkpoint.SummarizedMessageCount) != checkpoint.Fingerprint)
+        {
+            return null;
+        }
+
+        var reused = this.TryCreateReusedResult(messages, CountTokens(messages, this._tokenCounter), availableTokens, checkpoint);
+        if (reused is not null)
+            this.UpdateCheckpointChurn(rebuiltAfterClear: false);
+
+        return reused;
+    }
+
+    /// <summary>
     /// Writes the debug record that names the summarization path and the numbers it starts from.
     /// </summary>
     /// <param name="path">The name of the path about to run.</param>
@@ -271,6 +298,31 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     }
 
     /// <summary>
+    /// Builds the saved summary plus the raw messages after it, when that view fits the budget.
+    /// </summary>
+    /// <param name="messages">The ordered compactable message history.</param>
+    /// <param name="tokensBefore">The token count before compaction.</param>
+    /// <param name="availableTokens">The maximum token budget for the compacted result.</param>
+    /// <param name="checkpoint">The validated checkpoint for the current raw prefix.</param>
+    /// <returns>The reused-checkpoint result, or <see langword="null"/> when the view exceeds <paramref name="availableTokens"/>.</returns>
+    private CompactionResult? TryCreateReusedResult(
+        IReadOnlyList<ContextMessage> messages, int tokensBefore, int availableTokens, SummaryCheckpoint checkpoint)
+    {
+        var reused = CreateSummaryPlusTail(messages, checkpoint.SummarizedMessageCount, checkpoint.SummaryMessage);
+        var tokensAfter = CountTokens(reused, this._tokenCounter);
+        if (tokensAfter > availableTokens)
+            return null;
+
+        LlmSummarizationLog.SummaryCheckpointReused(this._logger, checkpoint.SummarizedMessageCount, tokensAfter, availableTokens);
+
+        return new CompactionResult(reused, tokensBefore, tokensAfter, messages.Count - reused.Length + 1, nameof(LlmSummarizationStrategy))
+        {
+            MessagesSummarized = messages.Count - reused.Length + 1,
+            SummarizationStatus = SummarizationStatus.CheckpointReused,
+        };
+    }
+
+    /// <summary>
     /// Uses a saved summary when the old part of the conversation still matches it.
     /// </summary>
     /// <remarks>
@@ -304,24 +356,9 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         CancellationToken cancellationToken)
     {
         // First try the cheapest path: reuse the saved summary and keep the raw tail.
-        var cachedResult = CreateSummaryPlusTail(messages, checkpoint.SummarizedMessageCount, checkpoint.SummaryMessage);
-        var cachedTokensAfter = CountTokens(cachedResult, this._tokenCounter);
-
-        if (cachedTokensAfter <= availableTokens)
-        {
-            LlmSummarizationLog.SummaryCheckpointReused(this._logger, checkpoint.SummarizedMessageCount, cachedTokensAfter, availableTokens);
-
-            return new CompactionResult(
-                cachedResult,
-                tokensBefore,
-                cachedTokensAfter,
-                messages.Count - cachedResult.Length + 1,
-                nameof(LlmSummarizationStrategy))
-            {
-                MessagesSummarized = messages.Count - cachedResult.Length + 1,
-                SummarizationStatus = SummarizationStatus.CheckpointReused,
-            };
-        }
+        var reusedResult = this.TryCreateReusedResult(messages, tokensBefore, availableTokens, checkpoint);
+        if (reusedResult is not null)
+            return reusedResult;
 
         // Reuse did not fit, so ask for a smaller or newer summary.
         var targetTokens = ChooseTargetTokensForCheckpointRewrite(
