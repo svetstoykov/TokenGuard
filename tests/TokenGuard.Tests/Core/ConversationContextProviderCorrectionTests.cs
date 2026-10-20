@@ -269,10 +269,17 @@ public sealed class ConversationContextProviderCorrectionTests
     }
 
     [Theory]
-    [InlineData(700, 1_122)]
-    [InlineData(1_100, 746)]
-    public async Task PrepareAsync_AfterAProviderReport_PassesTheMaximumScaledByEstimateOverCorrectedHistoryMinusThePinnedEstimate(
-        int providerInputTokens, int expectedAvailableTokens)
+    [InlineData(600, 800, 1_400, 700)]
+    [InlineData(600, 400, 1_400, 1_100)]
+    [InlineData(900, 1_100, 200, 718)]
+    [InlineData(900, 700, 200, 1_100)]
+    [InlineData(900, 900, 200, 900)]
+    [InlineData(900, 1_000, 200, 800)]
+    [InlineData(1_500, 1_800, 200, 734)]
+    [InlineData(1_500, 1_200, 200, 1_150)]
+    [InlineData(1_500, 1, 1_000, 2_399)]
+    public async Task PrepareAsync_AfterAProviderReport_PassesTheLargestEstimateThatFitsTheCorrectedMaximumMinusThePinnedEstimate(
+        int anchorEstimate, int providerInputTokens, int appendedTokens, int expectedAvailableTokens)
     {
         // Arrange
         var budgets = new List<int>();
@@ -282,17 +289,62 @@ public sealed class ConversationContextProviderCorrectionTests
             return new CompactionResult(messages, 0, 0, 0, StubCompactionStrategy.Name);
         }));
         context.AddPinnedMessage(MessageRole.User, Text(100));
-        context.AddUserMessage(Text(800));
+        context.AddUserMessage(Text(anchorEstimate - 100));
         await context.PrepareAsync();
-        context.RecordModelResponse([new TextContent(Text(200))], providerInputTokens);
+        context.RecordModelResponse([new TextContent(Text(appendedTokens))], providerInputTokens);
 
         // Act
         await context.PrepareAsync();
 
         // Assert
-        // The history estimate is 1,100 and the correction is the report minus 900, so the budget is
-        // floor(1,000 × 1,100 / corrected history) − 100 for the pinned message.
-        budgets.Should().Equal(900, expectedAvailableTokens);
+        budgets.Last().Should().Be(expectedAvailableTokens);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WithTheLongSessionAnchor_PassesABudgetThatIncludesTheWholePositiveCorrection()
+    {
+        // Arrange
+        var budgets = new List<int>();
+        var strategy = new StubCompactionStrategy((messages, availableTokens) =>
+        {
+            budgets.Add(availableTokens);
+            return new CompactionResult(messages, 0, 0, 0, StubCompactionStrategy.Name);
+        });
+        using var context = new ConversationContext(new ContextBudget(65_000, emergencyThreshold: null), new TextLengthTokenCounter(), strategy);
+        context.AddPinnedMessage(MessageRole.User, Text(2_462));
+        context.AddUserMessage(Text(7_876));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(194_424))], providerInputTokens: 12_685);
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        // The full +2,347 correction applies at the window, leaving 65,000 - 2,347 - 2,462 for compactable messages.
+        budgets.Should().Equal(60_191);
+    }
+
+    [Theory]
+    [InlineData(200, 800)]
+    [InlineData(1_200, 0)]
+    public async Task PrepareAsync_WhenTheProviderMeasuredAnEmptyPayload_SubtractsTheCorrectionWithoutGoingBelowZero(
+        int providerInputTokens, int expectedAvailableTokens)
+    {
+        // Arrange
+        var budgets = new List<int>();
+        using var context = CreateContext(new StubCompactionStrategy((messages, availableTokens) =>
+        {
+            budgets.Add(availableTokens);
+            return new CompactionResult(messages, 0, 0, 0, StubCompactionStrategy.Name);
+        }));
+        await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(Text(900))], providerInputTokens);
+
+        // Act
+        await context.PrepareAsync();
+
+        // Assert
+        budgets.Should().Equal(expectedAvailableTokens);
     }
 
     [Fact]
@@ -310,7 +362,7 @@ public sealed class ConversationContextProviderCorrectionTests
         await context.PrepareAsync();
 
         // Assert
-        strategy.Budgets.Should().Equal((900, 900), (1_122, 900));
+        strategy.Budgets.Should().Equal((900, 900), (1_100, 900));
     }
 
     [Fact]

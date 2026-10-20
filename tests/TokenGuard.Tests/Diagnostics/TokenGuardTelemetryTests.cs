@@ -122,8 +122,8 @@ public sealed class TokenGuardTelemetryTests
         compacts.Should().HaveCount(3);
         compacts.Select(activity => activity.Parent).Should().Equal(prepares.Skip(1));
         compacts.Should().OnlyContain(activity => nameof(TieredCompactionStrategy).Equals(activity.GetTagItem("tokenguard.strategy")));
-        // The maximum of 100 scaled by estimate over corrected history: 80 / 85, 110 / 115 and 240 / 245, rounded down.
-        compacts.Select(activity => activity.GetTagItem("tokenguard.tokens.available")).Should().Equal(94, 95, 97);
+        // The maximum of 100 leaves 95 estimated tokens after reserving the provider correction of +5.
+        compacts.Select(activity => activity.GetTagItem("tokenguard.tokens.available")).Should().Equal(95, 95, 95);
         compacts.Select(activity => activity.GetTagItem("tokenguard.tokens.before")).Should().Equal(80, 110, 240);
         compacts.Select(activity => activity.GetTagItem("tokenguard.tokens.after")).Should().Equal(78, 108, 238);
         compacts.Should().OnlyContain(activity => 1.Equals(activity.GetTagItem("tokenguard.messages.affected")));

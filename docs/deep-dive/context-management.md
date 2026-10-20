@@ -201,18 +201,22 @@ If it is above the trigger:
 5. emergency truncation may remove old unpinned turn groups from the prepared list
 6. `PrepareResult` is built from the final prepared list
 
-The trigger compares the corrected history, while the strategy counts estimates. The budget is converted with the two
-figures the trigger already has:
+The trigger compares the corrected history, while the strategy counts estimates. The budget is converted by finding
+the largest estimated total that fits the maximum under the same correction rule:
 
 ```text
-s               = sum(history) / corrected(history)    (1 when either is zero or less)
-availableTokens = floor(MaxTokens * s) - pinnedTokenTotal
+estimatedMaximum = largest x for which corrected(x) <= MaxTokens
+availableTokens  = estimatedMaximum - pinnedTokenTotal
 ```
 
-With no provider report the correction is zero, `s` is 1, and `availableTokens` is `MaxTokens - pinnedTokenTotal`. When
-the provider counts fewer tokens than the estimate, `s` is above 1 and the strategy may keep more estimated tokens;
-when it counts more, `s` is below 1, so a history whose estimate fits the maximum but whose corrected total does not
-reaches summarization instead of emergency truncation. `s` is recomputed on every call and not rounded.
+When the maximum is at least the provider's measured total, `estimatedMaximum` is `MaxTokens - anchorCorrection`.
+Below that total, the conversion inverts the proportional branch of the correction, including its integer rounding.
+The estimated maximum is capped at `int.MaxValue`; if a correction learned on an empty payload exceeds the maximum,
+it is zero.
+
+With no provider report the correction is zero, and `availableTokens` is `MaxTokens - pinnedTokenTotal`. A negative
+correction lets the strategy retain more estimated tokens; a positive correction reserves space for the additional
+tokens. The strategy can then reach summarization when masking alone would exceed the corrected maximum.
 
 A custom `ICompactionStrategy` receives the converted budget in the same parameter; its signature is unchanged.
 
@@ -244,11 +248,11 @@ end. A provider prompt cache or a local model server can then reuse the whole pr
 about once per step of growth. When the newest `WindowSize` messages alone exceed the low mark, the boundary follows
 the high-mark walk and can move on every call.
 
-The boundary is derived from the history and `s` on every call. Nothing is remembered between calls, so the same
-messages with the same provider correction always give the same view, whether they were recorded one by one or
-restored at once. The marks follow `s`, so a change in the correction moves where the low-mark walk ends, but the step
-lines it snaps to stay where they were. Step lines depend on `MaxTokens - pinnedTokenTotal`, so pinning a new message
-or changing the system prompt can move them once.
+The boundary is derived from the history and the converted budget on every call. Nothing is remembered between calls,
+so the same messages with the same provider correction always give the same view, whether they were recorded one by
+one or restored at once. The marks follow the converted budget, so a change in the correction moves where the low-mark
+walk ends, but the step lines it snaps to stay where they were. Step lines depend on `MaxTokens - pinnedTokenTotal`,
+so pinning a new message or changing the system prompt can move them once.
 
 Messages before the boundary stay in place, but older `ToolResultContent` segments are replaced with placeholders.
 

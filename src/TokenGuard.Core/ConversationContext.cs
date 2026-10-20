@@ -560,7 +560,7 @@ public sealed class ConversationContext : IConversationContext
             var (pinnedSlots, compactableMessages) = SplitPinned(messages);
             IReadOnlyList<ContextMessage> compactable = compactableMessages;
 
-            var availableTokens = this.ConvertMaxTokensToEstimate(historyMessageTokens, totalBeforeCompaction) - this._pinnedTokenTotal;
+            var availableTokens = this.ConvertMaxTokensToEstimate() - this._pinnedTokenTotal;
             var stepBudgetTokens = this._budget.MaxTokens - this._pinnedTokenTotal;
 
             var compacted = await this.RunStrategyAsync(activity, compactable, availableTokens, stepBudgetTokens, cancellationToken);
@@ -1536,21 +1536,24 @@ public sealed class ConversationContext : IConversationContext
     /// Converts <see cref="ContextBudget.MaxTokens"/> from the corrected scale to the estimate scale the strategies count on.
     /// </summary>
     /// <remarks>
-    /// The maximum is multiplied by the ratio of the history's estimate to its corrected total, the two figures the trigger
-    /// compares. With no provider correction the ratio is 1 and the maximum is returned as it is. The ratio is computed on
-    /// each call and not rounded; a result above <see cref="int.MaxValue"/> is capped there.
+    ///     Inverts <see cref="ApplyProviderCorrection"/> at the maximum. At or above the measured payload's corrected total,
+    ///     the whole correction is subtracted. Below it, the proportional correction is inverted with the same integer rounding.
+    ///     With no provider correction, the maximum is returned as it is.
     /// </remarks>
-    /// <param name="historyMessageTokens">The sum of <see cref="ContextMessage.TokenCount"/> over the history.</param>
-    /// <param name="correctedHistoryTokens">The same sum with the provider correction applied.</param>
     /// <returns>
-    /// The maximum on the estimate scale, rounded down, or the maximum itself when either figure is zero or less.
+    ///     The largest estimated total whose corrected total fits the maximum, capped at <see cref="int.MaxValue"/>;
+    ///     zero when a correction learned on an empty payload exceeds the maximum.
     /// </returns>
-    private int ConvertMaxTokensToEstimate(int historyMessageTokens, int correctedHistoryTokens)
+    private int ConvertMaxTokensToEstimate()
     {
-        if (historyMessageTokens <= 0 || correctedHistoryTokens <= 0)
-            return this._budget.MaxTokens;
+        var maximum = (long)this._budget.MaxTokens;
+        var correctedAnchor = (long)this._anchorBaseTokens + this._anchorCorrection;
+        if (this._anchorBaseTokens == 0 || maximum >= correctedAnchor)
+            return (int)Math.Clamp(maximum - this._anchorCorrection, 0, int.MaxValue);
 
-        return (int)Math.Min(int.MaxValue, (long)this._budget.MaxTokens * historyMessageTokens / correctedHistoryTokens);
+        // A positive correction rounds the corrected total down; a negative one rounds it up.
+        var roundingAllowance = this._anchorCorrection > 0 ? this._anchorBaseTokens - 1L : 0;
+        return (int)((maximum * this._anchorBaseTokens + roundingAllowance) / correctedAnchor);
     }
 
     private int ScaleProviderCorrection(int messageTokens) =>
