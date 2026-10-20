@@ -18,6 +18,35 @@ namespace TokenGuard.IntegrationTests;
 public sealed class CustomConfigurationIntegrationTests
 {
     [Fact]
+    public async Task ProviderCorrection_WithASmallAnchorAndLargerHistory_SummarizesBeforeEmergencyTruncation()
+    {
+        // Arrange
+        var summarizer = new RequestCapture();
+        var configuration = new ConversationConfigBuilder().WithMaxTokens(10_000).WithTokenCounter(new CharacterCounter()).WithoutToolResultLimit()
+            .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 2))
+            .UseLlmSummarization(summarizer, new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 5, maxSummaryTokens: 100)).Build();
+        using var context = new ConversationContextFactory(configuration).Create();
+        context.SetSystemPrompt(new string('s', 1_000));
+        context.AddUserMessage(new string('u', 500));
+        context.RecordModelResponse([new ToolUseContent("read-1", "read", "{}")]);
+        context.RecordToolResult("read-1", "read", new string('t', 4_498));
+        var anchor = await context.PrepareAsync();
+        context.RecordModelResponse([new TextContent(new string('a', 50))], providerInputTokens: 8_000);
+        context.AddUserMessage(new string('n', 6_500));
+
+        // Act
+        var prepared = await context.PrepareAsync();
+
+        // Assert
+        anchor.TokensAfterCompaction.Should().Be(6_000);
+        prepared.Outcome.Should().Be(PrepareOutcome.Compacted);
+        prepared.MessagesDropped.Should().Be(0);
+        prepared.Messages.Select(message => message.State).Should().Contain(CompactionState.Summarized);
+        prepared.TokensAfterCompaction.Should().BeLessThanOrEqualTo(configuration.Budget.MaxTokens);
+        prepared.Messages.Should().Contain(message => message.IsPinned);
+    }
+
+    [Fact]
     public async Task CustomCounter_RecordsMessagesAndAppliesProviderCorrectionOnItsScale()
     {
         // Arrange
