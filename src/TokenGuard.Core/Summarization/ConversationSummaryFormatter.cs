@@ -94,9 +94,10 @@ internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatt
     }
 
     /// <inheritdoc />
-    public string BuildUserPrompt(IReadOnlyList<ContextMessage> messages, int targetTokens, int requestTokenBudget)
+    public string BuildUserPrompt(IReadOnlyList<ContextMessage> messages, int targetTokens, int requestTokenBudget, string systemPrompt)
     {
         ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(systemPrompt);
 
         if (targetTokens <= 0)
         {
@@ -109,7 +110,7 @@ internal sealed class ConversationSummaryFormatter : IConversationSummaryFormatt
                      Transcript:
 
                      """;
-        var transcriptBudget = (long)requestTokenBudget - this.CountText(ConversationSummaryPrompt.SystemPrompt) - this.CountText(frame);
+        var transcriptBudget = (long)requestTokenBudget - this.CountText(systemPrompt) - this.CountText(frame);
 
         return frame + this.FormatTranscript(messages, transcriptBudget);
     }

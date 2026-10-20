@@ -741,7 +741,7 @@ public sealed class ConversationContextIntegrationTests
         result.Outcome.Should().NotBe(PrepareOutcome.Ready);
     }
 
-    private sealed class TrackingSummarizer : ILlmSummarizer
+    private sealed class TrackingSummarizer : IHistorySummarizer
     {
         private readonly Func<SummarizerCall, Task<string>> _handler;
 
@@ -775,7 +775,7 @@ public sealed class ConversationContextIntegrationTests
 
     private sealed record SummarizerCall(int CallNumber, IReadOnlyList<ContextMessage> Messages, int TargetTokens);
 
-    private sealed class ThrowingLlmSummarizer : ILlmSummarizer
+    private sealed class ThrowingLlmSummarizer : IHistorySummarizer
     {
         private readonly Exception _toThrow;
 

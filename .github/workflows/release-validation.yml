@@ -39,7 +39,7 @@ jobs:
           dotnet pack src/TokenGuard.Extensions.OpenAI/TokenGuard.Extensions.OpenAI.csproj --configuration Release --no-build --nologo --output artifacts/ci-validation-packages
           dotnet pack src/TokenGuard.Extensions.Anthropic/TokenGuard.Extensions.Anthropic.csproj --configuration Release --no-build --nologo --output artifacts/ci-validation-packages
 
-      - name: Verify extensions depend on exact Core version
+      - name: Verify extensions declare the minimum Core version
         shell: bash
         run: |
           packages="artifacts/ci-validation-packages"
@@ -50,9 +50,9 @@ jobs:
           fi
 
           for package in TokenGuard.Extensions.OpenAI TokenGuard.Extensions.Anthropic; do
-            expected="<dependency id=\"TokenGuard.Core\" version=\"[$core_version]\""
+            expected="<dependency id=\"TokenGuard.Core\" version=\"$core_version\""
             if ! unzip -p "$packages"/"$package".*.nupkg "$package.nuspec" | grep -Fq "$expected"; then
-              echo "$package must depend on TokenGuard.Core [$core_version]. Packed dependencies:" >&2
+              echo "$package must declare TokenGuard.Core $core_version as its minimum version. Packed dependencies:" >&2
               unzip -p "$packages"/"$package".*.nupkg "$package.nuspec" | grep -F "<dependency " >&2
               exit 1
             fi

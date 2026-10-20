@@ -1254,7 +1254,7 @@ public sealed class LlmSummarizationStrategyTests
         return Assert.IsType<TextContent>(Assert.Single(message.Segments)).Content!;
     }
 
-    private sealed class TrackingSummarizer : ILlmSummarizer
+    private sealed class TrackingSummarizer : IHistorySummarizer
     {
         private readonly Func<SummarizerCall, CancellationToken, Task<string>> _handler;
 

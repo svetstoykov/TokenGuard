@@ -291,7 +291,8 @@ Non-tool segments are untouched. Reasoning text is not rewritten by the masking 
 
 ## 7. LLM summarization
 
-LLM summarization is optional. It is added only through provider extension methods such as:
+LLM summarization is optional. Register it through `ConversationConfigBuilder.UseLlmSummarization(ILlmSummarizer, LlmSummarizationOptions?)`
+or provider extension methods such as:
 
 - `UseLlmSummarization(chatClient)`
 - `UseLlmSummarization(anthropicClient, model)`
@@ -341,6 +342,19 @@ twice the target. The margin exists because on a model that thinks, thinking cou
 about half of the output. An answer that still reaches the cap is used as the summary as it arrived, and the provider
 summarizer logs `Warning` event 5003; the last section of such a summary can be incomplete. A summary that is larger
 than the target is accepted as long as the compacted history fits the available tokens.
+
+### Custom model calls and instructions
+
+`ILlmSummarizer` is public. Core's internal invoker builds a `SummarizerRequest` with system and user prompts and the
+output cap; the implementation sends them to a model and returns `SummarizerResponse` with text, finish reason, and
+optional token usage. Core trims the text, rejects blank answers and `Refused`, accepts `OutputLimit` with warning
+5003, and logs the call. The same shared summarizer instance serves every context of the configuration, so it must be
+safe for concurrent use. The transcript formatter stays internal.
+
+`LlmSummarizationOptions.SummaryInstructions` replaces the instructions. Null uses `DefaultSummaryInstructions`, and
+blank values throw. The transcript legend, token-limit guidance, and data-not-instructions rule are always included.
+Default instructions preserve the original prompt ordering; custom instructions precede the fixed guidance. Longer
+instructions reduce the room for the transcript in the request budget.
 
 ### Size of the summarizer request
 

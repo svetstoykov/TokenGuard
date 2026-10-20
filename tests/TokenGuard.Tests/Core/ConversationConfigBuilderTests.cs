@@ -6,14 +6,17 @@ using OpenAI.Chat;
 using TokenGuard.Core;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
+using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
+using TokenGuard.Core.Summarization;
 using TokenGuard.Extensions.Anthropic;
 using TokenGuard.Extensions.OpenAI;
 using TokenGuard.Tests.Diagnostics;
+using TokenGuard.Tests.Summarization;
 
 namespace TokenGuard.Tests.Core;
 
@@ -178,10 +181,8 @@ public sealed class ConversationConfigBuilderTests
             .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20));
 
         // Act
-        builder.SetLlmSummarizer(
-            () => new TrackingSummarizer("summary-text"),
-            "OpenAI",
-            new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
+        builder.UseLlmSummarization(
+            new TrackingSummarizer("summary-text"), new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 1, maxSummaryTokens: 100));
         var configuration = builder.Build();
         var compacted = await configuration.StrategyFactory(counter).CompactAsync(messages, 11);
 
@@ -282,6 +283,96 @@ public sealed class ConversationConfigBuilderTests
         var assertion = act.Should().Throw<InvalidOperationException>();
         assertion.WithMessage("*Only one provider can be registered per builder instance*");
         assertion.Which.Message.Should().Contain("OpenAI").And.Contain("Anthropic");
+    }
+
+    [Fact]
+    public void UseLlmSummarization_WhenACustomSummarizerIsAlreadyRegistered_ThrowsNamingBothSummarizers()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder()
+            .WithMaxTokens(8_192)
+            .UseLlmSummarization(RespondingSummarizer.Answering("summary"));
+
+        // Act
+        Action act = () => builder.UseLlmSummarization(new ChatClient("gpt-4.1", "test-key"));
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*'RespondingSummarizer'*Only one provider can be registered per builder instance*'OpenAISummarizer'*");
+    }
+
+    [Fact]
+    public void UseLlmSummarization_WithANullSummarizer_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(8_192);
+
+        // Act
+        Action act = () => builder.UseLlmSummarization((ILlmSummarizer)null!);
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentNullException>().WithParameterName("summarizer");
+    }
+
+    [Fact]
+    public async Task UseLlmSummarization_WithACustomSummarizer_ServesEveryContextWithTheSameInstance()
+    {
+        // Arrange
+        var summarizer = RespondingSummarizer.Answering("summary");
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(1_000)
+            .UseLlmSummarization(summarizer, new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 5, maxSummaryTokens: 50))
+            .Build();
+        var first = configuration.StrategyFactory(new TextLengthTokenCounter());
+        var second = configuration.StrategyFactory(new TextLengthTokenCounter());
+
+        // Act
+        var firstResult = await first.CompactAsync(CreateTextHistory(), 80);
+        var secondResult = await second.CompactAsync(CreateTextHistory(), 80);
+
+        // Assert
+        summarizer.Requests.Should().HaveCount(2);
+        firstResult.Messages[0].State.Should().Be(CompactionState.Summarized);
+        secondResult.Messages[0].State.Should().Be(CompactionState.Summarized);
+    }
+
+    [Fact]
+    public async Task UseLlmSummarization_WithSummaryInstructions_SendsThemInTheSystemPrompt()
+    {
+        // Arrange
+        var summarizer = RespondingSummarizer.Answering("summary");
+        var options = new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 5, maxSummaryTokens: 50)
+        {
+            SummaryInstructions = "Summarize the decisions only.",
+        };
+        var configuration = new ConversationConfigBuilder().WithMaxTokens(1_000).UseLlmSummarization(summarizer, options).Build();
+
+        // Act
+        await configuration.StrategyFactory(new TextLengthTokenCounter()).CompactAsync(CreateTextHistory(), 80);
+
+        // Assert
+        summarizer.Requests.Should().ContainSingle().Which.SystemPrompt.Should().StartWith("Summarize the decisions only.\n\n");
+    }
+
+    [Fact]
+    public async Task UseLlmSummarization_WithACustomSummarizer_LogsItsCallsUnderTheSummarizerTypeName()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var configuration = new ConversationConfigBuilder()
+            .WithMaxTokens(1_000)
+            .UseLlmSummarization(
+                RespondingSummarizer.Answering("summary"), new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 5, maxSummaryTokens: 50))
+            .Build();
+        var strategy = configuration.DiagnosticStrategyFactory!(new TextLengthTokenCounter(), new ConversationDiagnostics(logs, "default"));
+
+        // Act
+        await strategy.CompactAsync(CreateTextHistory(), 80);
+
+        // Assert
+        var starting = logs.WithEventId(5000).Should().ContainSingle().Subject;
+        starting.Category.Should().Be(typeof(RespondingSummarizer).FullName);
+        starting.Property("Provider").Should().Be(nameof(RespondingSummarizer));
     }
 
     [Fact]
@@ -443,7 +534,7 @@ public sealed class ConversationConfigBuilderTests
     {
         // Arrange
         var builder = new ConversationConfigBuilder().WithMaxTokens(1_000);
-        builder.SetLlmSummarizer(() => new TrackingSummarizer("summary-text"), "OpenAI", default(LlmSummarizationOptions));
+        builder.UseLlmSummarization(new TrackingSummarizer("summary-text"), default(LlmSummarizationOptions));
 
         // Act
         Action act = () => builder.Build();
@@ -551,6 +642,11 @@ public sealed class ConversationConfigBuilderTests
         configuration.MaxToolResultTokens.Should().BeNull();
     }
 
+    private static ContextMessage[] CreateTextHistory() =>
+        Enumerable.Range(0, 5)
+            .Select(index => ContextMessage.FromText(index % 2 == 0 ? MessageRole.User : MessageRole.Model, $"message-{index}".PadRight(20, 'x')))
+            .ToArray();
+
     private static ContextMessage CreateToolResultMessage(string callId, string toolName, string payload)
     {
         return new ContextMessage
@@ -569,14 +665,15 @@ public sealed class ConversationConfigBuilderTests
             this._summary = summary;
         }
 
-        public Task<string> SummarizeAsync(
-            IReadOnlyList<ContextMessage> messages,
-            int targetTokens,
-            int requestTokenBudget,
-            CancellationToken cancellationToken = default)
+        public List<SummarizerRequest> Requests { get; } = [];
+
+        public Task<SummarizerResponse> SummarizeAsync(SummarizerRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(this._summary);
+            lock (this.Requests)
+                this.Requests.Add(request);
+
+            return Task.FromResult(new SummarizerResponse(this._summary, SummarizerFinishReason.Completed));
         }
     }
 

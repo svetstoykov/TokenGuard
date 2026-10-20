@@ -156,7 +156,14 @@ For the two over-budget outcomes `BudgetFailureReason` carries the diagnostic te
 
 ## LLM summarization
 
-Sliding-window masking is always on. Summarization is off until you register it with `UseLlmSummarization(...)` from `TokenGuard.Extensions.OpenAI` or `TokenGuard.Extensions.Anthropic`. When masking leaves the history over the budget, TokenGuard then replaces the older messages with one summary message and keeps the newest messages verbatim: 5 by default, set with `LlmSummarizationOptions.WindowSize`. When a summarizer call fails, TokenGuard falls back to the masked history and reports the exception in `PrepareResult.SummarizationError`. See [LLM summarization](https://github.com/svetstoykov/TokenGuard/blob/main/README.md#llm-summarization).
+Sliding-window masking is always on. Summarization is off until you register it with `UseLlmSummarization(...)` from `TokenGuard.Extensions.OpenAI` or `TokenGuard.Extensions.Anthropic`, or pass your own `ILlmSummarizer` to the builder. When masking leaves the history over the budget, TokenGuard then replaces the older messages with one summary message and keeps the newest messages verbatim: 5 by default, set with `LlmSummarizationOptions.WindowSize`. When a summarizer call fails, TokenGuard falls back to the masked history and reports the exception in `PrepareResult.SummarizationError`. See [LLM summarization](https://github.com/svetstoykov/TokenGuard/blob/main/README.md#llm-summarization).
+
+Custom summarizers receive a `SummarizerRequest` with system and user prompts and an output cap and return a
+`SummarizerResponse` with text, finish reason, and optional token usage. Core builds the transcript, validates the
+response, and logs the call. The shared implementation must be safe for concurrent use. Set
+`LlmSummarizationOptions.SummaryInstructions` to replace the instructions; `DefaultSummaryInstructions` exposes the
+default text. Fixed transcript guidance is always included. See [Custom summarizer](https://github.com/svetstoykov/TokenGuard/blob/main/README.md#custom-summarizer).
+
 
 ## Token counting
 

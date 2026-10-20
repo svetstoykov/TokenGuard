@@ -139,7 +139,7 @@ public sealed class ConversationContextFactoryTests
         // Arrange
         var summarizer = ScriptedSummarizer.Returning("Earlier turns covered the release notes.");
         var builder = new ConversationConfigBuilder().WithMaxTokens(SmallMaxTokens);
-        builder.SetLlmSummarizer(() => summarizer, "Test", new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 40));
+        builder.UseLlmSummarization(summarizer, new LlmSummarizationOptions(windowSize: 1, minSummaryTokens: 1, maxSummaryTokens: 40));
         var factory = new ConversationContextFactory(builder.Build());
         using var first = factory.Create();
         using var second = factory.Create();

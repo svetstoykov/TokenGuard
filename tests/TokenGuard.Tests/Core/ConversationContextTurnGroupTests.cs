@@ -139,7 +139,7 @@ public sealed class ConversationContextTurnGroupTests
     {
         // Arrange
         var builder = new ConversationConfigBuilder().WithMaxTokens(25_000).WithoutToolResultLimit();
-        builder.SetLlmSummarizer(() => ScriptedSummarizer.Returning("summary"), "Test");
+        builder.UseLlmSummarization(ScriptedSummarizer.Returning("summary"));
         using var context = new ConversationContextFactory(builder.Build()).Create();
         IReadOnlyList<ContentSegment>[] replies =
         [

@@ -199,7 +199,7 @@ public sealed class ConversationContextToolLoopTests
     {
         var builder = new ConversationConfigBuilder().WithMaxTokens(maxTokens).WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 2));
         var summarization = new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 10, maxSummaryTokens: 100);
-        builder.SetLlmSummarizer(() => ScriptedSummarizer.Returning("summary"), "Test", summarization);
+        builder.UseLlmSummarization(ScriptedSummarizer.Returning("summary"), summarization);
 
         return new ConversationContextFactory(builder.Build()).Create();
     }

@@ -470,7 +470,7 @@ public sealed class TieredCompactionStrategyTests
         };
     }
 
-    private sealed class TrackingSummarizer : ILlmSummarizer
+    private sealed class TrackingSummarizer : IHistorySummarizer
     {
         private readonly string _summary;
 
@@ -501,7 +501,7 @@ public sealed class TieredCompactionStrategyTests
         }
     }
 
-    private sealed class ThrowingSummarizer : ILlmSummarizer
+    private sealed class ThrowingSummarizer : IHistorySummarizer
     {
         private readonly Exception _toThrow;
 
@@ -524,7 +524,7 @@ public sealed class TieredCompactionStrategyTests
         }
     }
 
-    private sealed class CancelingSummarizer : ILlmSummarizer
+    private sealed class CancelingSummarizer : IHistorySummarizer
     {
         private readonly CancellationTokenSource _cts;
 

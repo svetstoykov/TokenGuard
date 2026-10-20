@@ -18,7 +18,7 @@ namespace TokenGuard.Core.Strategies;
 /// <para>
 /// <see cref="LlmSummarizationStrategy"/> protects exactly <see cref="LlmSummarizationOptions.WindowSize"/> newest
 /// compactable messages when that many exist. Messages before the protected tail are passed verbatim to an injected
-/// <see cref="ILlmSummarizer"/>, and the returned summary is inserted at the front of the compacted result.
+/// <see cref="IHistorySummarizer"/>, and the returned summary is inserted at the front of the compacted result.
 /// </para>
 /// <para>
 /// While the history ends with a tool result, the newest user message is the request the model is still working on.
@@ -55,7 +55,7 @@ namespace TokenGuard.Core.Strategies;
 /// </remarks>
 internal sealed class LlmSummarizationStrategy : ICompactionStrategy
 {
-    private readonly ILlmSummarizer _summarizer;
+    private readonly IHistorySummarizer _summarizer;
     private readonly ITokenCounter _tokenCounter;
     private readonly LlmSummarizationOptions _options;
     private readonly ILogger _logger;
@@ -75,7 +75,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// </summary>
     /// <param name="summarizer">The summarizer that converts older history into a single text summary.</param>
     /// <param name="tokenCounter">The token counter used to measure the protected tail and final compacted result.</param>
-    public LlmSummarizationStrategy(ILlmSummarizer summarizer, ITokenCounter tokenCounter)
+    public LlmSummarizationStrategy(IHistorySummarizer summarizer, ITokenCounter tokenCounter)
         : this(summarizer, tokenCounter, LlmSummarizationOptions.Default)
     {
     }
@@ -89,7 +89,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="summarizer"/> or <paramref name="tokenCounter"/> is <see langword="null"/>.
     /// </exception>
-    public LlmSummarizationStrategy(ILlmSummarizer summarizer, ITokenCounter tokenCounter, LlmSummarizationOptions options)
+    public LlmSummarizationStrategy(IHistorySummarizer summarizer, ITokenCounter tokenCounter, LlmSummarizationOptions options)
         : this(summarizer, tokenCounter, options, NullLogger<LlmSummarizationStrategy>.Instance)
     {
     }
@@ -105,7 +105,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// <paramref name="summarizer"/>, <paramref name="tokenCounter"/>, or <paramref name="logger"/> is <see langword="null"/>.
     /// </exception>
     public LlmSummarizationStrategy(
-        ILlmSummarizer summarizer, ITokenCounter tokenCounter, LlmSummarizationOptions options, ILogger<LlmSummarizationStrategy> logger)
+        IHistorySummarizer summarizer, ITokenCounter tokenCounter, LlmSummarizationOptions options, ILogger<LlmSummarizationStrategy> logger)
         : this(
             summarizer, tokenCounter, options, logger,
             new ConversationDiagnostics(NullLoggerFactory.Instance, ConversationDiagnostics.DefaultContextName))
@@ -125,7 +125,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
     /// is <see langword="null"/>.
     /// </exception>
     internal LlmSummarizationStrategy(
-        ILlmSummarizer summarizer,
+        IHistorySummarizer summarizer,
         ITokenCounter tokenCounter,
         LlmSummarizationOptions options,
         ILogger<LlmSummarizationStrategy> logger,
