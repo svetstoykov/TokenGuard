@@ -80,6 +80,45 @@ public class EstimatedTokenCounterTests
     }
 
     [Theory]
+    [InlineData("{\n  \"a\": 1,\n  \"b\": 2\n}", "{\"a\":1,\"b\":2}", 8)]
+    [InlineData("{\r\n  \"a\": 1\r\n}", "{\"a\":1}", 5)]
+    [InlineData("{\n\t\"a\": 1\n}", "{\"a\":1}", 6)]
+    [InlineData("[1, 2, 3]", "[1,2,3]", 2)]
+    [InlineData("{\"a\": \"x  y\"}", "{\"a\":\"x  y\"}", 1)]
+    [InlineData("{\"a\": \"say \\\" hi  there\", \"b\": 1}", "{\"a\":\"say \\\" hi  there\",\"b\":1}", 3)]
+    public void Count_ForJsonTextWithWhitespace_ChargesEachWhitespaceRunOutsideStringLiteralsOnTopOfTheMinifiedCount(
+        string spaced, string minified, int expectedWhitespaceTokens)
+    {
+        // Arrange
+        // A run costs 1, 1 more when it holds a line break, and 1 more again when that run holds a tab.
+        var expected = this._counter.Count(ContextMessage.FromText(MessageRole.User, minified)) + expectedWhitespaceTokens;
+
+        // Act
+        var result = this._counter.Count(ContextMessage.FromText(MessageRole.User, spaced));
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Count_ForIndentedJsonToolArgumentsAndToolResult_ChargesTheWhitespaceRunsOnTopOfTheMinifiedCount()
+    {
+        // Arrange
+        const string Spaced = "{\n  \"path\": \"src/a.cs\",\n  \"line\": 4\n}";
+        const string Minified = "{\"path\":\"src/a.cs\",\"line\":4}";
+        var minifiedCall = this._counter.Count(ContextMessage.FromContent(MessageRole.Model, new ToolUseContent("call_1", "read", Minified)));
+        var minifiedResult = this._counter.Count(ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_1", "read", Minified)));
+
+        // Act
+        var spacedCall = this._counter.Count(ContextMessage.FromContent(MessageRole.Model, new ToolUseContent("call_1", "read", Spaced)));
+        var spacedResult = this._counter.Count(ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_1", "read", Spaced)));
+
+        // Assert
+        // Three line-break runs at 2 each and two same-line runs at 1 each.
+        Assert.Equal((minifiedCall + 8, minifiedResult + 8), (spacedCall, spacedResult));
+    }
+
+    [Theory]
     [InlineData("partial tool output �", 0xD83D)]
     [InlineData("� rest of the tool output", 0xDE00)]
     [InlineData("before � after", 0xD83D)]

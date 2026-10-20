@@ -23,6 +23,11 @@ namespace TokenGuard.Core.TokenCounting;
 /// JSON and tool segments. It intentionally does not load provider vocabularies or perform BPE merges.
 /// </para>
 /// <para>
+/// Text that parses as JSON is counted from its parsed structure, plus a charge for each whitespace run between its
+/// tokens. That whitespace rule was fitted to the <c>o200k_base</c> encoding (tiktoken 0.14.0); for other tokenizers
+/// the provider correction of the conversation context adjusts the total after the first provider report.
+/// </para>
+/// <para>
 /// Each counted <see cref="ContextMessage"/> includes a fixed framing overhead, and tool-call segments add structural
 /// wrapper cost so TokenGuard budgets remain closer to real chat payload costs than segment-only counting would
 /// provide. Applications that require different creation flows can bypass dependency injection and construct
@@ -689,6 +694,10 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
     /// <summary>
     /// Counts <paramref name="text"/> as JSON when it parses as JSON.
     /// </summary>
+    /// <remarks>
+    /// The count is the structure of the parsed document plus the whitespace between its tokens, which
+    /// <see cref="CountJsonWhitespace"/> reads from the raw text.
+    /// </remarks>
     /// <param name="text">The text to parse.</param>
     /// <param name="count">When this method returns <see langword="true"/>, the token count of the JSON document; otherwise zero.</param>
     /// <returns>
@@ -700,7 +709,7 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
         try
         {
             using var document = JsonDocument.Parse(text);
-            count = CountJsonElement(document.RootElement);
+            count = CountJsonElement(document.RootElement) + CountJsonWhitespace(text);
             return true;
         }
         catch (Exception exception) when (exception is JsonException or ArgumentException)
@@ -709,6 +718,68 @@ internal sealed class EstimatedTokenCounter(TokenCountSafetyMode safetyMode = To
             return false;
         }
     }
+
+    /// <summary>
+    /// Counts the whitespace between the tokens of a JSON document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Each run of spaces, tabs, carriage returns and line feeds outside a string literal costs 1 token, 1 more when it
+    /// holds a line break, and 1 more again when a run with a line break holds a tab. A space after <c>:</c> or <c>,</c>
+    /// splits a merged punctuation token in two, and a line break makes the indent of the next line a token of its own.
+    /// </para>
+    /// <para>
+    /// The rule was fitted to the <c>o200k_base</c> encoding. Whitespace inside a string literal is counted with the
+    /// string, and JSON with no whitespace between its tokens gets 0.
+    /// </para>
+    /// </remarks>
+    /// <param name="json">The raw text of a document that parsed as JSON.</param>
+    /// <returns>The token count of the whitespace outside string literals.</returns>
+    private static int CountJsonWhitespace(string json)
+    {
+        var count = 0;
+        var inString = false;
+        var escaped = false;
+        var inRun = false;
+        var runHasLineBreak = false;
+        var runHasTab = false;
+
+        foreach (var c in json)
+        {
+            if (inString)
+            {
+                if (escaped)
+                    escaped = false;
+                else if (c == '\\')
+                    escaped = true;
+                else if (c == '"')
+                    inString = false;
+
+                continue;
+            }
+
+            if (c is ' ' or '\t' or '\r' or '\n')
+            {
+                inRun = true;
+                runHasLineBreak |= c is '\r' or '\n';
+                runHasTab |= c == '\t';
+                continue;
+            }
+
+            if (inRun)
+            {
+                count += WhitespaceRunTokens(runHasLineBreak, runHasTab);
+                inRun = runHasLineBreak = runHasTab = false;
+            }
+
+            inString = c == '"';
+        }
+
+        return inRun ? count + WhitespaceRunTokens(runHasLineBreak, runHasTab) : count;
+    }
+
+    private static int WhitespaceRunTokens(bool hasLineBreak, bool hasTab) =>
+        !hasLineBreak ? 1 : hasTab ? 3 : 2;
 
     private static int CountJsonElement(JsonElement element) =>
         CountJsonElement(element, parentObjectPropertyCount: 0, parentArrayItemCount: 0);
