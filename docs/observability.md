@@ -163,6 +163,37 @@ on both builders prints it. An `ActivityListener` and a `MeterListener` work as 
 | `tokenguard.compact` | One compaction strategy call. Child of `tokenguard.prepare`. | `tokenguard.strategy`, `tokenguard.tokens.available`, `tokenguard.tokens.before`, `tokenguard.tokens.after`, `tokenguard.messages.affected` |
 | `tokenguard.summarize` | One summarizer call made by the LLM summarization strategy. Child of `tokenguard.compact`. | `tokenguard.messages.count`, `tokenguard.tokens.target`, `tokenguard.finish_reason`, `tokenguard.tokens.output`, `tokenguard.tokens.reasoning` |
 
+Additional tags on every successfully returned `tokenguard.prepare` activity:
+
+| Tag | Result member and meaning |
+| --- | --- |
+| `tokenguard.tool_results.masked` | `ToolResultsMasked`: segments replaced in the selected masking output before emergency truncation |
+| `tokenguard.messages.summarized` | `MessagesSummarized`: input messages replaced by the selected summary, including checkpoint reuse |
+| `tokenguard.messages.dropped` | `MessagesDropped`: messages removed by emergency truncation |
+| `tokenguard.summarization.status` | `SummarizationStatus`: `NotNeeded`, `CheckpointReused`, `NewSummary`, `Failed`, `SkippedPreviousFailure` |
+| `tokenguard.prefix.messages` | `UnchangedPrefixMessages`: leading messages identical to the previous successful view; first prepare zero |
+| `tokenguard.prefix.tokens` | `UnchangedPrefixTokens`: prefix tokens under the current provider correction; first prepare zero |
+| `tokenguard.tokens.pinned` | `TokenBreakdown.Pinned` |
+| `tokenguard.tokens.summary` | `TokenBreakdown.Summary` |
+| `tokenguard.tokens.masked` | `TokenBreakdown.Masked` |
+| `tokenguard.tokens.tool_results` | `TokenBreakdown.ToolResults` |
+| `tokenguard.tokens.other` | `TokenBreakdown.Other` |
+
+Stage counts describe selected strategy output before emergency truncation. Discarded trial masking is excluded;
+masked messages later dropped still contribute to the masking count. The breakdown describes the final view, classifying
+whole messages in this order: pinned, summarized, masked, containing tool results, other. Mixed masked messages include
+retained segments in the masked category. Categories include framing and proportional provider correction; cumulative
+category boundaries allocate rounding so their sum equals the final total. When every message estimate is zero,
+any provider correction belongs to the first message's category, or `Other` for an empty view. These are estimated shares, not
+provider-reported per-kind usage. A custom strategy that leaves stage properties at their defaults reports zero counts
+and `NotNeeded`; the context still calculates its final-view breakdown and prefix.
+
+`Failed` includes an exception or a summary rejected for exceeding the budget. `SkippedPreviousFailure` means an identical
+history and budget failed before. `NotNeeded` includes no configured summarizer, no old messages, and insufficient room
+for a useful first summary. Prefix comparison uses role and segment values, including tool identity, and ignores
+observational metadata. It compares with the previous successfully returned view and retains one private snapshot for
+reporting only. Stability of that payload prefix does not guarantee provider cache hits.
+
 `tokenguard.tokens.before` and `tokenguard.tokens.after` on `tokenguard.prepare` are the `TokensBeforeCompaction` and
 `TokensAfterCompaction` of the returned `PrepareResult`. Both include the provider correction when one is known, as do
 the token figures of events 1010, 1011, 1012, 1014, and 1016, the `tokenguard.context.tokens` and

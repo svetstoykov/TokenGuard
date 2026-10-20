@@ -85,6 +85,9 @@ public sealed class ConversationContext : IConversationContext
     // It is a flag and not a lock: it has no owning thread, and PrepareAsync can clear it on a different thread from the one that set it.
     private int _operationInProgress;
 
+    // Private semantic snapshots are reporting state only; strategies never read them.
+    private ContextMessage[] _previousPreparedMessages = [];
+
     private bool _disposed;
 
     /// <summary>
@@ -546,12 +549,12 @@ public sealed class ConversationContext : IConversationContext
 
                 this._lastPreparedMessageTokens = historyMessageTokens;
                 this._lastEstimatedTotalTokens = totalBeforeCompaction;
-                return new PrepareResult(
+                return this.CompletePrepare(new PrepareResult(
                     this.MovePinnedMessagesOutOfToolExchanges(messages),
                     PrepareOutcome.Ready,
                     totalBeforeCompaction,
                     totalBeforeCompaction,
-                    messagesCompacted: 0);
+                    messagesCompacted: 0), activity);
             }
 
             var (pinnedSlots, compactableMessages) = SplitPinned(messages);
@@ -624,7 +627,7 @@ public sealed class ConversationContext : IConversationContext
             this.RecordPrepareTelemetry(
                 activity, outcome, totalBeforeCompaction, estimatedFinalTokens, messagesCompacted, startTimestamp, timeCounting);
 
-            return new PrepareResult(
+            return this.CompletePrepare(new PrepareResult(
                 final,
                 outcome,
                 totalBeforeCompaction,
@@ -632,12 +635,103 @@ public sealed class ConversationContext : IConversationContext
                 messagesCompacted,
                 budgetFailureReason,
                 emergencyMessagesDropped,
-                compacted.SummarizationError);
+                compacted.SummarizationError)
+            {
+                ToolResultsMasked = compacted.ToolResultsMasked,
+                MessagesSummarized = compacted.MessagesSummarized,
+                SummarizationStatus = compacted.SummarizationStatus,
+            }, activity);
         }
         finally
         {
             this.ExitOperation();
         }
+    }
+
+    /// <summary>
+    /// Attaches view diagnostics and retains a private semantic snapshot for the next successful prepare.
+    /// </summary>
+    /// <remarks>
+    /// Reporting takes linear space in messages and segments and linear time in their compared content. Segment arrays
+    /// are copied because a caller can cast the arrays exposed by a message or a custom strategy and mutate them later.
+    /// The snapshot never influences compaction, checkpoints, or masking boundaries.
+    /// </remarks>
+    /// <param name="result">The prepared messages and stage diagnostics.</param>
+    /// <param name="activity">The prepare activity, or <see langword="null"/> when tracing is disabled.</param>
+    /// <returns>The result with prefix and token-distribution diagnostics.</returns>
+    private PrepareResult CompletePrepare(PrepareResult result, Activity? activity)
+    {
+        var prefixCount = 0;
+        var prefixTokens = 0;
+        while (prefixCount < result.Messages.Count && prefixCount < this._previousPreparedMessages.Length)
+        {
+            var current = result.Messages[prefixCount];
+            var previous = this._previousPreparedMessages[prefixCount];
+            if (current.Role != previous.Role || !current.Segments.SequenceEqual(previous.Segments))
+                break;
+
+            prefixTokens += this.EnsureCounted(current);
+            prefixCount++;
+        }
+
+        var estimates = new int[5];
+        int? firstCategory = null;
+        var snapshot = new ContextMessage[result.Messages.Count];
+        for (var i = 0; i < result.Messages.Count; i++)
+        {
+            var message = result.Messages[i];
+            var category = message.IsPinned ? 0
+                : message.State == CompactionState.Summarized ? 1
+                : message.State == CompactionState.Masked ? 2
+                : message.Segments.Any(static segment => segment is ToolResultContent) ? 3 : 4;
+            firstCategory ??= category;
+            estimates[category] += this.EnsureCounted(message);
+            snapshot[i] = message with { Segments = message.Segments };
+        }
+
+        // Allocate the correction at cumulative boundaries, preserving the exact corrected total despite rounding.
+        var cumulativeEstimate = 0;
+        var previousCorrected = 0;
+        for (var i = 0; i < estimates.Length; i++)
+        {
+            cumulativeEstimate += estimates[i];
+            var corrected = cumulativeEstimate == 0 ? 0 : this.ApplyProviderCorrection(cumulativeEstimate);
+            estimates[i] = corrected - previousCorrected;
+            previousCorrected = corrected;
+        }
+
+        if (cumulativeEstimate == 0)
+            estimates[firstCategory ?? 4] = result.TokensAfterCompaction;
+
+        var breakdown = new PreparedTokenBreakdown
+        {
+            Pinned = estimates[0],
+            Summary = estimates[1],
+            Masked = estimates[2],
+            ToolResults = estimates[3],
+            Other = estimates[4],
+        };
+        var reported = result with
+        {
+            UnchangedPrefixMessages = prefixCount,
+            UnchangedPrefixTokens = prefixCount == 0 ? 0 : this.ApplyProviderCorrection(prefixTokens),
+            TokenBreakdown = breakdown,
+        };
+
+        activity?.SetTag(TokenGuardTelemetry.ToolResultsMaskedTag, reported.ToolResultsMasked)
+            .SetTag(TokenGuardTelemetry.MessagesSummarizedTag, reported.MessagesSummarized)
+            .SetTag(TokenGuardTelemetry.MessagesDroppedTag, reported.MessagesDropped)
+            .SetTag(TokenGuardTelemetry.SummarizationStatusTag, reported.SummarizationStatus.ToString())
+            .SetTag(TokenGuardTelemetry.UnchangedPrefixMessagesTag, reported.UnchangedPrefixMessages)
+            .SetTag(TokenGuardTelemetry.UnchangedPrefixTokensTag, reported.UnchangedPrefixTokens)
+            .SetTag(TokenGuardTelemetry.PinnedTokensTag, breakdown.Pinned)
+            .SetTag(TokenGuardTelemetry.SummaryTokensTag, breakdown.Summary)
+            .SetTag(TokenGuardTelemetry.MaskedTokensTag, breakdown.Masked)
+            .SetTag(TokenGuardTelemetry.ToolResultTokensTag, breakdown.ToolResults)
+            .SetTag(TokenGuardTelemetry.OtherTokensTag, breakdown.Other);
+
+        this._previousPreparedMessages = snapshot;
+        return reported;
     }
 
     /// <summary>
@@ -845,6 +939,7 @@ public sealed class ConversationContext : IConversationContext
         }
 
         this._history.Clear();
+        this._previousPreparedMessages = [];
     }
 
     /// <summary>

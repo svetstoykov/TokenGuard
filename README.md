@@ -316,6 +316,12 @@ and record their results one after another. Use `Create("analysis")` when you wa
 | `TokensAfterCompaction` | Estimated total of `Messages` after preparation completed. `Outcome` is decided from it |
 | `MessagesCompacted` | Count of messages replaced or dropped during this call |
 | `MessagesDropped` | Count of messages removed specifically by emergency truncation |
+| `ToolResultsMasked` | Tool-result segments replaced in the selected masking output before emergency truncation |
+| `MessagesSummarized` | Input messages replaced by the selected summary, including checkpoint reuse |
+| `SummarizationStatus` | `NotNeeded`, `CheckpointReused`, `NewSummary`, `Failed`, or `SkippedPreviousFailure` |
+| `UnchangedPrefixMessages` | Leading messages identical to the previous successfully returned view; zero on the first prepare |
+| `UnchangedPrefixTokens` | Tokens of that prefix under the current provider correction; zero on the first prepare |
+| `TokenBreakdown` | Provider-corrected `Pinned`, `Summary`, `Masked`, `ToolResults`, and `Other` tokens in the final view |
 | `BudgetFailureReason` | Diagnostic text for over-budget outcomes |
 | `SummarizationError` | The exception captured when LLM summarization failed during this call and TokenGuard fell back to sliding-window masking; `null` otherwise. Caller cancellation is not reported here |
 
@@ -324,6 +330,27 @@ known. The correction is the input token count you last passed to `RecordModelRe
 the payload that count measured. It stays in effect, across compaction, until the next provider report replaces it. A
 payload at least as large as the measured one carries the whole correction; a smaller one carries a proportional share.
 On a call that changes no messages the two figures are equal.
+
+Stage counts describe the selected strategy output. Trial masking discarded in favor of a summary is excluded; a masked
+result subsequently removed by emergency truncation remains in `ToolResultsMasked` and also contributes to
+`MessagesDropped`. `TokenBreakdown` describes only the final view. It assigns whole messages in this precedence:
+pinned, summarized, masked, containing tool results, then other. A mixed masked message includes retained exempt results
+and text in `Masked`. The five categories include framing and proportional provider correction, with rounding allocated
+at cumulative category boundaries so they sum exactly to `TokensAfterCompaction`. When every message estimate is zero,
+any provider correction belongs to the first message's category, or `Other` for an empty view.
+
+`Failed` includes a thrown summarizer call or a rejected summary above the budget; only a thrown failure supplies
+`SummarizationError`. `NotNeeded` also covers a missing summarizer or insufficient room for a useful first summary.
+`MessagesSummarized` excludes a user message retained verbatim to keep an open tool loop valid.
+
+Prefix equality compares the role and ordered segment values, including tool call identifiers and names. Timestamps,
+pinning, compaction state, and cached counts are observational metadata. The context keeps one private copied snapshot
+of the last successful view, using linear space in its messages and segments. Comparison is linear in the compared
+content; this reporting state never changes masking boundaries or strategy inputs. The prefix is a payload stability
+measure; provider framing, tools, and cache rules still determine actual cache hits.
+
+The result constructors keep their existing signatures. Additional properties are init-only with zero counts, an empty
+token breakdown, and `NotNeeded` as defaults, so custom strategies can opt into stage reporting incrementally.
 
 `Ready` and `Compacted` are healthy outcomes. `Ready` is returned when the history stayed below the compaction trigger,
 and also when a strategy ran but changed no messages and the result fits. `CompactionInsufficient` means TokenGuard reduced the payload but it still
@@ -720,44 +747,6 @@ The experimental Microsoft.Extensions.AI [chat reducers](https://github.com/dotn
 reduce lists using message counts. [Agent Framework compaction](https://learn.microsoft.com/agent-framework/concepts/agents/conversations/compaction)
 also supports token, turn and group triggers. This adapter supplies conversions and summarization for a caller-owned
 TokenGuard context; it provides no middleware or `IChatReducer` registration.
-
----
-
-## Custom token counter and strategy
-
-Share a counter with the context so your tools and the context measure on the same scale:
-
-```csharp
-var counter = new EstimatedTokenCounter(TokenCountSafetyMode.Safe);
-var config = new ConversationConfigBuilder()
-    .WithMaxTokens(40_000)
-    .WithTokenCounter(counter)
-    .Build();
-```
-
-`EstimatedTokenCounter` is in `TokenGuard.Core.TokenCounting`, and `TokenCountSafetyMode` is in `TokenGuard.Core.Enums`.
-You can also implement `ITokenCounter` from `TokenGuard.Core.Abstractions`. One instance serves all contexts created from
-that configuration and must be safe for concurrent use. It measures recorded messages, tool-result limits, compaction
-and summarizer requests. Provider correction applies on top of its counts.
-
-Supply a factory for a fresh `ICompactionStrategy` per conversation:
-
-```csharp
-var config = new ConversationConfigBuilder()
-    .WithMaxTokens(40_000)
-    .WithCompactionStrategy(context => new MyCompactionStrategy(
-        context.TokenCounter,
-        context.LoggerFactory.CreateLogger<MyCompactionStrategy>()))
-    .Build();
-```
-
-`MyCompactionStrategy` is your implementation of `ICompactionStrategy`. Its factory receives a `CompactionStrategyContext`
-from `TokenGuard.Core.Models`, with the timed counter, resolved logger factory and configuration name. The logger factory
-uses `WithLoggerFactory`, then the DI container's factory, then a factory that writes no records. Include
-`Microsoft.Extensions.Logging` for `CreateLogger<T>()`.
-
-A custom strategy replaces the built-in masking and summarization pipeline. Combining it with `WithSlidingWindowOptions`
-or `UseLlmSummarization` throws at `Build()`. Register a custom summarizer instead when you want to keep the built-in pipeline.
 
 ---
 

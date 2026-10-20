@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Diagnostics;
+using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 
@@ -155,7 +156,7 @@ internal sealed class TieredCompactionStrategy : ISteppedCompactionStrategy
                 TieredCompactionLog.SlidingWindowResult, TieredCompactionLog.SummarizationThrew, slidingWindowResult, slidingWindowResult,
                 availableTokens);
 
-            return BuildCompactionResult(slidingWindowResult, summarizationError);
+            return BuildCompactionResult(slidingWindowResult, summarizationError) with { SummarizationStatus = SummarizationStatus.Failed };
         }
 
         // LlmSummarizationStrategy may return original messages when its post-call check finds the
@@ -167,7 +168,7 @@ internal sealed class TieredCompactionStrategy : ISteppedCompactionStrategy
                 TieredCompactionLog.SlidingWindowResult, TieredCompactionLog.SummarizationOvershot, slidingWindowResult, slidingWindowResult,
                 availableTokens);
 
-            return BuildCompactionResult(slidingWindowResult);
+            return BuildCompactionResult(slidingWindowResult) with { SummarizationStatus = summarizationResult.SummarizationStatus };
         }
 
         this.LogSelection(
@@ -189,6 +190,11 @@ internal sealed class TieredCompactionStrategy : ISteppedCompactionStrategy
             result.TokensAfter,
             result.MessagesAffected,
             nameof(TieredCompactionStrategy),
-            summarizationError);
+            summarizationError)
+        {
+            ToolResultsMasked = result.ToolResultsMasked,
+            MessagesSummarized = result.MessagesSummarized,
+            SummarizationStatus = result.SummarizationStatus,
+        };
     }
 }

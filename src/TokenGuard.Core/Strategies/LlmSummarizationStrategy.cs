@@ -188,7 +188,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         if (this.IsRejectedAttempt(messages, availableTokens))
         {
             LlmSummarizationLog.SummarizationSkippedRejectedAttempt(this._logger, messages.Count, availableTokens);
-            return CreateUnchangedResult(messages, tokensBefore);
+            return CreateUnchangedResult(messages, tokensBefore) with { SummarizationStatus = SummarizationStatus.SkippedPreviousFailure };
         }
 
         this._rejectedAttempt = null;
@@ -316,7 +316,11 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
                 tokensBefore,
                 cachedTokensAfter,
                 messages.Count - cachedResult.Length + 1,
-                nameof(LlmSummarizationStrategy));
+                nameof(LlmSummarizationStrategy))
+            {
+                MessagesSummarized = messages.Count - cachedResult.Length + 1,
+                SummarizationStatus = SummarizationStatus.CheckpointReused,
+            };
         }
 
         // Reuse did not fit, so ask for a smaller or newer summary.
@@ -346,7 +350,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             {
                 LlmSummarizationLog.PromotedSummaryOvershot(this._logger, promotedResult.TokensAfter, availableTokens, protectedTail.FirstIndex);
                 this.RememberRejectedAttempt(messages, availableTokens);
-                return CreateUnchangedResult(messages, tokensBefore);
+                return CreateUnchangedResult(messages, tokensBefore) with { SummarizationStatus = SummarizationStatus.Failed };
             }
 
             this.SetCheckpoint(protectedTail.FirstIndex, promotedFingerprint, promotedSummaryMessage);
@@ -373,7 +377,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             LlmSummarizationLog.RefreshedSummaryOvershot(
                 this._logger, refreshedResult.TokensAfter, availableTokens, checkpoint.SummarizedMessageCount);
             this.RememberRejectedAttempt(messages, availableTokens);
-            return CreateUnchangedResult(messages, tokensBefore);
+            return CreateUnchangedResult(messages, tokensBefore) with { SummarizationStatus = SummarizationStatus.Failed };
         }
 
         this._checkpoint = checkpoint with { SummaryMessage = refreshedSummaryMessage };
@@ -441,7 +445,7 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
         {
             LlmSummarizationLog.FirstSummaryOvershot(this._logger, summaryResult.TokensAfter, availableTokens, protectedTail.FirstIndex);
             this.RememberRejectedAttempt(messages, availableTokens);
-            return CreateUnchangedResult(messages, tokensBefore);
+            return CreateUnchangedResult(messages, tokensBefore) with { SummarizationStatus = SummarizationStatus.Failed };
         }
 
         this.SetCheckpoint(protectedTail.FirstIndex, checkpointFingerprint, summaryMessage);
@@ -756,7 +760,11 @@ internal sealed class LlmSummarizationStrategy : ICompactionStrategy
             tokensBefore,
             tokensAfter,
             messages.Count - compactedMessages.Length + 1,
-            nameof(LlmSummarizationStrategy));
+            nameof(LlmSummarizationStrategy))
+        {
+            MessagesSummarized = messages.Count - compactedMessages.Length + 1,
+            SummarizationStatus = SummarizationStatus.NewSummary,
+        };
     }
 
     /// <summary>

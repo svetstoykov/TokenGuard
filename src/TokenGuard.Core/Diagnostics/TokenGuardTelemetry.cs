@@ -164,6 +164,36 @@ internal static class TokenGuardTelemetry
     /// </summary>
     internal const string FailureResult = "failure";
 
+    /// <summary>The prepare tag for tool results masked.</summary>
+    internal const string ToolResultsMaskedTag = "tokenguard.tool_results.masked";
+
+    /// <summary>The prepare tag for messages summarized.</summary>
+    internal const string MessagesSummarizedTag = "tokenguard.messages.summarized";
+
+    /// <summary>The prepare tag for summarization status.</summary>
+    internal const string SummarizationStatusTag = "tokenguard.summarization.status";
+
+    /// <summary>The prepare tag for prefix messages.</summary>
+    internal const string UnchangedPrefixMessagesTag = "tokenguard.prefix.messages";
+
+    /// <summary>The prepare tag for prefix tokens.</summary>
+    internal const string UnchangedPrefixTokensTag = "tokenguard.prefix.tokens";
+
+    /// <summary>The prepare tag for tokens pinned.</summary>
+    internal const string PinnedTokensTag = "tokenguard.tokens.pinned";
+
+    /// <summary>The prepare tag for tokens summary.</summary>
+    internal const string SummaryTokensTag = "tokenguard.tokens.summary";
+
+    /// <summary>The prepare tag for tokens masked.</summary>
+    internal const string MaskedTokensTag = "tokenguard.tokens.masked";
+
+    /// <summary>The prepare tag for tokens tool results.</summary>
+    internal const string ToolResultTokensTag = "tokenguard.tokens.tool_results";
+
+    /// <summary>The prepare tag for tokens other.</summary>
+    internal const string OtherTokensTag = "tokenguard.tokens.other";
+
     private static readonly string? Version =
         typeof(TokenGuardTelemetry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
