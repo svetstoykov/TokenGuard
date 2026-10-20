@@ -580,9 +580,11 @@ of the list.
 message, and throws `InvalidOperationException` for a message it cannot represent, for tool-call arguments that are not a
 JSON object, for an orphaned tool result, and for tool calls left without results. It returns a tuple because Anthropic
 carries system content separately from the message list; the text of every system message goes to that system value.
-The Anthropic adapter is covered by unit tests only; the
-[package readme](src/TokenGuard.Extensions.Anthropic/PackageReadme.md) lists what no run against the Anthropic API has
-verified.
+Thinking and redacted-thinking blocks in a response are not recorded and not sent back, so compaction cannot invalidate
+one, and the model does not see its reasoning from earlier turns. The Anthropic adapter is covered by unit tests and was
+run by hand against the Anthropic API in October 2026 on Claude Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.1; the
+[package readme](src/TokenGuard.Extensions.Anthropic/PackageReadme.md) lists what those runs showed and what is still
+not verified.
 
 ---
 
@@ -734,7 +736,8 @@ What is current:
 - pinned messages survive all compaction stages
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
 - OpenAI and Anthropic adapter helpers are available
-- the Anthropic adapter is covered by unit tests only; no run against the Anthropic API has verified it
+- the Anthropic adapter is covered by unit tests and was run by hand against the Anthropic API in October 2026 on
+  Claude Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.1
 - runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`,
   `PrepareAsync(...)`, `RecordModelResponse(...)`, and `RecordToolResult(...)`
 

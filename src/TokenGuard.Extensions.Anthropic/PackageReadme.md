@@ -11,8 +11,10 @@ Use this package when you want the core conversation model to stay provider-agno
 
 ## Status
 
-This adapter is covered by unit tests only. No test in this repository sends a request to the Anthropic API, so the
-points under [Not verified against the Anthropic API](#not-verified-against-the-anthropic-api) are open.
+This adapter is covered by unit tests, and in October 2026 it was run against the Anthropic API on Claude Haiku 5.5,
+Sonnet 5.5, Opus 5.5 and Fable 5.1, through a tool loop and, on Haiku 5.5, a summarized view. Those runs were made by
+hand: no test in this repository sends a request to the Anthropic API, and release validation does not repeat them.
+[Live runs](#live-runs) lists what they showed and what is still not verified.
 
 ## What it does
 
@@ -139,7 +141,8 @@ static string ExecuteTool(string toolName, string argumentsJson) => $"Executed {
 ```
 
 This quick start is compiled against the packed packages by `tests/TokenGuard.ReadmeSnippets/verify.sh` in release
-validation. It has not been run against the Anthropic API.
+validation. This program, as pasted, has not itself been run against the Anthropic API; the adapter it calls has
+(see [Live runs](#live-runs)).
 
 ## What `ForAnthropic()` sends
 
@@ -162,6 +165,13 @@ throws when:
 - a tool result has no preceding tool call, a tool call has no matching result before the next message that is not a
   tool message, or tool calls are unanswered at the end of the list
 
+## Thinking
+
+`ResponseSegments()` reads text and tool-use blocks only, so thinking and redacted-thinking blocks are not recorded and
+not sent back. A tool loop on a thinking model is accepted without them, and because no request carries a thinking
+block, masking or summarizing an earlier message cannot invalidate one. The cost is that the model does not see its
+reasoning from earlier turns.
+
 ## Token counts
 
 `response.InputTokens()` returns the total input of the request: the sum of `input_tokens`,
@@ -169,13 +179,20 @@ throws when:
 part of the request after the last cache breakpoint, so the sum is the value that matches what TokenGuard estimates.
 It returns `null` when the response carries no usage; `RecordModelResponse` then stays on the heuristic estimate.
 
-## Not verified against the Anthropic API
+## Live runs
 
-- Whether the API accepts a prepared view whose first message is the summary, which is an assistant message.
+What the October 2026 runs showed:
+
+- A prepared view whose first message is the summary, an assistant message, is accepted (Haiku 5.5).
+- A tool loop that leaves the thinking block out is accepted. Every tool loop on Haiku 5.5, Sonnet 5.5, Opus 5.5 and
+  Fable 5.1 was accepted, including six turns on Haiku 5.5, Opus 5.5 and Fable 5.1 where the model thought next to a
+  tool call.
+
+Not verified:
+
 - Whether the API accepts one user message per tool result after a turn with several tool calls. Each
   `RecordToolResult` call records its own tool message, and `ForAnthropic()` sends one user message per tool message.
-- How extended thinking behaves with tools. `ResponseSegments()` reads text and tool-use blocks only, so a thinking
-  block is not recorded and is not sent back on the next request.
+  Every turn in the runs had one tool call.
 
 ## Observability
 
