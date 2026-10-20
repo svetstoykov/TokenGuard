@@ -8,6 +8,7 @@ using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Enums;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Models.Content;
+using TokenGuard.Core.Options;
 using TokenGuard.Core.TokenCounting;
 using TokenGuard.Tests.Diagnostics;
 
@@ -241,6 +242,22 @@ public sealed partial class ConversationContextToolResultLimitTests
 
         // Assert
         StoredText(context).Length.Should().BeInRange(900, 1_000, "the character-counting test counter fills the limit in characters");
+    }
+
+    [Fact]
+    public void RecordToolResult_WhenTheToolIsExemptFromMasking_StillAppliesTheRecordingLimit()
+    {
+        // Arrange
+        var configuration = new ConversationConfigBuilder().WithMaxTokens(100_000).WithMaxToolResultTokens(500)
+            .WithSlidingWindowOptions(new SlidingWindowOptions { ExemptToolNames = ["notes"] }).Build();
+        using var context = new ConversationContextFactory(configuration).Create();
+
+        // Act
+        context.RecordToolResult("call_1", "notes", string.Concat(NumberedLines(1_000, "\n")));
+
+        // Assert
+        context.History.Should().ContainSingle().Which.TokenCount.Should().BeLessThanOrEqualTo(500);
+        context.History[0].Segments[0].Content.Should().Contain(NoticeStart);
     }
 
     [Fact]

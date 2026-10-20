@@ -277,7 +277,8 @@ var options = new SlidingWindowOptions(windowSize: 10) { ExemptToolNames = ["tod
 Names match exactly and ordinally, so `Todo_Write` does not exempt `todo_write`. Like the size check, the exemption is
 applied per tool result after the boundary is found, so an exempt result never moves the boundary or a step line. In a
 message with several results, an exempt one stays whole while the others are judged as usual, and a message whose
-results are all exempt is returned as it is. An exempt result keeps its full size wherever it falls in the history.
+results are all exempt is returned as it is. An exempt result keeps its recorded size wherever it falls in the history.
+The recording limit applies to exempt tools too, before masking sees their results.
 Large exempt results leave more for summarization and emergency truncation, and a prepare can end as
 `CompactionInsufficient` where it would otherwise end as `Compacted`.
 

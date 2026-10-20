@@ -373,7 +373,8 @@ Three ordered tiers:
 result that costs no more tokens than its placeholder, such as `ok` or an exit code, keeps its content. Results of the
 tools named in `SlidingWindowOptions.ExemptToolNames`, such as a notes or todo-list tool the agent relies on later, are
 never masked: `new SlidingWindowOptions(windowSize: 12) { ExemptToolNames = ["todo_write"] }`. Names match exactly,
-case included. An exempt result keeps its full size, so large ones leave masking less to reclaim.
+case included. An exempt result keeps its recorded size, so large ones leave masking less to reclaim.
+The tool result limit applies when recording exempt tools too.
 
 A masked tool result is gone from the request, and the model can get it back only by calling the tool again. Say so in
 your system prompt, and do not tell the model to avoid re-reading: the default placeholder reads
