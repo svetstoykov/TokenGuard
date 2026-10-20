@@ -96,9 +96,9 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
   least one of its results was replaced, and `PrepareResult.MessagesCompacted` and the `ToolResultMasked` log records
   count only replaced results. A prepared view can differ from the one 1.2.0 produces for the same history when that
   history holds tool results shorter than the placeholder.
-- The compaction strategy receives its budget on the provider-corrected scale the trigger uses: `MaxTokens` times the
-  history's estimate over its provider-corrected count, minus the pinned messages. Without a provider report the
-  budget is as before. The masking step lines stay on the unconverted budget. A custom `ICompactionStrategy` receives
+- The compaction strategy receives its budget on the estimate scale: the largest estimate whose provider-corrected
+  size, under the same correction the final size check applies, fits `MaxTokens`, minus the pinned messages. Without
+  a provider report the budget is as before. The masking step lines stay on the unconverted budget. A custom `ICompactionStrategy` receives
   the converted budget. A prepared view can differ from the one 1.2.0 produces once a provider report exists.
 
 ### Fixed
