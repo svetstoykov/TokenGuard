@@ -34,6 +34,12 @@ namespace TokenGuard.Core.Strategies;
 ///         the same instance. The boundary is found before this check and does not depend on it.
 ///     </para>
 ///     <para>
+///         A tool result whose <see cref="ToolResultContent.ToolName"/> is one of
+///         <see cref="SlidingWindowOptions.ExemptToolNames"/> is never replaced, and it is not part of the comparison
+///         that decides whether the other results in its message are. Like the size check, the exemption is applied
+///         after the boundary is found.
+///     </para>
+///     <para>
 ///         The boundary moves in steps and holds between them, so the result of one call is the start of the result
 ///         of the next call until the history has grown by about a step. The boundary is derived from the history
 ///         and the budget alone: the strategy keeps no state between calls, and the same messages always give the
@@ -113,8 +119,9 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///     </para>
     ///     <para>
     ///         Messages before the protected boundary are only changed when they contain a <see cref="ToolResultContent"/>
-    ///         that costs more estimated tokens than the placeholder built for it from
-    ///         <see cref="SlidingWindowOptions.PlaceholderFormat"/>. The content of each such block is replaced with
+    ///         from a tool outside <see cref="SlidingWindowOptions.ExemptToolNames"/> that costs more estimated tokens
+    ///         than the placeholder built for it from <see cref="SlidingWindowOptions.PlaceholderFormat"/>. The content
+    ///         of each such block is replaced with
     ///         that placeholder, and the returned message clears <see cref="ContextMessage.TokenCount"/> so token
     ///         estimation can be recomputed against the masked content. Every other tool result keeps its content, and
     ///         a message with no replaced result is returned as the same instance.
@@ -243,7 +250,8 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     }
 
     /// <summary>
-    ///     Replaces the content of each tool result in a message that costs more tokens than its placeholder.
+    ///     Replaces the content of each tool result in a message that is not exempt and costs more tokens than its
+    ///     placeholder.
     /// </summary>
     /// <remarks>
     ///     <para>
@@ -253,9 +261,13 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     ///     </para>
     ///     <para>
     ///         The gain of one result is the difference between two counts of the same message: one with that result
-    ///         whole and one with its placeholder. A message with one tool result compares
+    ///         whole and one with its placeholder. A message with one tool result that can be masked compares
     ///         <paramref name="messageTokens"/> with the count of its masked copy. A message with several compares the
-    ///         copy that has every result masked with a copy that has one result put back, once per result.
+    ///         copy that has every such result masked with a copy that has one result put back, once per result.
+    ///     </para>
+    ///     <para>
+    ///         A result of a tool in <see cref="SlidingWindowOptions.ExemptToolNames"/> stays whole in every copy, so it
+    ///         is never replaced and adds the same tokens to both sides of each comparison.
     ///     </para>
     /// </remarks>
     /// <param name="contextMessage">The message to mask.</param>
@@ -267,9 +279,9 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
     private ContextMessage MaskToolResultsIfNeeded(ContextMessage contextMessage, int messageTokens)
     {
         var content = contextMessage.Segments;
-        var toolResultCount = content.Count(segment => segment is ToolResultContent);
+        var maskableCount = content.Count(this.IsMaskable);
 
-        if (toolResultCount == 0)
+        if (maskableCount == 0)
         {
             return contextMessage;
         }
@@ -278,7 +290,7 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
 
         for (var i = 0; i < content.Count; i++)
         {
-            maskedContent[i] = content[i] is ToolResultContent toolResult
+            maskedContent[i] = content[i] is ToolResultContent toolResult && this.IsMaskable(toolResult)
                 ? toolResult with { Content = string.Format(this._options.PlaceholderFormat, toolResult.ToolName, toolResult.ToolCallId) }
                 : content[i];
         }
@@ -286,17 +298,17 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
         var masked = contextMessage with { Segments = maskedContent, State = CompactionState.Masked, TokenCount = null };
         var maskedTokens = this._tokenCounter.Count(masked);
 
-        if (toolResultCount == 1)
+        if (maskableCount == 1)
         {
             return messageTokens > maskedTokens ? masked : contextMessage;
         }
 
         var resultContent = maskedContent.ToArray();
-        var replacedCount = toolResultCount;
+        var replacedCount = maskableCount;
 
         for (var i = 0; i < content.Count; i++)
         {
-            if (content[i] is not ToolResultContent)
+            if (!this.IsMaskable(content[i]))
                 continue;
 
             var placeholder = maskedContent[i];
@@ -316,8 +328,10 @@ internal sealed class SlidingWindowStrategy : ICompactionStrategy
             return contextMessage;
         }
 
-        return replacedCount == toolResultCount ? masked : masked with { Segments = resultContent };
+        return replacedCount == maskableCount ? masked : masked with { Segments = resultContent };
     }
+
+    private bool IsMaskable(ContentSegment segment) => segment is ToolResultContent toolResult && !this._options.IsExempt(toolResult.ToolName);
 
     private static int CountTokens(IReadOnlyList<ContextMessage> messages, ITokenCounter tokenCounter)
     {

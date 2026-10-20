@@ -117,6 +117,29 @@ public sealed class SlidingWindowStrategyLoggingTests
         logs.WithEventId(SlidingWindowApplied).Should().ContainSingle().Which.Property("ToolResultsMasked").Should().Be(1);
     }
 
+    [Fact]
+    public async Task CompactAsync_WhenToolIsExempt_LogsOnlyTheReplacedResultsOfOtherTools()
+    {
+        // Arrange
+        var logs = new CapturingLoggerFactory();
+        var options = new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20) { ExemptToolNames = ["notes"] };
+        var strategy = new SlidingWindowStrategy(new TextLengthTokenCounter(), options, logs.CreateLogger<SlidingWindowStrategy>());
+        ContextMessage[] messages =
+        [
+            ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_1", "notes", new string('n', 400))),
+            ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent("call_2", "search", new string('r', 400))),
+            ContextMessage.FromText(MessageRole.User, "aaaaa"),
+        ];
+
+        // Act
+        await strategy.CompactAsync(messages, availableTokens: 20);
+
+        // Assert
+        var record = logs.WithEventId(ToolResultMasked).Should().ContainSingle().Subject;
+        record.Property("ToolCallId").Should().Be("call_2");
+        logs.WithEventId(SlidingWindowApplied).Should().ContainSingle().Which.Property("ToolResultsMasked").Should().Be(1);
+    }
+
     private static SlidingWindowStrategy CreateStrategy(CapturingLoggerFactory logs) =>
         new(
             new TextLengthTokenCounter(), new SlidingWindowOptions(windowSize: 1, protectedWindowFraction: 0.20),

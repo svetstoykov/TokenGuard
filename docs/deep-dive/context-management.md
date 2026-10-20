@@ -221,6 +221,20 @@ returned as it is. The comparison uses the configured `PlaceholderFormat`, so a 
 short results in place. The check is made per tool result after the boundary is found, so it never moves the boundary
 or a step line. `MessagesCompacted` and the masked-result log records count only what was replaced.
 
+A tool result is never replaced when its `ToolName` is one of `SlidingWindowOptions.ExemptToolNames`. Use it for tools
+whose results the agent relies on later, such as a notes or todo-list tool:
+
+```csharp
+var options = new SlidingWindowOptions(windowSize: 10) { ExemptToolNames = ["todo_write", "notes"] };
+```
+
+Names match exactly and ordinally, so `Todo_Write` does not exempt `todo_write`. Like the size check, the exemption is
+applied per tool result after the boundary is found, so an exempt result never moves the boundary or a step line. In a
+message with several results, an exempt one stays whole while the others are judged as usual, and a message whose
+results are all exempt is returned as it is. An exempt result keeps its full size wherever it falls in the history.
+Large exempt results leave more for summarization and emergency truncation, and a prepare can end as
+`CompactionInsufficient` where it would otherwise end as `Compacted`.
+
 If masking changed the segment to `TextContent`, the OpenAI adapter would silently skip the tool message, leaving the
 preceding assistant tool call without a matching tool result. Provider request would be invalid.
 
@@ -536,6 +550,7 @@ dependency injection. It does not expose `WithTokenCounter(...)`, `WithStrategy(
 | `WindowSize` | 10 | Minimum newest compactable messages always preserved |
 | `ProtectedWindowFraction` | 0.80 | Max fraction of `availableTokens` the protected tail may consume after the floor is satisfied; the tail holds between this bound and one step (a quarter of it) below |
 | `PlaceholderFormat` | `"[Tool result removed to save context — {0}, {1}. Call the tool again if you need this content.]"` | Placeholder format for masked tool results; `{0}` is the tool name and `{1}` the tool call ID |
+| `ExemptToolNames` | empty | Init property: tool names, matched exactly and ordinally, whose results masking never replaces |
 
 ### `LlmSummarizationOptions`
 

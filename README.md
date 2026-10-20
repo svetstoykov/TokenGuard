@@ -352,7 +352,10 @@ Three ordered tiers:
 
 **1. Observation masking.** The sliding-window strategy walks backward through compactable history and masks older
 `ToolResultContent` payloads outside the protected tail. Recent messages stay intact and structure is preserved. A tool
-result that costs no more tokens than its placeholder, such as `ok` or an exit code, keeps its content.
+result that costs no more tokens than its placeholder, such as `ok` or an exit code, keeps its content. Results of the
+tools named in `SlidingWindowOptions.ExemptToolNames`, such as a notes or todo-list tool the agent relies on later, are
+never masked: `new SlidingWindowOptions(windowSize: 12) { ExemptToolNames = ["todo_write"] }`. Names match exactly,
+case included. An exempt result keeps its full size, so large ones leave masking less to reclaim.
 
 A masked tool result is gone from the request, and the model can get it back only by calling the tool again. Say so in
 your system prompt, and do not tell the model to avoid re-reading: the default placeholder reads
