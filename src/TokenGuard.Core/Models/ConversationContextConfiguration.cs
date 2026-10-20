@@ -77,7 +77,7 @@ public sealed record ConversationContextConfiguration(
     ///         The default is the smaller of 25,000 and a quarter of <see cref="ContextBudget.MaxTokens" /> of the
     ///         <see cref="Budget" /> the record is created with, and at least one: 10,000 tokens at a 40,000-token budget. A copy
     ///         made with <see langword="with" /> that changes only <see cref="Budget" /> keeps the earlier limit. A limit larger
-    ///         than the budget is allowed.
+    ///         than the budget is allowed. A limit smaller than the omission notice stores the full notice alone and may be exceeded.
     ///     </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">The value is zero or negative.</exception>

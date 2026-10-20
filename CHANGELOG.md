@@ -17,8 +17,23 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
   falls, so large exempt results leave more for summarization and emergency truncation, and a prepare can end as
   `CompactionInsufficient` where it would otherwise end as `Compacted`. Two options values with the same names in any
   order are equal.
+- A limit on the estimated tokens of one recorded tool result, on by default. `RecordToolResult` stores a result above
+  the limit shortened: whole lines from its start and its end, about half of the limit each, with the notice
+  `[Tool result shortened to fit the context: {N} of {M} lines omitted here. Call the tool again with a narrower request if you need them.]`
+  in place of the omitted middle. Text with one line is cut by characters, never inside a surrogate pair. The default
+  is the smaller of 25,000 and a quarter of `MaxTokens` (10,000 at the default 40,000). Set it with
+  `ConversationConfigBuilder.WithMaxToolResultTokens(int)`, turn it off with `WithoutToolResultLimit()`, or set
+  `ConversationContextConfiguration.MaxToolResultTokens`, which is `null` when the limit is off. A cap too small to fit
+  the omission notice stores the full notice alone and may be exceeded.
+- Debug event 1020 (`ToolResultShortened`) and the counter `tokenguard.tool_result.truncated`, tagged with
+  `tokenguard.tool.name`, report each shortened result.
+
 
 ### Changed
+
+- Behavior change: a tool result above the tool result limit is stored shortened, where 1.2.0 stored it whole. One
+  result larger than the window used to leave the prepare call `CompactionInsufficient` or `CannotCompact`, because a
+  result of the open tool loop can be neither masked nor dropped. The published benchmark figures describe 1.2.0.
 
 - The quick starts in the README and on the package pages stop on both over-budget outcomes, `CompactionInsufficient`
   and `CannotCompact`, and end after a set number of model calls.

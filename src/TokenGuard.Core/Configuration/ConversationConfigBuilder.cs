@@ -181,7 +181,8 @@ public sealed class ConversationConfigBuilder
     ///     <para>
     ///         <see cref="ConversationContext.RecordToolResult"/> stores a result whose estimate is above the limit with whole
     ///         lines from its start and its end and a notice in place of the omitted middle, so one large result cannot fill the
-    ///         window. A limit larger than the budget is allowed. A tool that bounds its own output below the limit is never cut.
+    ///         window. If the limit is smaller than the omission notice, the full notice is stored alone and may exceed the limit.
+    ///         A limit larger than the budget is allowed. A tool that bounds its own output below the limit is never cut.
     ///     </para>
     /// </remarks>
     /// <param name="maxToolResultTokens">The largest estimated token count of one stored tool result. Must be positive.</param>
