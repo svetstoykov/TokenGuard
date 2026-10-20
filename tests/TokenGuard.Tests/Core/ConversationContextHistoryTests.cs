@@ -33,6 +33,7 @@ public sealed class ConversationContextHistoryTests
         var configuration = new ConversationConfigBuilder()
             .WithMaxTokens(1_200)
             .WithSlidingWindowOptions(new SlidingWindowOptions(windowSize: 2))
+            .WithoutToolResultLimit()
             .Build();
         using var context = new ConversationContextFactory(configuration).Create();
         context.SetSystemPrompt("You are a careful coding assistant.");

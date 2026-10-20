@@ -452,6 +452,105 @@ public sealed class ConversationConfigBuilderTests
         act.Should().ThrowExactly<ArgumentException>().WithParameterName("options").WithMessage("*LlmSummarizationOptions*not initialized*");
     }
 
+    [Theory]
+    [InlineData(40_000, 10_000)]
+    [InlineData(200_000, 25_000)]
+    [InlineData(3, 1)]
+    public void Build_WhenTheToolResultLimitIsNotConfigured_UsesTheSmallerOf25000AndAQuarterOfMaxTokens(int maxTokens, int expected)
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(maxTokens);
+
+        // Act
+        var configuration = builder.Build();
+
+        // Assert
+        configuration.MaxToolResultTokens.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(40_000, 10_000)]
+    [InlineData(200_000, 25_000)]
+    public void Default_UsesTheDefaultToolResultLimitForItsMaxTokens(int maxTokens, int expected)
+    {
+        // Arrange
+
+        // Act
+        var configuration = ConversationConfigBuilder.Default(maxTokens);
+
+        // Assert
+        configuration.MaxToolResultTokens.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(500)]
+    [InlineData(1_000_000)]
+    public void WithMaxToolResultTokens_UsesTheGivenLimitEvenAboveTheBudget(int maxToolResultTokens)
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(40_000);
+
+        // Act
+        var configuration = builder.WithMaxToolResultTokens(maxToolResultTokens).Build();
+
+        // Assert
+        configuration.MaxToolResultTokens.Should().Be(maxToolResultTokens);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void WithMaxToolResultTokens_WhenTheLimitIsNotPositive_ThrowsArgumentOutOfRangeException(int maxToolResultTokens)
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder();
+
+        // Act
+        Action act = () => builder.WithMaxToolResultTokens(maxToolResultTokens);
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentOutOfRangeException>().WithParameterName("maxToolResultTokens");
+    }
+
+    [Fact]
+    public void WithoutToolResultLimit_TurnsTheLimitOff()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(40_000);
+
+        // Act
+        var configuration = builder.WithoutToolResultLimit().Build();
+
+        // Assert
+        configuration.MaxToolResultTokens.Should().BeNull();
+    }
+
+    [Fact]
+    public void WithMaxToolResultTokens_AfterWithoutToolResultLimit_TurnsTheLimitBackOn()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(40_000).WithoutToolResultLimit();
+
+        // Act
+        var configuration = builder.WithMaxToolResultTokens(2_000).Build();
+
+        // Assert
+        configuration.MaxToolResultTokens.Should().Be(2_000);
+    }
+
+    [Fact]
+    public void WithoutToolResultLimit_AfterWithMaxToolResultTokens_TurnsTheLimitOff()
+    {
+        // Arrange
+        var builder = new ConversationConfigBuilder().WithMaxTokens(40_000).WithMaxToolResultTokens(2_000);
+
+        // Act
+        var configuration = builder.WithoutToolResultLimit().Build();
+
+        // Assert
+        configuration.MaxToolResultTokens.Should().BeNull();
+    }
+
     private static ContextMessage CreateToolResultMessage(string callId, string toolName, string payload)
     {
         return new ContextMessage

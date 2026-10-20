@@ -193,7 +193,7 @@ public sealed class ConversationContextToolLoopTests
     }
 
     private static IConversationContext CreateDefaultContext(int maxTokens) =>
-        new ConversationContextFactory(new ConversationConfigBuilder().WithMaxTokens(maxTokens).Build()).Create();
+        new ConversationContextFactory(new ConversationConfigBuilder().WithMaxTokens(maxTokens).WithoutToolResultLimit().Build()).Create();
 
     private static IConversationContext CreateSummarizingContext(int maxTokens)
     {

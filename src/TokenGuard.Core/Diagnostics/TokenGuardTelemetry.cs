@@ -135,6 +135,11 @@ internal static class TokenGuardTelemetry
     internal const string SignalTag = "tokenguard.signal";
 
     /// <summary>
+    ///     The tag that holds the name of the tool that produced a tool result.
+    /// </summary>
+    internal const string ToolNameTag = "tokenguard.tool.name";
+
+    /// <summary>
     ///     The <see cref="KindTag" /> value for messages whose tool results were replaced with placeholders.
     /// </summary>
     internal const string MaskedKind = "masked";
@@ -232,6 +237,13 @@ internal static class TokenGuardTelemetry
     internal static readonly Counter<long> EmergencyTruncations =
         Meter.CreateCounter<long>(
             "tokenguard.emergency_truncation.count", "{truncation}", "Prepare calls in which emergency truncation removed messages.");
+
+    /// <summary>
+    ///     Counts tool results stored shortened because their estimate was above the tool result limit, tagged with tool name.
+    /// </summary>
+    internal static readonly Counter<long> ToolResultsTruncated =
+        Meter.CreateCounter<long>(
+            "tokenguard.tool_result.truncated", "{result}", "Tool results stored shortened because they were above the tool result limit.");
 
     /// <summary>
     ///     Records the signed estimator error as a fraction of the provider-reported input tokens.

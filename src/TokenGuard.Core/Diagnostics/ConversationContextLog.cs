@@ -261,4 +261,25 @@ internal static partial class ConversationContextLog
         Level = LogLevel.Error,
         Message = "Conversation {ConversationId} ({ContextName}) turn {Turn}: the compaction strategy threw; the prepare call failed.")]
     internal static partial void StrategyFailed(ILogger logger, Exception exception, string conversationId, string contextName, int turn);
+
+    /// <summary>
+    ///     Logs that a recorded tool result was above the tool result limit and was stored shortened.
+    /// </summary>
+    /// <param name="logger">The logger to write to.</param>
+    /// <param name="conversationId">The identifier of the conversation.</param>
+    /// <param name="contextName">The configuration name of the conversation.</param>
+    /// <param name="toolCallId">The tool call identifier of the result.</param>
+    /// <param name="toolName">The name of the tool that produced the result.</param>
+    /// <param name="originalTokens">The estimated tokens of the result as given.</param>
+    /// <param name="storedTokens">The estimated tokens of the result as stored.</param>
+    /// <param name="maxToolResultTokens">The tool result limit.</param>
+    [LoggerMessage(
+        EventId = 1020,
+        EventName = "ToolResultShortened",
+        Level = LogLevel.Debug,
+        Message = "Conversation {ConversationId} ({ContextName}): tool result {ToolCallId} of tool {ToolName} was estimated at "
+            + "{OriginalTokens} tokens, above the limit of {MaxToolResultTokens}, and was stored shortened at {StoredTokens} tokens.")]
+    internal static partial void ToolResultShortened(
+        ILogger logger, string conversationId, string contextName, string toolCallId, string toolName, int originalTokens, int storedTokens,
+        int maxToolResultTokens);
 }

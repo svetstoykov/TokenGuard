@@ -54,6 +54,9 @@ public sealed class ConversationContext : IConversationContext
     private readonly ConversationDiagnostics _diagnostics;
     private readonly ILogger _logger;
     private readonly ConversationHealth _health;
+
+    // The largest estimate a tool result is stored at, or null when tool results are stored whole.
+    private readonly int? _maxToolResultTokens;
     private readonly List<ContextMessage> _history = [];
 
     // Token total reported for the list most recently returned by PrepareAsync, with the provider correction included.
@@ -86,7 +89,7 @@ public sealed class ConversationContext : IConversationContext
 
     /// <summary>
     /// Creates a conversation context with the budget, token counter, and compaction strategy
-    /// that define how requests are prepared.
+    /// that define how requests are prepared, and that stores every tool result whole.
     /// </summary>
     /// <param name="budget">
     /// Defines the token limits for the conversation, including when compaction and emergency truncation start.
@@ -100,7 +103,9 @@ public sealed class ConversationContext : IConversationContext
     /// the configured budget.
     /// </param>
     internal ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy)
-        : this(budget, counter, strategy, new ConversationDiagnostics(NullLoggerFactory.Instance, ConversationDiagnostics.DefaultContextName))
+        : this(
+            budget, counter, strategy, new ConversationDiagnostics(NullLoggerFactory.Instance, ConversationDiagnostics.DefaultContextName),
+            maxToolResultTokens: null)
     {
     }
 
@@ -111,9 +116,15 @@ public sealed class ConversationContext : IConversationContext
     /// <param name="counter">Counts tokens for individual messages.</param>
     /// <param name="strategy">Produces a smaller message list when the history reaches the compaction trigger.</param>
     /// <param name="diagnostics">The logger factory and identifiers this conversation reports with.</param>
-    internal ConversationContext(ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy, ConversationDiagnostics diagnostics)
+    /// <param name="maxToolResultTokens">
+    /// The largest estimated token count a tool result is stored at, or <see langword="null"/> to store every tool result whole.
+    /// </param>
+    internal ConversationContext(
+        ContextBudget budget, ITokenCounter counter, ICompactionStrategy strategy, ConversationDiagnostics diagnostics,
+        int? maxToolResultTokens = null)
     {
         this._budget = budget;
+        this._maxToolResultTokens = maxToolResultTokens;
         this._counter = counter as TimedTokenCounter ?? new TimedTokenCounter(counter);
         this._strategy = strategy;
         this._diagnostics = diagnostics;
@@ -383,6 +394,16 @@ public sealed class ConversationContext : IConversationContext
     /// single <see cref="MessageRole.Tool"/> message so later requests preserve the tool call chain.
     /// </para>
     /// <para>
+    /// A result whose estimate by this context's token counter is above the tool result limit
+    /// (<see cref="ConversationContextConfiguration.MaxToolResultTokens"/>) is stored shortened: whole lines from its start
+    /// and its end, about half of the limit each, with a notice in place of the omitted middle that states how many lines
+    /// were left out and asks the model to call the tool again with a narrower request. Text with one line, or whose first
+    /// or last line alone is longer than its half, is cut by characters without splitting a surrogate pair. The stored
+    /// estimate is at or under the limit, except that a limit smaller than the notice stores the notice alone. A result at
+    /// or under the limit is stored as given. The arguments are validated before the result is shortened, and the context
+    /// does not keep the full text of a shortened result.
+    /// </para>
+    /// <para>
     /// This method only records the result. It does not validate whether the tool call identifier
     /// matches a previously recorded <see cref="ToolUseContent"/> segment.
     /// </para>
@@ -412,8 +433,17 @@ public sealed class ConversationContext : IConversationContext
 
             ArgumentNullException.ThrowIfNull(content);
 
-            var message = ContextMessage.FromContent(MessageRole.Tool, new ToolResultContent(toolCallId, toolName, content));
-            this.AddMessage(message);
+            var result = new ToolResultContent(toolCallId, toolName, content);
+            var message = ContextMessage.FromContent(MessageRole.Tool, result);
+            if (this._maxToolResultTokens is not { } maxTokens || this.EnsureCounted(message) <= maxTokens)
+            {
+                this.AddMessage(message);
+                return;
+            }
+
+            var shortened = ContextMessage.FromContent(MessageRole.Tool, ToolResultShortener.Shorten(result, maxTokens, this._counter));
+            this.AddMessage(shortened);
+            this.ReportToolResultShortened(result, message.TokenCount!.Value, shortened.TokenCount!.Value, maxTokens);
         }
         finally
         {
@@ -1268,6 +1298,23 @@ public sealed class ConversationContext : IConversationContext
         catch (Exception)
         {
             // The message is already stored; a failing logger must not make the recording call look failed.
+        }
+    }
+
+    private void ReportToolResultShortened(ToolResultContent result, int originalTokens, int storedTokens, int maxToolResultTokens)
+    {
+        TokenGuardTelemetry.ToolResultsTruncated.Add(
+            1, this._diagnostics.ContextNameTag, TokenGuardTelemetry.Tag(TokenGuardTelemetry.ToolNameTag, result.ToolName));
+
+        try
+        {
+            ConversationContextLog.ToolResultShortened(
+                this._logger, this._diagnostics.ConversationId, this._diagnostics.ContextName, result.ToolCallId, result.ToolName,
+                originalTokens, storedTokens, maxToolResultTokens);
+        }
+        catch (Exception)
+        {
+            // The shortened result is already stored; a failing logger must not make the recording call look failed.
         }
     }
 

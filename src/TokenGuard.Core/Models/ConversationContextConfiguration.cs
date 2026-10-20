@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using TokenGuard.Core.Abstractions;
 using TokenGuard.Core.Configuration;
+using TokenGuard.Core.Defaults;
 using TokenGuard.Core.Diagnostics;
 
 namespace TokenGuard.Core.Models;
@@ -27,6 +28,10 @@ namespace TokenGuard.Core.Models;
 /// <see cref="ConversationContext"/> and nothing else. Do not add extra properties to it; it is a
 /// construction recipe, not a general-purpose options bag.
 /// </para>
+/// <para>
+/// <see cref="MaxToolResultTokens"/> is set from <paramref name="Budget"/> when the record is created. A copy made with
+/// <see langword="with"/> that changes only <see cref="Budget"/> keeps the earlier limit; set both to change both.
+/// </para>
 /// </remarks>
 /// <param name="Budget">
 /// Defines the token limits for conversations created from this configuration, including the
@@ -43,6 +48,7 @@ public sealed record ConversationContextConfiguration(
     Func<ITokenCounter, ICompactionStrategy> StrategyFactory)
 {
     private readonly Func<ITokenCounter, ICompactionStrategy> _strategyFactory = StrategyFactory;
+    private readonly int? _maxToolResultTokens = ToolResultLimitDefaults.Resolve(Budget.MaxTokens);
 
     /// <summary>
     ///     Gets the delegate that creates the <see cref="ICompactionStrategy" /> used by one conversation-context instance.
@@ -54,6 +60,38 @@ public sealed record ConversationContextConfiguration(
         {
             this._strategyFactory = value;
             this.DiagnosticStrategyFactory = null;
+        }
+    }
+
+    /// <summary>
+    ///     Gets the largest estimated token count a tool result is stored at, or <see langword="null" /> when tool results are
+    ///     stored whole.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         <see cref="ConversationContext.RecordToolResult" /> stores a result whose estimate is above this limit in shortened
+    ///         form, with whole lines from its start and its end and a notice in place of the omitted middle. The estimate is made
+    ///         by the context's token counter.
+    ///     </para>
+    ///     <para>
+    ///         The default is the smaller of 25,000 and a quarter of <see cref="ContextBudget.MaxTokens" /> of the
+    ///         <see cref="Budget" /> the record is created with, and at least one: 10,000 tokens at a 40,000-token budget. A copy
+    ///         made with <see langword="with" /> that changes only <see cref="Budget" /> keeps the earlier limit. A limit larger
+    ///         than the budget is allowed.
+    ///     </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is zero or negative.</exception>
+    public int? MaxToolResultTokens
+    {
+        get => this._maxToolResultTokens;
+        init
+        {
+            if (value is <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "The tool result limit must be positive, or null for no limit.");
+            }
+
+            this._maxToolResultTokens = value;
         }
     }
 

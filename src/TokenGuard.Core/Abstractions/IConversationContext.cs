@@ -185,6 +185,15 @@ public interface IConversationContext : IDisposable
     /// later requests preserve the full tool call chain.
     /// </para>
     /// <para>
+    /// A result whose estimated tokens are above the configuration's
+    /// <see cref="ConversationContextConfiguration.MaxToolResultTokens"/> is stored shortened: whole lines from its start
+    /// and its end, about half of the limit each, with a notice in place of the omitted middle that states how many lines
+    /// were left out and asks the model to call the tool again with a narrower request. Text with one line, or whose first
+    /// or last line alone is longer than its half, is cut by characters without splitting a surrogate pair. The stored
+    /// estimate is at or under the limit, except that a limit smaller than the notice stores the notice alone. A result at
+    /// or under the limit is stored as given. The context does not keep the full text of a shortened result.
+    /// </para>
+    /// <para>
     /// This method only records the result. It does not validate that <paramref name="toolCallId"/>
     /// corresponds to a previously recorded <see cref="ToolUseContent"/> segment.
     /// </para>

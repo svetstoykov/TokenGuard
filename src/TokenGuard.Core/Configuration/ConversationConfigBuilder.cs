@@ -32,6 +32,10 @@ public sealed class ConversationConfigBuilder
     private double? _compactionThreshold;
     private double? _emergencyThreshold = ConversationDefaults.EmergencyThreshold;
     private double? _overrunTolerance;
+
+    // Set by WithMaxToolResultTokens and WithoutToolResultLimit; while false, Build uses the default for the budget.
+    private bool _toolResultLimitConfigured;
+    private int? _maxToolResultTokens;
     private SlidingWindowOptions? _slidingWindowOptions;
     private Func<ILoggerFactory, ILlmSummarizer>? _llmSummarizerFactory;
     private LlmSummarizationOptions? _llmSummarizationOptions;
@@ -45,7 +49,8 @@ public sealed class ConversationConfigBuilder
     ///     This method delegates to a new <see cref="ConversationConfigBuilder"/> instance and applies only
     ///     <see cref="WithMaxTokens(int)"/> before calling <see cref="Build"/>. When no value is supplied,
     ///     the resulting configuration uses the library default profile: 40,000 tokens, a 0.80 compaction
-    ///     threshold, 1.0 emergency truncation as a last-resort safety net, TokenGuard's built-in heuristic token counting, and
+    ///     threshold, 1.0 emergency truncation as a last-resort safety net, a tool result limit of a quarter of the maximum
+    ///     token count up to 25,000, TokenGuard's built-in heuristic token counting, and
     ///     <see cref="TieredCompactionStrategy"/> with <see cref="SlidingWindowOptions.Default"/> and no LLM stage.
     /// </remarks>
     /// <param name="maxTokens">
@@ -165,6 +170,49 @@ public sealed class ConversationConfigBuilder
     }
 
     /// <summary>
+    ///     Sets the largest estimated token count a tool result is stored at.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         When not configured, the limit is the smaller of 25,000 and a quarter of the configured maximum token count:
+    ///         10,000 tokens at the default 40,000-token budget. To store every tool result whole, call
+    ///         <see cref="WithoutToolResultLimit"/> instead.
+    ///     </para>
+    ///     <para>
+    ///         <see cref="ConversationContext.RecordToolResult"/> stores a result whose estimate is above the limit with whole
+    ///         lines from its start and its end and a notice in place of the omitted middle, so one large result cannot fill the
+    ///         window. A limit larger than the budget is allowed. A tool that bounds its own output below the limit is never cut.
+    ///     </para>
+    /// </remarks>
+    /// <param name="maxToolResultTokens">The largest estimated token count of one stored tool result. Must be positive.</param>
+    /// <returns>The current builder instance.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxToolResultTokens"/> is zero or negative.</exception>
+    public ConversationConfigBuilder WithMaxToolResultTokens(int maxToolResultTokens)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxToolResultTokens);
+
+        this._maxToolResultTokens = maxToolResultTokens;
+        this._toolResultLimitConfigured = true;
+        return this;
+    }
+
+    /// <summary>
+    ///     Turns the tool result limit off so every tool result is stored whole.
+    /// </summary>
+    /// <remarks>
+    ///     Without the limit, one tool result larger than the window can be neither masked nor dropped while its tool loop is
+    ///     open, and the prepare call returns <see cref="Enums.PrepareOutcome.CompactionInsufficient"/> or
+    ///     <see cref="Enums.PrepareOutcome.CannotCompact"/>. Use this only when every tool bounds its own output.
+    /// </remarks>
+    /// <returns>The current builder instance.</returns>
+    public ConversationConfigBuilder WithoutToolResultLimit()
+    {
+        this._maxToolResultTokens = null;
+        this._toolResultLimitConfigured = true;
+        return this;
+    }
+
+    /// <summary>
     ///     Sets the configuration used by the always-on sliding-window masking stage.
     /// </summary>
     /// <remarks>
@@ -207,7 +255,9 @@ public sealed class ConversationConfigBuilder
     ///     <para>
     ///         Budget values not explicitly configured on the builder are merged with the library defaults
     ///         from <see cref="ContextBudget.For(int)"/> for the configured maximum token count: 0.80 compaction,
-    ///         and emergency truncation defaulting to the absolute token limit.
+    ///         and emergency truncation defaulting to the absolute token limit. Without <see cref="WithMaxToolResultTokens"/> or
+    ///         <see cref="WithoutToolResultLimit"/>, <see cref="ConversationContextConfiguration.MaxToolResultTokens"/> is the
+    ///         default for the configured maximum token count.
     ///     </para>
     ///     <para>
     ///         Token counting always uses TokenGuard's built-in heuristic <see cref="ITokenCounter"/> implementation.
@@ -264,6 +314,7 @@ public sealed class ConversationConfigBuilder
 
         return new ConversationContextConfiguration(budget, tokenCounter => strategyFactory(tokenCounter, CreateSilentDiagnostics()))
         {
+            MaxToolResultTokens = this._toolResultLimitConfigured ? this._maxToolResultTokens : ToolResultLimitDefaults.Resolve(budget.MaxTokens),
             LoggerFactory = this._loggerFactory,
             DiagnosticStrategyFactory = strategyFactory,
         };
