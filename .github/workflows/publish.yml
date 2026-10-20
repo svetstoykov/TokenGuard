@@ -15,6 +15,7 @@ on:
           - TokenGuard.Core
           - TokenGuard.Extensions.OpenAI
           - TokenGuard.Extensions.Anthropic
+          - TokenGuard.Extensions.AI
 
 permissions: {}
 
@@ -55,6 +56,9 @@ jobs:
               ;;
             TokenGuard.Extensions.Anthropic)
               project="src/TokenGuard.Extensions.Anthropic/TokenGuard.Extensions.Anthropic.csproj"
+              ;;
+            TokenGuard.Extensions.AI)
+              project="src/TokenGuard.Extensions.AI/TokenGuard.Extensions.AI.csproj"
               ;;
             *)
               echo "Unsupported package: $PACKAGE_ID" >&2

@@ -22,12 +22,18 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer.Automation", "s
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Codexplorer.Automation.Tests", "tests\Codexplorer.Automation.Tests\Codexplorer.Automation.Tests.csproj", "{B4E1CF9B-1BCB-4EFF-93B7-7FE869EA5414}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TokenGuard.Extensions.AI", "src\TokenGuard.Extensions.AI\TokenGuard.Extensions.AI.csproj", "{30026061-7637-4042-815C-7232677AFE0F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{30026061-7637-4042-815C-7232677AFE0F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{30026061-7637-4042-815C-7232677AFE0F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{30026061-7637-4042-815C-7232677AFE0F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{30026061-7637-4042-815C-7232677AFE0F}.Release|Any CPU.Build.0 = Release|Any CPU
 		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU

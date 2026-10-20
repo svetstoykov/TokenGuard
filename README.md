@@ -51,7 +51,7 @@ object. `PrepareAsync()` returns a `PrepareResult` describing what should go to 
   while preserving pinned messages and the newest active tail
 - **Pins durable context** that survives all compaction stages: system prompts, task constraints, repository rules, and
   any message you need to keep unchanged
-- **Stays provider-agnostic** in core, with adapter helpers for OpenAI and Anthropic
+- **Stays provider-agnostic** in core, with adapter helpers for OpenAI, Anthropic and Microsoft.Extensions.AI
 - **Integrates in minutes** via `AddConversationContext(...)` and a standard DI factory
 
 ---
@@ -642,6 +642,84 @@ run by hand against the Anthropic API in October 2026 on Claude Haiku 5.5, Sonne
 [package readme](src/TokenGuard.Extensions.Anthropic/PackageReadme.md) lists what those runs showed and what is still
 not verified.
 
+### Microsoft.Extensions.AI
+
+Install `TokenGuard.Extensions.AI` and your provider's `IChatClient` implementation. The adapter depends on
+`Microsoft.Extensions.AI.Abstractions` 10.11.0 or later and targets .NET 10. Keep one context per conversation and one
+caller at a time. This helper accepts your client and tool declarations:
+
+```csharp
+using Microsoft.Extensions.AI;
+using TokenGuard.Core;
+using TokenGuard.Core.Configuration;
+using TokenGuard.Core.Enums;
+using TokenGuard.Extensions.AI;
+```
+
+```csharp
+// Supply your provider's IChatClient and any tool declarations in options.
+// Keep this client alive for the lifetime of its contexts.
+static async Task RunAsync(IChatClient chatClient, ChatOptions options, CancellationToken cancellationToken = default)
+{
+    var configuration = new ConversationConfigBuilder()
+        .WithMaxTokens(40_000)
+        .UseLlmSummarization(chatClient)
+        .Build();
+    using var context = new ConversationContextFactory(configuration).Create();
+    context.SetSystemPrompt("You are a precise coding assistant.");
+    context.AddPinnedMessage(MessageRole.User, "Repository root is /workspace/project.");
+    context.AddUserMessage("Summarize the failing tests.");
+
+    for (var turn = 0; turn < 20; turn++)
+    {
+        var prepared = await context.PrepareAsync(cancellationToken);
+        if (prepared.Outcome is PrepareOutcome.CompactionInsufficient or PrepareOutcome.CannotCompact)
+            throw new InvalidOperationException(prepared.BudgetFailureReason);
+
+        var response = await chatClient.GetResponseAsync(prepared.Messages.ForChatClient(), options, cancellationToken);
+        var segments = response.ResponseSegments();
+        if (segments.Count == 0)
+            throw new InvalidOperationException("The model returned an empty reply.");
+
+        context.RecordModelResponse(segments, response.InputTokens());
+        var toolCalls = response.ToolUseSegments();
+        if (toolCalls.Count == 0)
+        {
+            Console.WriteLine(string.Join(Environment.NewLine, response.TextSegments().Select(segment => segment.Content)));
+            return;
+        }
+
+        foreach (var toolCall in toolCalls)
+        {
+            var result = ExecuteTool(toolCall.ToolName, toolCall.Content);
+            context.RecordToolResult(toolCall.ToolCallId, toolCall.ToolName, result);
+        }
+    }
+
+    throw new InvalidOperationException("Stopped after 20 model calls without a final answer.");
+
+    // Replace with your own dispatch; argumentsJson holds the tool's JSON object.
+    static string ExecuteTool(string name, string argumentsJson) => $"Executed {name} with {argumentsJson}.";
+}
+```
+
+Drive each tool round in the caller, as above. `FunctionInvokingChatClient` returns intermediate function results and
+aggregates usage across rounds; TokenGuard rejects responses containing `FunctionResultContent` with guidance to
+remove automatic function invocation. This keeps the recorded history and provider correction aligned with each request.
+See [Microsoft's implementation](https://github.com/dotnet/extensions/blob/v10.11.0/src/Libraries/Microsoft.Extensions.AI/ChatCompletion/FunctionInvokingChatClient.cs).
+
+Leave `ChatOptions.ConversationId` unset and configure the provider client to send the complete prepared history;
+server-managed history can retain content that TokenGuard compacted. For streaming, collect the updates with
+`ToChatResponseAsync()` before using these response helpers. Text and function calls are supported; reasoning content
+and usage content are omitted, and unsupported content such as media throws `NotSupportedException`.
+
+TokenGuard keeps the history, correction and summary checkpoint in the caller's context. Its token budget uses provider
+usage correction, masks old tool results in steps, and preserves pinned messages through every compaction stage.
+The experimental Microsoft.Extensions.AI [chat reducers](https://github.com/dotnet/extensions/tree/v10.11.0/src/Libraries/Microsoft.Extensions.AI/ChatReduction)
+reduce lists using message counts. [Agent Framework compaction](https://learn.microsoft.com/agent-framework/concepts/agents/conversations/compaction)
+also supports token, turn and group triggers. This adapter supplies conversions and summarization for a caller-owned
+TokenGuard context; it provides no middleware or `IChatReducer` registration.
+
 ---
 
 ## Custom token counter and strategy
@@ -769,6 +847,7 @@ src/
   TokenGuard.Core                     core abstractions, message model, compaction pipeline
   TokenGuard.Extensions.OpenAI        OpenAI message conversion and response mapping
   TokenGuard.Extensions.Anthropic     Anthropic message conversion and response mapping
+  TokenGuard.Extensions.AI            Microsoft.Extensions.AI conversion and summarization
 
 samples/
   Codexplorer                         repository-analysis sample
@@ -792,7 +871,7 @@ dotnet build TokenGuard.sln --nologo
 dotnet test TokenGuard.sln --no-restore --nologo
 ```
 
-`TokenGuard.sln` includes the three packages, the two Codexplorer sample projects, and the test projects `TokenGuard.Tests`, `TokenGuard.IntegrationTests` and `Codexplorer.Automation.Tests`. `tests/TokenGuard.ReadmeSnippets` is outside the solution; run it with `./tests/TokenGuard.ReadmeSnippets/verify.sh`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow.
+`TokenGuard.sln` includes the four packages, the two Codexplorer sample projects, and the test projects `TokenGuard.Tests`, `TokenGuard.IntegrationTests` and `Codexplorer.Automation.Tests`. `tests/TokenGuard.ReadmeSnippets` is outside the solution; run it with `./tests/TokenGuard.ReadmeSnippets/verify.sh`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow.
 
 If you only want the interactive sample:
 
@@ -806,8 +885,8 @@ dotnet build ./samples/Codexplorer/src/Codexplorer.csproj --nologo
 
 Authoritative NuGet release runbook lives in [docs/release-process.md](docs/release-process.md).
 
-Use that path to publish `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, or
-`TokenGuard.Extensions.Anthropic` from an existing Git tag. Publication runs manually through
+Use that path to publish `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`,
+`TokenGuard.Extensions.Anthropic`, or `TokenGuard.Extensions.AI` from an existing Git tag. Publication runs manually through
 GitHub Actions, publishes one selected package per run, and authenticates to nuget.org through
 Trusted Publishing without a long-lived API key.
 
@@ -829,13 +908,13 @@ What is current:
 - sliding-window observation masking is implemented and always part of the built-in pipeline
 - built-in compaction starts at **0.80** and defaults emergency truncation to **1.0**
 - emergency truncation is implemented and defaults to **1.0** as a last-resort safety net
-- LLM summarization is implemented for OpenAI and Anthropic via `UseLlmSummarization(...)`
+- LLM summarization is implemented for OpenAI, Anthropic and Microsoft.Extensions.AI via `UseLlmSummarization(...)`
 - summary checkpoint reuse and promotion are implemented inside the summarization strategy
 - the default counter is `EstimatedTokenCounter`; custom counters and strategies have public builder routes, and provider
   input-token anchoring applies to every counter
 - pinned messages survive all compaction stages
 - DI registration via `AddConversationContext(...)` and factory-based creation is implemented
-- OpenAI and Anthropic adapter helpers are available
+- OpenAI, Anthropic and Microsoft.Extensions.AI adapter helpers are available
 - the Anthropic adapter is covered by unit tests and was run by hand against the Anthropic API in October 2026 on
   Claude Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.1
 - runtime recording flow is available through `SetSystemPrompt(...)`, `AddPinnedMessage(...)`, `AddUserMessage(...)`,

@@ -18,6 +18,7 @@
     <PackageReference Include="TokenGuard.Core" Version="*-*" />
     <PackageReference Include="TokenGuard.Extensions.OpenAI" Version="*-*" />
     <PackageReference Include="TokenGuard.Extensions.Anthropic" Version="*-*" />
+    <PackageReference Include="TokenGuard.Extensions.AI" Version="*-*" />
   </ItemGroup>
 
 </Project>

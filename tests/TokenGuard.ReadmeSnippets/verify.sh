@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the README's OpenAI and Anthropic quick starts and the fragments of the OpenAI package readme against packages
+# Builds the README's OpenAI, Anthropic and Microsoft.Extensions.AI quick starts and the fragments of the OpenAI package readme against packages
 # packed from the working tree, then checks that the READMEs still carry the compiled text.
 set -euo pipefail
 
@@ -17,7 +17,7 @@ openai_package_readme="src/TokenGuard.Extensions.OpenAI/PackageReadme.md"
 
 rm -rf "$work_dir" "$project_dir/bin" "$project_dir/obj"
 
-for package in TokenGuard.Core TokenGuard.Extensions.OpenAI TokenGuard.Extensions.Anthropic; do
+for package in TokenGuard.Core TokenGuard.Extensions.OpenAI TokenGuard.Extensions.Anthropic TokenGuard.Extensions.AI; do
   dotnet pack "$repo_root/src/$package/$package.csproj" --configuration Release --nologo --output "$work_dir/feed"
 done
 
@@ -63,6 +63,9 @@ done
 check_blocks "$anthropic_program" "README.md" "${anthropic_blocks[@]}"
 check_blocks "$anthropic_program" "$anthropic_package_readme" "${anthropic_blocks[@]}"
 check_blocks "$openai_fragments" "$openai_package_readme" "OpenAIUsings" "OpenAIOverview" "OpenAIRegistration" "OpenAIPrepare" "OpenAISend"
+
+check_blocks "$project_dir/ChatClientQuickStart.cs" "README.md" "ChatClientUsings" "ChatClientLoop"
+check_blocks "$project_dir/ChatClientQuickStart.cs" "src/TokenGuard.Extensions.AI/PackageReadme.md" "ChatClientUsings" "ChatClientLoop"
 
 if [ "$failed" -ne 0 ]; then
   exit 1
