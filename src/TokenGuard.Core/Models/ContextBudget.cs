@@ -64,6 +64,17 @@ public readonly record struct ContextBudget
     /// <summary>
     /// Gets the maximum number of tokens allowed in the conversation.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the input budget of one request; no room is reserved for the reply. Set it so that the model's context
+    /// window minus the largest reply requested is at least <c>MaxTokens × (1 + <see cref="OverrunTolerance"/>)</c>.
+    /// </para>
+    /// <para>
+    /// Request overhead such as tool definitions is not part of the estimate. A provider-reported input count passed to
+    /// <see cref="ConversationContext.RecordModelResponse"/> brings it into the provider correction; a caller that never
+    /// passes one leaves room for the tool definitions as well, about 140 tokens per tool in measured runs.
+    /// </para>
+    /// </remarks>
     public int MaxTokens { get; }
 
     /// <summary>
@@ -110,7 +121,8 @@ public readonly record struct ContextBudget
     /// <para>
     /// Defaults to <see cref="ConversationDefaults.OverrunTolerance"/> (0.05 — 5% of <see cref="MaxTokens"/>).
     /// Pass <c>0.0</c> to disable tolerance and restore strict-budget behavior.
-    /// Compaction strategies always target <see cref="MaxTokens"/>; the tolerance only affects the final outcome
+    /// Compaction strategies target <see cref="MaxTokens"/>, converted to the estimate scale by the provider correction;
+    /// the tolerance only affects the final outcome
     /// classification after all compaction techniques have run.
     /// </para>
     /// </remarks>
