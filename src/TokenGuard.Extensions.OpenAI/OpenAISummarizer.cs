@@ -1,159 +1,67 @@
-using System.Diagnostics;
-using System.Globalization;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using OpenAI.Chat;
 using TokenGuard.Core.Abstractions;
-using TokenGuard.Core.Defaults;
-using TokenGuard.Core.Diagnostics;
-using TokenGuard.Core.Models;
+using TokenGuard.Core.Models.Content;
 using TokenGuard.Core.Summarization;
 
 namespace TokenGuard.Extensions.OpenAI;
 
+/// <summary>
+///     Sends TokenGuard's summarization requests to an OpenAI chat model.
+/// </summary>
+/// <remarks>
+///     The request goes out as one system message and one user message with the output cap of the request. A refusal is
+///     returned as <see cref="SummarizerFinishReason.Refused" /> with its text; finish reason <c>stop</c> maps to
+///     <see cref="SummarizerFinishReason.Completed" />, <c>length</c> to <see cref="SummarizerFinishReason.OutputLimit" />,
+///     and any other to <see cref="SummarizerFinishReason.Other" />. <see cref="ChatClient" /> is safe for concurrent use, so
+///     one instance serves every context of a configuration.
+/// </remarks>
 internal sealed class OpenAISummarizer : ILlmSummarizer
 {
-    private const string ProviderName = "OpenAI";
-
     private readonly ChatClient _client;
-    private readonly IConversationSummaryFormatter _formatter;
-    private readonly ILogger _logger;
 
+    /// <summary>
+    ///     Initializes a new instance of the <see cref="OpenAISummarizer" /> class.
+    /// </summary>
+    /// <param name="client">The OpenAI client used to generate summaries. Cannot be <see langword="null" />.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="client" /> is <see langword="null" />.</exception>
     public OpenAISummarizer(ChatClient client)
-        : this(client, ConversationSummaryFormatter.Default)
-    {
-    }
-
-    /// <summary>
-    ///     Initializes a new instance of the <see cref="OpenAISummarizer" /> class that logs each provider call.
-    /// </summary>
-    /// <param name="client">The OpenAI client used to generate summaries. Cannot be <see langword="null" />.</param>
-    /// <param name="logger">The logger that receives the call records. Cannot be <see langword="null" />.</param>
-    public OpenAISummarizer(ChatClient client, ILogger<OpenAISummarizer> logger)
-        : this(client, ConversationSummaryFormatter.Default, logger)
-    {
-    }
-
-    internal OpenAISummarizer(ChatClient client, IConversationSummaryFormatter formatter)
-        : this(client, formatter, NullLogger<OpenAISummarizer>.Instance)
-    {
-    }
-
-    /// <summary>
-    ///     Initializes a new instance of the <see cref="OpenAISummarizer" /> class with a custom prompt formatter and a logger.
-    /// </summary>
-    /// <param name="client">The OpenAI client used to generate summaries. Cannot be <see langword="null" />.</param>
-    /// <param name="formatter">The formatter that builds the summarization prompt. Cannot be <see langword="null" />.</param>
-    /// <param name="logger">The logger that receives the call records. Cannot be <see langword="null" />.</param>
-    internal OpenAISummarizer(ChatClient client, IConversationSummaryFormatter formatter, ILogger<OpenAISummarizer> logger)
     {
         ArgumentNullException.ThrowIfNull(client);
-        ArgumentNullException.ThrowIfNull(formatter);
-        ArgumentNullException.ThrowIfNull(logger);
 
         this._client = client;
-        this._formatter = formatter;
-        this._logger = logger;
     }
 
-    public async Task<string> SummarizeAsync(
-        IReadOnlyList<ContextMessage> messages,
-        int targetTokens,
-        int requestTokenBudget,
-        CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<SummarizerResponse> SummarizeAsync(SummarizerRequest request, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(request);
 
-        if (targetTokens <= 0)
+        var completion = (await this._client.CompleteChatAsync(
+                [new SystemChatMessage(request.SystemPrompt), new UserChatMessage(request.UserPrompt)],
+                new ChatCompletionOptions { MaxOutputTokenCount = request.MaxOutputTokens },
+                cancellationToken)
+            .ConfigureAwait(false)).Value;
+
+        var refused = !string.IsNullOrWhiteSpace(completion.Refusal);
+        var text = refused ? completion.Refusal : JoinText(completion.TextSegments());
+
+        return new SummarizerResponse(text, refused ? SummarizerFinishReason.Refused : MapFinishReason(completion.FinishReason))
         {
-            throw new ArgumentOutOfRangeException(nameof(targetTokens), "targetTokens must be greater than zero.");
-        }
-
-        var logCall = this._logger.IsEnabled(LogLevel.Debug);
-        var startTimestamp = logCall ? Stopwatch.GetTimestamp() : 0;
-        SummarizerLog.SummarizerCallStarting(this._logger, ProviderName, model: null, messages.Count, targetTokens);
-
-        var outputCap = (int)Math.Min((long)targetTokens * LlmSummarizationDefaults.OutputCapFactor, int.MaxValue);
-        string? finishReason = null;
-        long? outputTokens = null;
-        long? reasoningTokens = null;
-
-        try
-        {
-            var completion = (await this._client.CompleteChatAsync(
-                    [
-                        new SystemChatMessage(ConversationSummaryPrompt.SystemPrompt),
-                        new UserChatMessage(this._formatter.BuildUserPrompt(messages, targetTokens, requestTokenBudget)),
-                    ],
-                    new ChatCompletionOptions
-                    {
-                        MaxOutputTokenCount = outputCap,
-                    },
-                    cancellationToken)
-                .ConfigureAwait(false)).Value;
-
-            finishReason = FinishReasonName(completion.FinishReason);
-            outputTokens = completion.Usage?.OutputTokenCount;
-            reasoningTokens = completion.Usage?.OutputTokenDetails?.ReasoningTokenCount;
-            TokenGuardTelemetry.RecordSummarizerResponse(finishReason, outputTokens, reasoningTokens);
-
-            if (!string.IsNullOrWhiteSpace(completion.Refusal))
-            {
-                throw new InvalidOperationException(
-                    $"OpenAI summarization was refused. Finish reason: {finishReason}; output tokens: {Reported(outputTokens)}; "
-                    + $"reasoning tokens: {Reported(reasoningTokens)}. Refusal: {completion.Refusal}");
-            }
-
-            var summary = string.Join(
-                    Environment.NewLine,
-                    completion.TextSegments()
-                        .Select(segment => segment.Content)
-                        .Where(static content => !string.IsNullOrWhiteSpace(content)))
-                .Trim();
-
-            if (string.IsNullOrWhiteSpace(summary))
-            {
-                throw new InvalidOperationException(
-                    $"OpenAI summarization returned an empty answer. Finish reason: {finishReason}; output tokens: {Reported(outputTokens)}; "
-                    + $"reasoning tokens: {Reported(reasoningTokens)}.");
-            }
-
-            if (completion.FinishReason == ChatFinishReason.Length)
-            {
-                SummarizerLog.SummarizerOutputCut(this._logger, ProviderName, outputCap, outputTokens);
-            }
-
-            if (logCall)
-            {
-                SummarizerLog.SummarizerCallCompleted(
-                    this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, summary.Length,
-                    completion.Usage?.InputTokenCount, outputTokens, reasoningTokens, finishReason);
-            }
-
-            return summary;
-        }
-        catch (Exception exception) when (logCall)
-        {
-            SummarizerLog.SummarizerCallFailed(
-                this._logger, ProviderName, Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds, exception.GetType().Name,
-                outputTokens, reasoningTokens, finishReason);
-            throw;
-        }
+            InputTokens = completion.Usage?.InputTokenCount,
+            OutputTokens = completion.Usage?.OutputTokenCount,
+            ReasoningTokens = completion.Usage?.OutputTokenDetails?.ReasoningTokenCount,
+        };
     }
 
-    /// <summary>
-    ///     Returns the OpenAI wire name of a finish reason, such as <c>length</c> for an answer cut off by the output limit.
-    /// </summary>
-    private static string FinishReasonName(ChatFinishReason finishReason) =>
+    private static string JoinText(IEnumerable<TextContent> segments) =>
+        string.Join(
+            Environment.NewLine, segments.Select(static segment => segment.Content).Where(static content => !string.IsNullOrWhiteSpace(content)));
+
+    private static SummarizerFinishReason MapFinishReason(ChatFinishReason finishReason) =>
         finishReason switch
         {
-            ChatFinishReason.Stop => "stop",
-            ChatFinishReason.Length => "length",
-            ChatFinishReason.ContentFilter => "content_filter",
-            ChatFinishReason.ToolCalls => "tool_calls",
-            ChatFinishReason.FunctionCall => "function_call",
-            _ => finishReason.ToString(),
+            ChatFinishReason.Stop => SummarizerFinishReason.Completed,
+            ChatFinishReason.Length => SummarizerFinishReason.OutputLimit,
+            _ => SummarizerFinishReason.Other,
         };
-
-    private static string Reported(long? tokens) => tokens?.ToString(CultureInfo.InvariantCulture) ?? "not reported";
 }

@@ -6,6 +6,7 @@ using TokenGuard.Core.Diagnostics;
 using TokenGuard.Core.Models;
 using TokenGuard.Core.Options;
 using TokenGuard.Core.Strategies;
+using TokenGuard.Core.Summarization;
 
 namespace TokenGuard.Core.Configuration;
 
@@ -33,9 +34,8 @@ public sealed class ConversationConfigBuilder
     private double? _emergencyThreshold = ConversationDefaults.EmergencyThreshold;
     private double? _overrunTolerance;
     private SlidingWindowOptions? _slidingWindowOptions;
-    private Func<ILoggerFactory, ILlmSummarizer>? _llmSummarizerFactory;
+    private ILlmSummarizer? _llmSummarizer;
     private LlmSummarizationOptions? _llmSummarizationOptions;
-    private string? _llmSummarizationProviderName;
     private ILoggerFactory? _loggerFactory;
 
     /// <summary>
@@ -169,8 +169,8 @@ public sealed class ConversationConfigBuilder
     /// </summary>
     /// <remarks>
     ///     When not configured, <see cref="SlidingWindowOptions.Default"/> is used. This only adjusts the masking
-    ///     phase; provider-backed LLM summarization is registered separately through extension-package methods such as
-    ///     <c>UseLlmSummarization(...)</c>.
+    ///     phase; LLM summarization is registered separately through <see cref="UseLlmSummarization"/> or the
+    ///     <c>UseLlmSummarization(...)</c> methods of the provider packages.
     /// </remarks>
     /// <param name="options">The sliding-window masking configuration.</param>
     /// <returns>The current builder instance.</returns>
@@ -196,6 +196,45 @@ public sealed class ConversationConfigBuilder
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         this._loggerFactory = loggerFactory;
+        return this;
+    }
+
+    /// <summary>
+    ///     Adds LLM summarization through the given summarizer as the fallback compaction stage.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Summarization runs when masking old tool results still leaves the context over budget. TokenGuard builds the
+    ///         prompt and the transcript, sends them through <paramref name="summarizer"/>, and checks the answer; see
+    ///         <see cref="ILlmSummarizer"/> for the contract.
+    ///     </para>
+    ///     <para>
+    ///         One <paramref name="summarizer"/> instance serves every context created from the built configuration, so it
+    ///         must be safe for concurrent use.
+    ///     </para>
+    ///     <para>
+    ///         TokenGuard sets no time limit on a summarizer call. The call is bounded only by the cancellation token passed
+    ///         to <c>PrepareAsync</c> and by whatever limit the summarizer applies. When a call fails, or returns a summary that
+    ///         is too large for the budget, TokenGuard does not ask again until a message is added or the token budget changes.
+    ///     </para>
+    /// </remarks>
+    /// <param name="summarizer">The model call that writes summaries. Cannot be <see langword="null"/>.</param>
+    /// <param name="options">
+    ///     Optional summarization options. When omitted, <see cref="LlmSummarizationOptions.Default"/> is used.
+    /// </param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="summarizer"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">A summarizer has already been registered on this builder.</exception>
+    public ConversationConfigBuilder UseLlmSummarization(ILlmSummarizer summarizer, LlmSummarizationOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(summarizer);
+
+        if (this._llmSummarizer is not null)
+            throw new InvalidOperationException(BuildSummarizerConflictMessage(this._llmSummarizer, summarizer));
+
+        this._llmSummarizer = summarizer;
+        this._llmSummarizationOptions = options;
+
         return this;
     }
 
@@ -259,7 +298,7 @@ public sealed class ConversationConfigBuilder
 
         var strategyFactory = BuildStrategyFactory(
             this._slidingWindowOptions ?? SlidingWindowOptions.Default,
-            this._llmSummarizerFactory,
+            this._llmSummarizer,
             this._llmSummarizationOptions);
 
         return new ConversationContextConfiguration(budget, tokenCounter => strategyFactory(tokenCounter, CreateSilentDiagnostics()))
@@ -269,91 +308,22 @@ public sealed class ConversationConfigBuilder
         };
     }
 
-    /// <summary>
-    /// Registers provider-backed LLM summarization for the current builder.
-    /// </summary>
-    /// <param name="summarizerFactory">
-    /// A factory that creates the provider implementation that produces summaries when masking is insufficient.
-    /// </param>
-    /// <param name="providerName">The human-readable provider name used in conflict messages.</param>
-    /// <param name="options">
-    /// Optional summarization options. When omitted, <see cref="LlmSummarizationOptions.Default"/> is used.
-    /// </param>
-    /// <returns>The current builder instance.</returns>
-    /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="summarizerFactory"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="providerName"/> is <see langword="null"/>, empty, or whitespace.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when a summarization provider has already been registered on this builder instance.
-    /// </exception>
-    internal ConversationConfigBuilder SetLlmSummarizer(
-        Func<ILlmSummarizer> summarizerFactory,
-        string providerName,
-        LlmSummarizationOptions? options = null)
-    {
-        ArgumentNullException.ThrowIfNull(summarizerFactory);
-
-        return this.SetLlmSummarizer(_ => summarizerFactory(), providerName, options);
-    }
-
-    /// <summary>
-    /// Registers provider-backed LLM summarization whose summarizer logs through the conversation's logger factory.
-    /// </summary>
-    /// <param name="summarizerFactory">
-    /// A factory that creates the provider implementation from the logger factory of the conversation it serves.
-    /// </param>
-    /// <param name="providerName">The human-readable provider name used in conflict messages.</param>
-    /// <param name="options">
-    /// Optional summarization options. When omitted, <see cref="LlmSummarizationOptions.Default"/> is used.
-    /// </param>
-    /// <returns>The current builder instance.</returns>
-    /// <exception cref="ArgumentNullException">
-    /// Thrown when <paramref name="summarizerFactory"/> is <see langword="null"/>.
-    /// </exception>
-    /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="providerName"/> is <see langword="null"/>, empty, or whitespace.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when a summarization provider has already been registered on this builder instance.
-    /// </exception>
-    internal ConversationConfigBuilder SetLlmSummarizer(
-        Func<ILoggerFactory, ILlmSummarizer> summarizerFactory,
-        string providerName,
-        LlmSummarizationOptions? options = null)
-    {
-        ArgumentNullException.ThrowIfNull(summarizerFactory);
-        ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
-
-        if (this._llmSummarizerFactory is not null)
-        {
-            throw new InvalidOperationException(BuildProviderConflictMessage(
-                this._llmSummarizationProviderName!,
-                providerName));
-        }
-
-        this._llmSummarizerFactory = summarizerFactory;
-        this._llmSummarizationOptions = options;
-        this._llmSummarizationProviderName = providerName;
-
-        return this;
-    }
-
     private static Func<ITokenCounter, ConversationDiagnostics, ICompactionStrategy> BuildStrategyFactory(
         SlidingWindowOptions slidingWindowOptions,
-        Func<ILoggerFactory, ILlmSummarizer>? llmSummarizerFactory,
+        ILlmSummarizer? llmSummarizer,
         LlmSummarizationOptions? llmSummarizationOptions)
     {
+        var summarizationOptions = llmSummarizationOptions ?? LlmSummarizationOptions.Default;
+
         return (tokenCounter, diagnostics) =>
         {
             var loggerFactory = diagnostics.LoggerFactory;
-            var llmStrategy = llmSummarizerFactory is null
+            var llmStrategy = llmSummarizer is null
                 ? null
                 : new LlmSummarizationStrategy(
-                    llmSummarizerFactory(loggerFactory), tokenCounter, llmSummarizationOptions ?? LlmSummarizationOptions.Default,
-                    loggerFactory.CreateLogger<LlmSummarizationStrategy>(), diagnostics);
+                    new SummarizerInvoker(
+                        llmSummarizer, summarizationOptions.SummaryInstructions, loggerFactory.CreateLogger(llmSummarizer.GetType())),
+                    tokenCounter, summarizationOptions, loggerFactory.CreateLogger<LlmSummarizationStrategy>(), diagnostics);
 
             return new TieredCompactionStrategy(
                 tokenCounter, slidingWindowOptions, llmStrategy, loggerFactory.CreateLogger<TieredCompactionStrategy>(),
@@ -368,21 +338,8 @@ public sealed class ConversationConfigBuilder
         $"{optionsTypeName} was not initialized. "
         + $"Create it with a constructor or use {optionsTypeName}.Default instead of default({optionsTypeName}).";
 
-    private static string BuildProviderConflictMessage(string existingProviderName, string conflictingProviderName)
-    {
-        return
-            $"LLM summarization provider '{existingProviderName}' is already registered. Only one provider can be registered per builder instance.{Environment.NewLine}" +
-            $"Conflicting registration attempted for provider '{conflictingProviderName}'.{Environment.NewLine}" +
-            $"Remove the conflicting call before adding a new provider:{Environment.NewLine}{Environment.NewLine}" +
-            $"    builder.UseLlmSummarization({GetClientVariableName(existingProviderName)});   // keep one{Environment.NewLine}" +
-            $"    builder.UseLlmSummarization({GetClientVariableName(conflictingProviderName)}); // remove this";
-    }
-
-    private static string GetClientVariableName(string providerName) =>
-        providerName switch
-        {
-            "OpenAI" => "openAiClient",
-            "Anthropic" => "anthropicClient",
-            _ => char.ToLowerInvariant(providerName[0]) + providerName[1..] + "Client",
-        };
+    private static string BuildSummarizerConflictMessage(ILlmSummarizer existing, ILlmSummarizer conflicting) =>
+        $"LLM summarization is already registered with summarizer '{existing.GetType().Name}'. "
+        + $"Only one provider can be registered per builder instance.{Environment.NewLine}"
+        + $"Conflicting registration attempted with summarizer '{conflicting.GetType().Name}'. Remove one of the UseLlmSummarization calls.";
 }

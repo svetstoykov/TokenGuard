@@ -1,49 +1,41 @@
-using TokenGuard.Core.Models;
+using TokenGuard.Core.Configuration;
+using TokenGuard.Core.Summarization;
 
 namespace TokenGuard.Core.Abstractions;
 
 /// <summary>
-/// Defines LLM-backed summarization for older conversation history.
+///     Defines the model call that writes a summary of older conversation history.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Implement <see cref="ILlmSummarizer"/> when TokenGuard should delegate semantic compression to an external model
-/// instead of masking or dropping history. The abstraction stays provider-agnostic by accepting TokenGuard's
-/// canonical <see cref="ContextMessage"/> model and returning plain summary text that strategies can re-inject into
-/// the conversation.
-/// </para>
-/// <para>
-/// The calling strategy enforces system-wide budget policy before invoking the summarizer: first-time summaries are
-/// skipped when the remaining budget falls below the configured minimum, and checkpoint rewrites clamp the target to
-/// the configured <c>[MinSummaryTokens, MaxSummaryTokens]</c> range. Implementations can therefore assume that
-/// <c>targetTokens</c> is always a positive, bounded value that represents a meaningful upper limit for a viable
-/// summary, not a directive to consume all leftover budget. Producing a smaller summary is acceptable and expected.
-/// </para>
+///     <para>
+///         TokenGuard builds the request and checks the answer; an implementation only sends the request to a model. Send
+///         <see cref="SummarizerRequest.SystemPrompt" /> as the system or instructions message and
+///         <see cref="SummarizerRequest.UserPrompt" /> as one user message, cap the output at
+///         <see cref="SummarizerRequest.MaxOutputTokens" />, and return what the model wrote with the reason it stopped and
+///         the token usage it reported.
+///     </para>
+///     <para>
+///         TokenGuard rejects a blank answer and a <see cref="SummarizerFinishReason.Refused" /> answer, accepts a
+///         <see cref="SummarizerFinishReason.OutputLimit" /> answer and logs that it was cut, and logs every call. An
+///         exception thrown by the implementation counts as a failed summary.
+///     </para>
+///     <para>
+///         Register an implementation with <see cref="ConversationConfigBuilder.UseLlmSummarization" />. One instance serves
+///         every context the configuration creates, so the implementation must be safe for concurrent use.
+///     </para>
 /// </remarks>
-internal interface ILlmSummarizer
+public interface ILlmSummarizer
 {
     /// <summary>
-    /// Produces summary text for the supplied message slice.
+    ///     Asynchronously sends one summarization request to a model.
     /// </summary>
-    /// <remarks>
-    /// Implementations should preserve enough semantic state for the agent to continue after older messages are
-    /// replaced by a single summary message. The returned text becomes conversation content, so callers expect a
-    /// stable, reconstruction-grade summary rather than an opaque identifier or transport envelope.
-    /// </remarks>
-    /// <param name="messages">The ordered source messages to summarize.</param>
-    /// <param name="targetTokens">
-    /// A strategy-enforced upper bound on the summary token budget. Always positive. Treat as guidance for how
-    /// large the summary should be, not as a requirement to fill the entire allowance.
+    /// <param name="request">The prompts and the output cap to send. Cannot be <see langword="null" />.</param>
+    /// <param name="cancellationToken">
+    ///     A <see cref="CancellationToken" /> to observe while waiting for the task to complete.
     /// </param>
-    /// <param name="requestTokenBudget">
-    /// The largest request the summarizer should send, in tokens, counting its instructions and the transcript of
-    /// <paramref name="messages"/>. The strategy passes the tokens available to the compacted conversation.
-    /// </param>
-    /// <param name="cancellationToken">A token that can cancel the summarization request.</param>
-    /// <returns>A task that resolves to the summary text generated for <paramref name="messages"/>.</returns>
-    Task<string> SummarizeAsync(
-        IReadOnlyList<ContextMessage> messages,
-        int targetTokens,
-        int requestTokenBudget,
-        CancellationToken cancellationToken = default);
+    /// <returns>
+    ///     A task that represents the asynchronous operation. The task result contains the text the model wrote, the reason it
+    ///     stopped, and the token usage it reported.
+    /// </returns>
+    Task<SummarizerResponse> SummarizeAsync(SummarizerRequest request, CancellationToken cancellationToken = default);
 }

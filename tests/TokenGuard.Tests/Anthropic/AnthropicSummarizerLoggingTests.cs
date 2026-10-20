@@ -94,10 +94,10 @@ public sealed class AnthropicSummarizerLoggingTests
         // Assert
         var cut = logs.WithEventId(OutputCut).Should().ContainSingle().Subject;
         cut.Level.Should().Be(LogLevel.Warning);
-        cut.Property("Provider").Should().Be("Anthropic");
+        cut.Property("Provider").Should().Be("AnthropicSummarizer");
         cut.Property("OutputCap").Should().Be(80);
         cut.Property("OutputTokens").Should().Be(80L);
-        cut.Message.Should().Be("Anthropic summary was cut at the output limit of 80 tokens; provider-reported output tokens: 80.");
+        cut.Message.Should().Be("AnthropicSummarizer summary was cut at the output limit of 80 tokens; provider-reported output tokens: 80.");
     }
 
     [Fact]
@@ -163,7 +163,7 @@ public sealed class AnthropicSummarizerLoggingTests
 
         // Assert
         logs.WithEventId(CallCompleted).Single().Message.Should()
-            .EndWith("provider reported 11 input and 7 output tokens, finish reason end_turn, reasoning tokens: .");
+            .EndWith("provider reported 11 input and 7 output tokens, finish reason completed, reasoning tokens: .");
     }
 
     [Fact]
@@ -207,7 +207,8 @@ public sealed class AnthropicSummarizerLoggingTests
 
         // Assert
         result.SummarizationError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be(
-            "Anthropic summarization returned an empty answer. Stop reason: end_turn; output tokens: not reported.");
+            "The summarizer AnthropicSummarizer returned an empty answer. Finish reason: completed; "
+            + "output tokens: not reported; reasoning tokens: not reported.");
     }
 
     [Fact]
@@ -240,8 +241,8 @@ public sealed class AnthropicSummarizerLoggingTests
         records.Should().OnlyContain(record => record.Level == LogLevel.Debug);
 
         var starting = logs.WithEventId(CallStarting).Single();
-        starting.Property("Provider").Should().Be("Anthropic");
-        starting.Property("Model").Should().Be("claude-test");
+        starting.Property("Provider").Should().Be("AnthropicSummarizer");
+        starting.Property("Model").Should().BeNull();
         starting.Property("MessageCount").Should().Be(3);
         starting.Property("TargetTokens").Should().Be(20);
 
@@ -285,7 +286,7 @@ public sealed class AnthropicSummarizerLoggingTests
         await strategy.CompactAsync(CreateMessages(), availableTokens: 60);
 
         // Assert
-        logs.WithEventId(CallCompleted).Single().Property("FinishReason").Should().Be("end_turn");
+        logs.WithEventId(CallCompleted).Single().Property("FinishReason").Should().Be("completed");
     }
 
     [Fact]
@@ -301,7 +302,7 @@ public sealed class AnthropicSummarizerLoggingTests
 
         // Assert
         var summarize = capture.ActivitiesNamed("tokenguard.summarize").Should().ContainSingle(activity => activity.TraceId == root.TraceId).Subject;
-        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("end_turn");
+        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("completed");
         summarize.GetTagItem("tokenguard.tokens.output").Should().Be(7L);
     }
 
@@ -316,7 +317,8 @@ public sealed class AnthropicSummarizerLoggingTests
 
         // Assert
         result.SummarizationError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be(
-            "Anthropic summarization returned an empty answer. Stop reason: max_tokens; output tokens: 20.");
+            "The summarizer AnthropicSummarizer returned an empty answer. Finish reason: output_limit; "
+            + "output tokens: 20; reasoning tokens: not reported.");
     }
 
     [Fact]
@@ -334,7 +336,7 @@ public sealed class AnthropicSummarizerLoggingTests
 
         var failed = logs.WithEventId(CallFailed).Single();
         failed.Property("ExceptionType").Should().Be(nameof(InvalidOperationException));
-        failed.Property("FinishReason").Should().Be("max_tokens");
+        failed.Property("FinishReason").Should().Be("output_limit");
         failed.Property("OutputTokens").Should().Be(20L);
     }
 
@@ -352,7 +354,7 @@ public sealed class AnthropicSummarizerLoggingTests
         // Assert
         var summarize = capture.ActivitiesNamed("tokenguard.summarize").Should().ContainSingle(activity => activity.TraceId == root.TraceId).Subject;
         summarize.Status.Should().Be(ActivityStatusCode.Error);
-        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("max_tokens");
+        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("output_limit");
         summarize.GetTagItem("tokenguard.tokens.output").Should().Be(20L);
     }
 

@@ -75,7 +75,7 @@ public sealed class SummarizerAttemptTelemetryTests
     private static IConversationContext CreateOverBudgetContext(string contextName, ILlmSummarizer summarizer, ILoggerFactory? loggerFactory)
     {
         var builder = new ConversationConfigBuilder().WithMaxTokens(1_500);
-        builder.SetLlmSummarizer(() => summarizer, "Test", new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 100, maxSummaryTokens: 500));
+        builder.UseLlmSummarization(summarizer, new LlmSummarizationOptions(windowSize: 2, minSummaryTokens: 100, maxSummaryTokens: 500));
 
         if (loggerFactory is not null)
             builder.WithLoggerFactory(loggerFactory);

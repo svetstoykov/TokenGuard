@@ -100,10 +100,10 @@ public sealed class OpenAISummarizerLoggingTests
         // Assert
         var cut = logs.WithEventId(OutputCut).Should().ContainSingle().Subject;
         cut.Level.Should().Be(LogLevel.Warning);
-        cut.Property("Provider").Should().Be("OpenAI");
+        cut.Property("Provider").Should().Be("OpenAISummarizer");
         cut.Property("OutputCap").Should().Be(80);
         cut.Property("OutputTokens").Should().Be(80L);
-        cut.Message.Should().Be("OpenAI summary was cut at the output limit of 80 tokens; provider-reported output tokens: 80.");
+        cut.Message.Should().Be("OpenAISummarizer summary was cut at the output limit of 80 tokens; provider-reported output tokens: 80.");
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class OpenAISummarizerLoggingTests
 
         // Assert
         result.SummarizationError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be(
-            "OpenAI summarization was refused. Finish reason: stop; output tokens: 9; reasoning tokens: not reported. "
+            "The summarizer OpenAISummarizer refused to write the summary. Output tokens: 9; reasoning tokens: not reported. "
             + "Refusal: I cannot summarize this conversation.");
     }
 
@@ -200,7 +200,7 @@ public sealed class OpenAISummarizerLoggingTests
         records.Should().OnlyContain(record => record.Level == LogLevel.Debug);
 
         var starting = logs.WithEventId(CallStarting).Single();
-        starting.Property("Provider").Should().Be("OpenAI");
+        starting.Property("Provider").Should().Be("OpenAISummarizer");
         starting.Property("MessageCount").Should().Be(3);
         starting.Property("TargetTokens").Should().Be(20);
 
@@ -245,7 +245,7 @@ public sealed class OpenAISummarizerLoggingTests
 
         // Assert
         var completed = logs.WithEventId(CallCompleted).Single();
-        completed.Property("FinishReason").Should().Be("stop");
+        completed.Property("FinishReason").Should().Be("completed");
         completed.Property("ReasoningTokens").Should().BeNull();
     }
 
@@ -262,7 +262,7 @@ public sealed class OpenAISummarizerLoggingTests
 
         // Assert
         var summarize = capture.ActivitiesNamed("tokenguard.summarize").Should().ContainSingle(activity => activity.TraceId == root.TraceId).Subject;
-        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("stop");
+        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("completed");
         summarize.GetTagItem("tokenguard.tokens.output").Should().Be(7L);
         summarize.GetTagItem("tokenguard.tokens.reasoning").Should().BeNull();
     }
@@ -278,7 +278,7 @@ public sealed class OpenAISummarizerLoggingTests
 
         // Assert
         result.SummarizationError.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be(
-            "OpenAI summarization returned an empty answer. Finish reason: length; output tokens: 20; reasoning tokens: 19.");
+            "The summarizer OpenAISummarizer returned an empty answer. Finish reason: output_limit; output tokens: 20; reasoning tokens: 19.");
     }
 
     [Fact]
@@ -296,7 +296,7 @@ public sealed class OpenAISummarizerLoggingTests
 
         var failed = logs.WithEventId(CallFailed).Single();
         failed.Property("ExceptionType").Should().Be(nameof(InvalidOperationException));
-        failed.Property("FinishReason").Should().Be("length");
+        failed.Property("FinishReason").Should().Be("output_limit");
         failed.Property("OutputTokens").Should().Be(20L);
         failed.Property("ReasoningTokens").Should().Be(19L);
     }
@@ -315,7 +315,7 @@ public sealed class OpenAISummarizerLoggingTests
         // Assert
         var summarize = capture.ActivitiesNamed("tokenguard.summarize").Should().ContainSingle(activity => activity.TraceId == root.TraceId).Subject;
         summarize.Status.Should().Be(ActivityStatusCode.Error);
-        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("length");
+        summarize.GetTagItem("tokenguard.finish_reason").Should().Be("output_limit");
         summarize.GetTagItem("tokenguard.tokens.output").Should().Be(20L);
         summarize.GetTagItem("tokenguard.tokens.reasoning").Should().Be(19L);
     }
