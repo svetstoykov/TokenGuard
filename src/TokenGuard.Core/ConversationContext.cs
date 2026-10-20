@@ -35,7 +35,7 @@ namespace TokenGuard.Core;
 /// requiring a separate role-based preservation path.
 /// </para>
 /// <para>
-/// Token counts are estimated by the built-in heuristic <see cref="ITokenCounter"/> and cached on
+/// Token counts are estimated by the configured <see cref="ITokenCounter"/> and cached on
 /// each recorded <see cref="ContextMessage"/>. If the provider later reports an exact input token count,
 /// that value can be supplied through <see cref="RecordModelResponse(IEnumerable{ContentSegment}, int?)"/>
 /// so future preparation stays better aligned with the provider's own counting behavior.

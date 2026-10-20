@@ -126,7 +126,8 @@ The built-in `EstimatedTokenCounter` is more than a character-count heuristic:
   nothing for it
 - Unicode, punctuation, code-like text, paths, and emoji are handled with specialized heuristics
 - the built-in factory uses `new EstimatedTokenCounter()` with `TokenCountSafetyMode.Balanced`
-- public DI and factory configuration do not expose a token-counter replacement hook today
+- `WithTokenCounter(ITokenCounter)` supplies a shared, concurrently safe counter for recording, limits and every compaction stage
+- `EstimatedTokenCounter` is public and safe for concurrent use; its estimates can change between versions
 
 So the real shape is closer to:
 
@@ -590,7 +591,16 @@ var config = new ConversationConfigBuilder()
 ```
 
 The builder also has `WithLoggerFactory(ILoggerFactory)`, which supplies the logger factory for contexts created without
-dependency injection. It does not expose `WithTokenCounter(...)`, `WithStrategy(...)`, or reserved-token configuration.
+dependency injection. `WithTokenCounter(ITokenCounter)` shares a counter across all contexts of the configuration; provider
+correction applies on top. The timed counter also budgets the summarizer's system prompt, frame and transcript.
+
+`WithCompactionStrategy(Func<CompactionStrategyContext, ICompactionStrategy>)` creates a strategy once per context. Its
+context supplies `TokenCounter`, `LoggerFactory` and `ContextName`. The logger resolution matches the built-in strategies:
+configured factory, container factory, then the null factory. A custom strategy replaces the entire masking and
+summarization pipeline, and `Build()` rejects combining it with `WithSlidingWindowOptions` or `UseLlmSummarization`.
+Calling `WithTokenCounter` or `WithCompactionStrategy` again replaces that setting. The positional
+`ConversationContextConfiguration(ContextBudget, Func<ITokenCounter, ICompactionStrategy>)` constructor remains available;
+its strategy delegate receives the default counter but no logger context.
 
 ### `ContextBudget`
 

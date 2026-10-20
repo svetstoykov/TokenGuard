@@ -74,7 +74,8 @@ public static class ServiceCollectionExtensions
 
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<CodexplorerOptions>, CodexplorerOptionsValidator>());
-        services.TryAddSingleton<ITokenCounter, EstimatedTokenCounter>();
+        var tokenCounter = new EstimatedTokenCounter();
+        services.TryAddSingleton<ITokenCounter>(tokenCounter);
         services.TryAdd(ServiceDescriptor.Singleton(braveSearchSettings));
 
         services.AddOptions<CodexplorerOptions>()
@@ -106,6 +107,7 @@ public static class ServiceCollectionExtensions
         services.AddConversationContext(builder =>
         {
             builder
+                .WithTokenCounter(tokenCounter)
                 .WithMaxTokens(budgetOptions.ContextWindowTokens)
                 .WithCompactionThreshold(budgetOptions.SoftThresholdRatio)
                 .WithEmergencyThreshold(budgetOptions.HardThresholdRatio)

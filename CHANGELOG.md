@@ -11,6 +11,13 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
 
 ### Added
 
+- `ConversationConfigBuilder.WithTokenCounter(ITokenCounter)` shares a custom counter across contexts, including recording,
+  tool-result limits and summarizer request budgets. Provider correction and token-count timing apply to custom counters.
+- Public, sealed `EstimatedTokenCounter`, with a `TokenCountSafetyMode` constructor defaulting to `Balanced`. It is safe for
+  concurrent use; exact estimates can change between versions.
+- `ConversationConfigBuilder.WithCompactionStrategy(Func<CompactionStrategyContext, ICompactionStrategy>)` constructs one
+  custom strategy per conversation with its timed counter, resolved logger factory and context name. It replaces the
+  built-in pipeline; `Build()` rejects combining it with sliding-window options or a summarizer.
 - `SlidingWindowOptions.ExemptToolNames`, an init property that names tools whose results masking never replaces, set
   as `new SlidingWindowOptions(...) { ExemptToolNames = ["todo_write"] }`. Names match `ToolResultContent.ToolName`
   exactly and ordinally. The default is empty, which masks as before. An exempt result stays at its recorded size wherever it
@@ -36,6 +43,7 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
 
 ### Changed
 
+- Codexplorer uses the public counter and shares it with its context; Core grants it no internal access.
 - Behavior change: a tool result above the tool result limit is stored shortened, where 1.2.0 stored it whole. One
   result larger than the window used to leave the prepare call `CompactionInsufficient` or `CannotCompact`, because a
   result of the open tool loop can be neither masked nor dropped. The published benchmark figures describe 1.2.0.
