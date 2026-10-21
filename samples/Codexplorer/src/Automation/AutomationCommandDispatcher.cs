@@ -109,8 +109,13 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
 
         var hasWorkspacePath = !string.IsNullOrWhiteSpace(openSessionPayload.WorkspacePath);
         var hasRepositoryUrl = !string.IsNullOrWhiteSpace(openSessionPayload.RepositoryUrl);
+        var benchmarkWorkspace = Environment.GetEnvironmentVariable("CODEXPLORER_BENCHMARK_WORKSPACE");
+        var benchmarkLocal = hasWorkspacePath
+            && Environment.GetEnvironmentVariable("CODEXPLORER_BENCHMARK_OPENROUTER_BASE_URL") is not null
+            && Path.IsPathFullyQualified(openSessionPayload.WorkspacePath!)
+            && string.Equals(Path.GetFullPath(openSessionPayload.WorkspacePath!), benchmarkWorkspace, StringComparison.Ordinal);
 
-        if (hasWorkspacePath)
+        if (hasWorkspacePath && !benchmarkLocal)
         {
             return AutomationResponseEnvelope.ErrorResponse(
                 request.RequestId,
@@ -118,7 +123,7 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
                 message: "Payload property 'workspacePath' is not supported in automation mode. Provide 'repositoryUrl' only.");
         }
 
-        if (!hasRepositoryUrl)
+        if (!hasRepositoryUrl && !benchmarkLocal)
         {
             return AutomationResponseEnvelope.ErrorResponse(
                 request.RequestId,
@@ -159,8 +164,19 @@ internal sealed class AutomationCommandDispatcher : IAutomationCommandDispatcher
         try
         {
             var commitSha = string.IsNullOrWhiteSpace(openSessionPayload.RepositoryCommit) ? null : openSessionPayload.RepositoryCommit;
-            workspace = await this._workspaceManager.CloneAsync(openSessionPayload.RepositoryUrl!, commitSha: commitSha, ct: ct)
-                .ConfigureAwait(false);
+            if (benchmarkLocal)
+            {
+                using var repository = new LibGit2Sharp.Repository(benchmarkWorkspace!);
+                if (commitSha is not null && repository.Head.Tip.Sha != commitSha)
+                    throw new InvalidOperationException("The benchmark workspace does not match its frozen commit.");
+                workspace = new Workspace.Workspace(Path.GetFileName(benchmarkWorkspace!), "benchmark/local", benchmarkWorkspace!,
+                    DateTime.UtcNow, 0);
+            }
+            else
+            {
+                workspace = await this._workspaceManager.CloneAsync(openSessionPayload.RepositoryUrl!, commitSha: commitSha, ct: ct)
+                    .ConfigureAwait(false);
+            }
         }
         catch (ArgumentException ex)
         {

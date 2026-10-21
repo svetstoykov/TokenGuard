@@ -15,6 +15,9 @@ internal sealed class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        if (args.Length > 0 && string.Equals(args[0], "agent-comparison", StringComparison.OrdinalIgnoreCase))
+            return await AgentComparison.AgentComparisonCommand.RunAsync(args[1..], Console.Out).ConfigureAwait(false);
+
         if (args.Length > 0 && string.Equals(args[0], "compare", StringComparison.OrdinalIgnoreCase))
         {
             return await ComparisonCommand.RunAsync(args[1..], Console.Out).ConfigureAwait(false);

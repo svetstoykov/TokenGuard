@@ -65,6 +65,9 @@ public sealed class ToolRegistry : IToolRegistry
             new ListArtifactsTool()
         ];
 
+        if (Environment.GetEnvironmentVariable("CODEXPLORER_BENCHMARK_OPENROUTER_BASE_URL") is not null)
+            toolList = toolList.Where(tool => tool.Name is not ("web_search" or "web_fetch")).ToArray();
+
         var duplicateName = toolList.Select(tool => tool.Name).Concat(artifactToolList.Select(tool => tool.Name))
             .GroupBy(name => name, StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() > 1)?

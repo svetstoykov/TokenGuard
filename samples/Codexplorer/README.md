@@ -778,3 +778,57 @@ Edits stay in the local clone; nothing is committed or pushed. A clone pinned to
 ## Why this sample is interesting
 
 Most repo-chat demos answer one prompt and stop. Codexplorer keeps session alive, lets model use real exploration tools, and uses TokenGuard end-to-end to prepare, compact, and monitor context on every turn. You can actually watch compaction pressure and degradation happen live, then inspect same trail in markdown session logs later.
+
+## OpenCode comparison experiment
+
+The automation project includes an opt-in, three-arm comparison for the six frozen long-session tasks. It is a pilot measurement of Codexplorer control, Codexplorer treatment, and OpenCode. Setup and synthetic verification do not call a public model. The real campaign command at the end of this section is for a later, separately authorized run and has not been run as part of setup.
+
+The experiment compares task outcomes and captured usage while keeping each runtime's native prompts, tools, and context policy. The task checks score notes and answers; passing checks do not prove that repository edits are correct. The saved repository diff and changed-path list support diagnosis only. Unknown request classifications conservatively consume the main-agent call allowance, so unclassified overhead is charged rather than omitted. Synthetic fake-provider results verify the boundary and tool flow; they say nothing about performance or savings.
+
+The comparison uses all six tasks from the `100k`, `200k`, and `300k` manifests in each arm, for 18 sessions in one repetition. Calls run sequentially, with arm order rotated by task and repetition. Control uses a 1,000,000-token TokenGuard context window. Treatment uses 50,000, 65,000, and 100,000 tokens for the respective tiers. The per-task main-agent / reserved wrap-up allowances are 80 / 8, 140 / 10, and 200 / 12 calls. These are task-specific workloads; tiers are not interchangeable.
+
+All model work is configured for `qwen/qwen3.7-flash`, routed to the healthy `alibaba` OpenRouter endpoint selected from the public model-endpoint catalog. The shared output ceiling is 32,768 tokens, reasoning is enabled, and sampling parameters are omitted. OpenCode receives the same model for main, compaction, and small-model requests, with provider fallbacks disabled. It retains its own context-management behavior: v1.19.3 enables automatic compaction and disables pruning, with the plan recording a 20,000-token compaction reserve and 15,000-token recent-tail preservation derived from the pinned defaults and selected catalog limits. This is an agent comparison, not a causal isolation of TokenGuard.
+
+### Prepare and verify locally
+
+Run from the experiment worktree root. Install the official OpenCode v1.19.3 macOS arm64 release in the experiment scratch directory at `.artifacts/reports/opencode-comparison/scratch/tools/opencode-v1.19.3/opencode` before preparation. The verified tag points to commit `e3c4eb242585dcd77be1a867391b7c25fd47ce52`; the installed executable SHA-256 is `6d3e6458fce4b649edf974c19959d5dbfe1e7f255a503dcfc01215b24ad3ea5b`. Do not substitute another version or use the global OpenCode configuration. The versioned behavior is documented in the [v1.19.3 configuration reference](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/core/src/v1/config/config.ts), [compaction buffer defaults](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/session/overflow.ts), and [preserved-tail defaults](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/session/compaction.ts).
+
+This implementation is on `experiment/opencode-token-economy`, based on `main` at the user's explicit override; `main` is also the target. The launch plan records the resolved base SHA and preflight checks that it is unchanged and is an ancestor of the prepared source revision.
+
+First run the Release build and required regression suites. Then exercise the real Codexplorer and OpenCode executables against the loopback-only synthetic provider, prepare the immutable plan, and check readiness:
+
+```sh
+rtk dotnet build TokenGuard.sln -c Release
+rtk dotnet test tests/Codexplorer.Automation.Tests/Codexplorer.Automation.Tests.csproj -c Release
+rtk dotnet test tests/TokenGuard.Tests/TokenGuard.Tests.csproj -c Release
+rtk dotnet test tests/TokenGuard.IntegrationTests/TokenGuard.IntegrationTests.csproj -c Release
+rtk git diff --check
+rtk dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -c Release --no-build -- agent-comparison verify-offline --output .artifacts/reports/opencode-comparison
+rtk dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -c Release --no-build -- agent-comparison prepare --output .artifacts/reports/opencode-comparison --repetitions 1
+rtk dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -c Release --no-build -- agent-comparison preflight --plan .artifacts/reports/opencode-comparison/scratch/launch-plan.json
+```
+
+`verify-offline` uses a deterministic local fake provider. It has no public-upstream forwarding path. `prepare` performs unauthenticated public catalog reads, writes adapted prompts and diffs, and retains verified runtime bundles. It does not perform model inference. `preflight` checks the plan digest, source/base provenance, frozen manifest and prompt inputs, settings, provider route, offline evidence, full runtime inventories, executable versions, and credential presence. It writes redacted readiness to `.artifacts/reports/opencode-comparison/scratch/readiness.json`. A missing credential blocks live readiness but does not prevent offline verification.
+
+The credential resolver reads a nonempty `OPENROUTER_API_KEY` first, then the existing ignored `Codexplorer:OpenRouter:ApiKey` setting in the original Codexplorer development configuration. Setup never prints or copies the key. Retained bundles under `scratch/tools/codexplorer-release-<suffix>/` and `scratch/tools/automation-release-<suffix>/` omit development settings, logs, state, sessions, dotfiles, and secret-named files. The pinned OpenCode runtime, `offline-verification.json`, its cited evidence, and the generated launch plan remain under `scratch/`.
+
+If a Release build changes after offline verification or preparation, repeat the build, `verify-offline`, `prepare`, and `preflight` steps in that order. The synthetic marker and launch plan bind the runtime bundle contents; do not rebuild between final preflight and a later authorized launch. Keep the retained bundles and evidence when cleaning temporary build outputs.
+
+For local review, the synthetic reports and request timelines are under `.artifacts/reports/opencode-comparison/scratch/offline/`. The report comparison mode prints an offline comparison view without making model requests:
+
+```sh
+rtk dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -c Release --no-build -- agent-comparison compare --reports .artifacts/reports/opencode-comparison
+rtk dotnet run --project samples/Codexplorer.Automation/src/Codexplorer.Automation.csproj -c Release --no-build -- agent-comparison compare --reports .artifacts/reports/opencode-comparison --baseline codexplorer-control
+```
+
+The optional `--baseline` names a comparison arm. Savings are calculated only for complete matching real populations within one tier; synthetic setup reports never announce savings. Failed attempts remain in available spend totals, and unknown usage or cost is shown prominently.
+
+### Separate future live authorization
+
+The only live entry point requires `--execute-live`; setup scripts and commands above never include that flag. The following command is a template only. It is intentionally unexecuted and must be run only after a separate user instruction authorizes the campaign and the preflight reports `ready=true`:
+
+```sh
+rtk proxy .artifacts/reports/opencode-comparison/scratch/tools/automation-release-<suffix>/Codexplorer.Automation agent-comparison run --plan .artifacts/reports/opencode-comparison/scratch/launch-plan.json --execute-live
+```
+
+Use the retained automation executable and the exact plan approved by preflight. If the existing OpenRouter key's available spending limit is insufficient, the user can raise that limit before authorizing the run. Do not create another key or change a limit during setup.

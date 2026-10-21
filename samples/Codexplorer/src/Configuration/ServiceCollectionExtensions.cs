@@ -120,7 +120,8 @@ public static class ServiceCollectionExtensions
             if (llmSummarizationSettings.Enabled)
             {
                 builder.UseLlmSummarization(
-                    new MeasuredSummarizerChatClient(OpenRouterChatClientFactory.Create(codexplorerOptions), measurementCollector),
+                    new MeasuredSummarizerChatClient(
+                        OpenRouterChatClientFactory.Create(codexplorerOptions, benchmarkSummarizer: true), measurementCollector),
                     new LlmSummarizationOptions(
                         windowSize: llmSummarizationSettings.WindowSize,
                         minSummaryTokens: llmSummarizationSettings.MinSummaryTokens,
