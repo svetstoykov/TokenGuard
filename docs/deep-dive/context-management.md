@@ -734,6 +734,21 @@ size.
   results of about 260,000 tokens each. One tool result larger than the window cannot be fitted, and the prepare returns
   `CompactionInsufficient`.
 
+### Long sessions on 1.3.0
+
+The 200,000 and 300,000-token sizes were measured again on 20 and 21 October 2026 on commit `cc6d747`, the code released as
+TokenGuard 1.3.0, against the same controls. The agent output cap was 32,768 tokens instead of the controls' 8,192; no
+control reply came near the lower cap.
+
+| History size | Window | Treatment run ID | Agent + summarizer input | Control | Fewer input tokens | Facts recorded correctly |
+|---|---:|---|---:|---:|---:|---:|
+| 200,000 tokens | 65,000 | `20261020-201714-treatment` | 10,666,275 | 36,073,262 | 70.4% | 22 of 22 |
+| 300,000 tokens | 100,000 | `20261020-203238-treatment` | 24,607,614 | 91,778,835 | 73.2% | 20 of 23 |
+
+- The three facts missed at 300,000 tokens were written wrong before any summary existed, so compaction did not remove
+  them.
+- No request went out over its window and no message was dropped by emergency truncation.
+
 ### How the benchmark figures are measured
 
 - A control run is the same agent, model, and task list with a 1,000,000-token window, which no session reaches, so

@@ -2,7 +2,7 @@
 
 # TokenGuard
 
-**Token budget management for LLM agent loops.**
+**Context management for .NET agent harnesses.**
 
 [![Build](https://img.shields.io/github/actions/workflow/status/svetstoykov/TokenGuard/release-validation.yml?branch=main&style=flat-square&label=build)](https://github.com/svetstoykov/TokenGuard/actions/workflows/release-validation.yml)
 [![NuGet](https://img.shields.io/nuget/v/TokenGuard.Core?style=flat-square&color=5c2d91)](https://nuget.org/packages/TokenGuard.Core)
@@ -12,6 +12,10 @@
 </div>
 
 ---
+
+You write the agent loop; TokenGuard keeps its context inside the model's window. It holds the conversation history,
+counts tokens, and before each model call builds a request that fits: stale tool results masked, old turns summarized by
+your own LLM, pinned instructions untouched. It plugs into OpenAI, Anthropic and Microsoft.Extensions.AI.
 
 TokenGuard keeps your agent loop conversation inside `ConversationContext`. That object is the source of truth for the
 session. Before each model call, TokenGuard reads that history, builds a provider-ready snapshot, and compacts only that
@@ -71,54 +75,43 @@ object. `PrepareAsync()` returns a `PrepareResult` describing what should go to 
 
 ## Benchmark
 
-Two benchmarks were measured against a control run without compaction, using the Codexplorer sample agent with
-`qwen/qwen3.7-flash`. They differ in task, session length, and window, so the results are stated separately and are not
-combined into one figure.
+**About 70% fewer input tokens in long agent sessions.** The agent still recorded 55 of 59 facts correctly, against 58
+of 59 without TokenGuard.
 
-### Short verifiable tasks
+Input tokens sent to the model by the same agent on the same tasks, with and without TokenGuard:
 
-Ten tasks on three repositories from
-[`verifiable-corpus.json`](samples/Codexplorer.Automation/src/tasks/verifiable-corpus.json), sessions of at most 58 model
-calls, a 50,000-token window, TokenGuard 1.1.0. Three treatment runs against one control run.
+| Session | Window | Without TokenGuard | With TokenGuard | Saved |
+|---|---:|---|---|---:|
+| 100k tokens of history | 50k | `████████████████████` 10.3M | `█████████▌` 4.9M | **53%** |
+| 200k tokens of history | 65k | `████████████████████` 36.1M | `██████▌` 11.6M | **68%** |
+| 300k tokens of history | 100k | `████████████████████` 91.8M | `█████▌` 25.3M | **72%** |
+| Short tasks, ≤ 58 calls | 50k | `████████████████████` 18.3M | `███████████` 10.1–10.8M | **41–45%** |
 
-- **41% to 45% fewer agent input tokens** than the control: 10.09 to 10.75 million against 18.32 million.
-- Checks passed: 31 of 31, 31 of 31, and 29 of 31, against 31 of 31 in the control. The two lost checks belong to one
-  task whose session never compacted.
-- No request the provider billed was larger than the window.
-- At a 20,000-token window the same corpus lost 10 of 31 checks. A window that is too small costs correctness.
+- **The longer the session, the bigger the saving.** Nothing is masked until the history reaches the compaction
+  threshold, so short sessions save less and a session that stays below it saves nothing.
+- **The bill drops too: $1.52 instead of $5.46** across the long sessions. Masking keeps most of each request identical
+  to the previous one, so 80% of the input was billed at the provider's cache-read price.
+- **Re-measured on 1.3.0** at 200k and 300k: 70% and 73% fewer input tokens.
 
-### Long sessions
+<details>
+<summary>How it was measured, and the limits</summary>
 
-Six edit-and-re-read tasks from the `long-sessions-*.json` corpora in
-[`samples/Codexplorer.Automation/src/tasks`](samples/Codexplorer.Automation/src/tasks), with 100,000 to 300,000 tokens of
-history and windows of 50,000, 65,000, and 100,000 tokens, on the code released as TokenGuard 1.2.0. One run per arm
-and history size.
+- The Codexplorer sample agent with `qwen/qwen3.7-flash` on one provider. The control run uses a 1,000,000-token window,
+  so nothing is compacted; the treatment compacts at 80% of the stated window. Summarizer input is counted.
+- Long sessions: six edit-and-re-read tasks, two per history size, on TokenGuard 1.2.0, one run per arm. Short tasks:
+  ten tasks from [`verifiable-corpus.json`](samples/Codexplorer.Automation/src/tasks/verifiable-corpus.json) on
+  TokenGuard 1.1.0, three treatment runs against one control. The treatments passed 31, 31 and 29 of 31 checks, the
+  control 31 of 31.
+- A window that is too small costs correctness: at 20k the short tasks lost 10 of 31 checks, at 50k they held. Size the
+  window to hold the largest single turn of tool results plus pinned content, with room left for history.
+- One tool result larger than the window cannot be fitted. At the 50k window three `grep` results of about 260,000
+  tokens each went out over the window, and the prepare returned `CompactionInsufficient`.
+- The money figure depends on the provider's cache pricing.
 
-- **69.7% fewer input tokens** than the control, summarizer input included: 41.8 million against 138.1 million.
-- Facts recorded correctly: 55 of 59 with compaction, 58 of 59 without. One miss is a file masked before the model had
-  written its value down; the other three are model errors, one of them shared with the control.
-- The provider billed $1.52 against $5.46. Tokens and money are separate results: compaction changes earlier messages,
-  which changes how much of the input is billed at the cache-read price. In the compacted runs 80% of agent input was
-  billed as cached input, and once masking had started, 78% to 93% of each request was an unchanged start of the
-  previous one.
-- At the 50,000-token window three requests went out over the window, one billed at 236,670 tokens, after three `grep`
-  results of about 260,000 tokens each. TokenGuard cannot fit a single tool result that is larger than the window; the
-  prepare returns `CompactionInsufficient`.
-
-### How to read these figures
-
-- One model, one provider, and one control run per corpus. Each long-session figure is a single run.
-- The money figure applies to this model on this provider. Another provider's cache pricing gives a different bill.
-- Each figure describes the version named with it. The current code converts the budget it passes to masking and
-  summarization by the provider correction and charges for whitespace in JSON, so for the same history its prepared
-  requests differ from the measured ones until the benchmarks are run again.
-- Expect no saving in a session whose history stays near the compaction trigger: nothing is masked below it.
-- Choosing a window is reasoning, not a measurement: the window must hold the largest single turn of tool results plus
-  the pinned content, with room left for history. Two points are measured on the verifiable corpus: 20,000 tokens
-  fails and 50,000 holds.
-
-Run IDs and the method are in
+Run IDs and the full method are in
 [Benchmark results](docs/deep-dive/context-management.md#14-benchmark-results).
+
+</details>
 
 ---
 
