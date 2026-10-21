@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Changes for 1.3.0. Public additions are listed under Added; no existing public signature changed.
+## [1.3.0] - 2026-10-21
+
+Released packages: `TokenGuard.Core`, `TokenGuard.Extensions.OpenAI`, `TokenGuard.Extensions.Anthropic`, and
+`TokenGuard.Extensions.AI`, all at 1.3.0. Each extension depends on `TokenGuard.Core` 1.3.0 or later. Public additions
+are listed under Added; no existing public signature changed.
 
 ### Added
 - `TokenGuard.Extensions.AI`, a .NET 10 package using `Microsoft.Extensions.AI.Abstractions` 10.11.0 or later.
@@ -58,7 +62,8 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
   result larger than the window used to leave the prepare call `CompactionInsufficient` or `CannotCompact`, because a
   result of the open tool loop can be neither masked nor dropped. The published benchmark figures describe 1.2.0.
 - Both provider extensions use the public summarizer contract and declare a minimum Core dependency instead of an
-  exact version. The 1.3.0 release will publish all four packages from one tag, Core first.
+  exact version. All four packages are at 1.3.0, so each extension requires `TokenGuard.Core` 1.3.0 or later. The
+  1.3.0 release will publish all four packages from one tag, Core first.
 - Summarizer diagnostic event IDs, fields, and metric names remain stable. `Provider` now carries the summarizer type
   name, `Model` is null, and finish reasons are normalized to `completed`, `output_limit`, `refused`, or `other`.
 
@@ -98,11 +103,15 @@ Changes for 1.3.0. Public additions are listed under Added; no existing public s
   history holds tool results shorter than the placeholder.
 - The compaction strategy receives its budget on the estimate scale: the largest estimate whose provider-corrected
   size, under the same correction the final size check applies, fits `MaxTokens`, minus the pinned messages. Without
-  a provider report the budget is as before. The masking step lines stay on the unconverted budget. A custom `ICompactionStrategy` receives
-  the converted budget. A prepared view can differ from the one 1.2.0 produces once a provider report exists.
+  a provider report the budget is as before. The masking step lines stay on the unconverted budget. A custom
+  `ICompactionStrategy` receives the converted budget. A prepared view can differ from the one 1.2.0 produces once a
+  provider report exists.
 
 ### Fixed
 
+- Once a summary checkpoint is in the prepared view, it stays there while the summary and its verbatim tail fit the
+  budget. A masking step near the budget line used to replace a fitting summary with the masked history and back again,
+  which changed the start of the request and lowered prompt-cache reuse.
 - The token estimate of JSON text charges the whitespace between its tokens: one token per run of spaces or tabs
   outside strings, one more per line break and one more per tab-indented line. Pretty-printed JSON, such as an
   indented tool result, used to be estimated up to 44% below the reference count. Minified JSON is estimated as before.
@@ -433,7 +442,8 @@ followed at 1.0.1.
   network error), TokenGuard degrades to sliding-window masking instead of crashing the agent loop and
   reports the captured exception for logging.
 
-[Unreleased]: https://github.com/svetstoykov/TokenGuard/compare/1.2.0...HEAD
+[Unreleased]: https://github.com/svetstoykov/TokenGuard/compare/1.3.0...HEAD
+[1.3.0]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.3.0
 [1.2.0]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.2.0
 [1.1.0]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.1.0
 [1.0.1]: https://github.com/svetstoykov/TokenGuard/releases/tag/1.0.1

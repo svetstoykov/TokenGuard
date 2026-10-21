@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <PackageId>TokenGuard.Core</PackageId>
     <Title>TokenGuard.Core</Title>
     <Authors>Svetlozar Stoykov</Authors>
@@ -18,11 +18,11 @@
     <RepositoryUrl>https://github.com/svetstoykov/TokenGuard</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <PackageReleaseNotes>Tool-result masking moves its boundary in steps, so a prepared request is the previous one plus the new messages between two steps and a provider prompt cache can reuse it. Adds the provider's finish reason and token counts to summarizer diagnostics, and a package icon. Fixes the tool name on a masked result, diagnostics for a compaction strategy that throws, and repeated summarizer requests after a failure.
+    <PackageReleaseNotes>Opens the library to custom parts: the public ILlmSummarizer contract with replaceable summary instructions, WithTokenCounter for one counter shared across contexts, WithCompactionStrategy for a custom strategy per conversation, and a public EstimatedTokenCounter. Prepare results report stage counts, the unchanged prefix, the summarization status and a token breakdown, also as tags on tokenguard.prepare activities. SlidingWindowOptions.ExemptToolNames names tools whose results are never masked.
 
-Behavior changes, with no signature changes: the default token budget is 40,000 instead of 25,000, so compaction starts at 32,000 tokens; prepared views mask further back at a step and differ from those of 1.1.0; the default placeholder of a masked result has a new, longer text; a call that starts while another call on the same context is still running throws InvalidOperationException; a recording call discards an exception thrown by a logger or meter listener; a failed summarizer call is not repeated while the history and the available tokens stay the same.
+Behavior changes, with no signature changes: a recorded tool result above a token limit, on by default at the smaller of 25,000 and a quarter of MaxTokens, is stored shortened with a notice in place of its middle; the compaction strategy receives its budget on the estimate scale, inverted from the provider correction; pretty-printed JSON is charged for its whitespace; a tool result is masked only when its placeholder is smaller; the summarizer request is built to a token budget and its output cap is twice the target; summarizer diagnostics name the summarizer type and normalize finish reasons. Prepared views can differ from those of 1.2.0 for the same history. Fixes text holding half of a surrogate pair, a provider input count of zero, and an invalid placeholder format.
 
-Known limits: summarization works with the built-in providers only, and a custom summarizer, compaction strategy, or token counter cannot be registered through the builder; one ConversationContext is for one caller at a time, and overlapping calls are detected on a best-effort basis; token estimates leave out request overhead such as tool schemas and undercount pretty-printed JSON by 17% to 30% until the first provider report; one tool result larger than the window cannot be fitted and the prepare returns CompactionInsufficient; the package targets net10.0 only.
+Known limits: one ConversationContext is for one caller at a time, and overlapping calls are detected on a best-effort basis; token estimates leave out request overhead such as tool schemas until the first provider report; with the tool result limit turned off, one tool result larger than the window cannot be fitted and the prepare returns CompactionInsufficient; the package targets net10.0 only.
 
 Full details: https://github.com/svetstoykov/TokenGuard/blob/main/CHANGELOG.md</PackageReleaseNotes>
   </PropertyGroup>
